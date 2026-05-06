@@ -13,7 +13,12 @@ impl Lookup for Gen {
             return Type::Struct(name.clone());
         } else {
             let var = self.lookup_var(name);
-            var.var_type.clone()
+            match &var.var_type {
+                Type::Array(ty, size) => {
+                    return *ty.clone();
+                }
+                _ => return var.var_type.clone(),
+            }
         }
     }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
@@ -255,7 +260,6 @@ impl Gen {
 
     fn gen_expr_var(&mut self, var_name: &String, expected_type: &Type) -> String {
         let var_data = self.lookup_var(var_name).clone();
-
         if var_data.global_flag {
             match var_data.var_type {
                 Type::Primitive(_) | Type::Pointer(_) => {
@@ -309,6 +313,7 @@ impl Gen {
                 self.emit_func_data(format!("    add rdi, {res_size}"));
                 self.emit_func_data("    dec rcx".to_string());
                 self.emit_func_data(format!("    jnz .copy_loop_{}", id));
+                dbg!("look here");
             }
             Type::Enum(ty) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
@@ -419,7 +424,7 @@ impl Gen {
             .collect()
     }
 
-    fn gen_expr_call(
+    fn gen_call(
         &mut self,
         name: &String,
         args: &Vec<Expr>,
@@ -727,7 +732,7 @@ impl Gen {
                 self.eval_expr(inner, &ptr_type)
             }
 
-            _ => self::panic!("Cannot take address of this expression"),
+            _ => self::panic!("Cannot take address of this expression: {:?}",expr),
         }
     }
 
@@ -740,13 +745,13 @@ impl Gen {
         let arr_ty = &base.get_type(self);
         self.eval_expr(base, arr_ty);
         self.push_result();
-        self.eval_expr(index, &Type::Primitive(TokenType::LongType));
+        let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::LongType));
         //runtime checking
         match arr_ty {
             Type::Array(ty, size) => {
-                self.emit_func_data(format!("    cmp rax, {}", size));
+                self.emit_func_data(format!("    cmp {}, {}", index_reg,size));
                 self.emit_func_data(format!("    jge __bounds_fail__"));
-                self.emit_func_data(format!("    cmp rax, 0"));
+                self.emit_func_data(format!("    cmp {}, 0",index_reg));
                 self.emit_func_data(format!("    jl __bounds_fail__"));
             }
             _ => {}
@@ -817,7 +822,7 @@ impl Gen {
         self.eval_expr(expr, ty);
         let sized = reg_for_size("rax", ty).unwrap();
         if sized != "rax" {
-            self.emit_func_data(format!("    mosvx rax, {}", sized));
+            self.emit_func_data(format!("    movsx rax, {}", sized));
         }
         "rax".to_string()
     }
@@ -946,7 +951,7 @@ impl Gen {
             } => {
                 if generics.len() > 0 {
                     let vec_func_data = self.functions.get(name).unwrap().clone();
-                    return self.gen_expr_call(&name, args, &vec_func_data[0], 0, generics);
+                    return self.gen_call(&name, args, &vec_func_data[0], 0, generics);
                 }
                 let vec_func_data = self.functions.get(name).unwrap().clone();
                 let (overload_pos, func_data) = vec_func_data
@@ -967,7 +972,7 @@ impl Gen {
                         name,
                         expr.get_type(self)
                     ));
-                self.gen_expr_call(&name, args, &func_data, overload_pos, &Vec::new())
+                self.gen_call(&name, args, &func_data, overload_pos, &Vec::new())
             }
 
             Expr::Deref(inner) => {

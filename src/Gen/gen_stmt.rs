@@ -174,7 +174,7 @@ impl Gen {
             Type::GenericType(name) => self.generics.get(&name).unwrap().clone(),
             _ => data_ty,
         };
-
+        
         let stack_pos = self.alloc_type(&data_ty);
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
@@ -239,7 +239,7 @@ impl Gen {
                 if !var.global_flag {
                     (Addr::Stack(var.stack_pos as isize), var.var_type.clone())
                 } else {
-                    (Addr::Reg(format!("rel {}", name)), var.var_type.clone())
+                    (Addr::Reg(format!("{}", name)), var.var_type.clone())
                 }
             }
 
@@ -317,6 +317,7 @@ impl Gen {
             }
             LValue::Index { base, index } => {
                 let (addr, ty) = self.calc_lvalue(base);
+                self.emit_func_data(format!("    push rax")); // save expr
                 let index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
                     Type::Array(ty, size) => {
@@ -324,33 +325,32 @@ impl Gen {
                         self.emit_func_data(format!("    jge __bounds_fail__"));
                         self.emit_func_data(format!("    cmp {}, 0", index_reg));
                         self.emit_func_data(format!("    jl __bounds_fail__"));
+                        self.emit_func_data(format!("    imul {}, {}",index_reg,self.type_size(&ty)));
                     }
                     _ => {}
                 }
-                // assume element size is 4 bytes (adjust if needed)
-                let elem_size = match ty {
-                    Type::Primitive(TokenType::IntType) => 4,
-                    Type::Primitive(TokenType::ShortType) => 2,
-                    Type::Primitive(TokenType::CharType) => 1,
-                    _ => 8, // for pointers / structs
-                };
-                self.emit_func_data(format!(
-                    "    lea rax, [{} + {} * {}]",
-                    match addr {
-                        Addr::Stack(pos) => format!("rbp - {}", pos),
-                        Addr::Reg(reg) => reg.clone(),
-                    },
-                    index_reg,
-                    elem_size
-                ));
-                (Addr::Reg("rax".to_string()), ty)
+
+                match addr {
+                    Addr::Reg(reg) => {
+                        self.emit_func_data(format!("    mov rcx, {} ",reg));
+                    }
+                    Addr::Stack(pos) => {
+                        self.emit_func_data(format!("    lea rcx, [rbp - {}]",pos));
+                    }
+                }
+
+                self.emit_func_data(format!("    add rcx, {}",index_reg));
+                self.emit_func_data(format!("    pop rax"));
+            
+                (Addr::Reg("rcx".to_string()), ty)
             }
         }
     }
 
     fn gen_assignment(&mut self, target: &LValue, value: &Expr) {
+        let value_expr = value.get_type(self);
+        let val_reg = self.eval_expr(value, &value_expr);
         let (addr, ty) = self.calc_lvalue(target);
-        let val_reg = self.eval_expr(value, &ty);
         let sized_reg = reg_for_size("rax", &ty).unwrap();
         match addr {
             Addr::Stack(pos) => {
@@ -598,7 +598,7 @@ impl Gen {
                 _ => self::panic!("Unsupported primitive type: {:?}", token),
             },
             Type::Pointer(_) => 8,
-            Type::Array(elem_type, count) => self.type_size(elem_type) * *count,
+            Type::Array(elem_type, count) => self.type_size(elem_type),
             Type::Struct(name) => {
                 self.structs
                     .get(name)
@@ -623,9 +623,27 @@ impl Gen {
             4 => "dd",
             2 => "dw",
             1 => "db",
-            _ => "dq", // default to 8 for unknown/structs/arrays
+            _ => {
+                println!("warning unkown type: {:?} ",ty);
+                return "dq";
+            }, // default to 8 for unknown/structs/arrays
         }
     }
+
+    fn size_directive(&self, ty: &Type) -> &str {
+        match self.type_size(ty) {
+            8 => "resq",
+            4 => "resd",
+            2 => "resw",
+            1 => "resb",
+            _ => {
+                println!("warning unkown type: {:?} ",ty);
+                return "resq";
+            }, // default to 8 for unknown/structs/arrays
+        }
+    }
+
+    
 
     fn gen_global(&mut self, global: Box<Stmt>) {
         match *global {
@@ -633,11 +651,22 @@ impl Gen {
                 if let Some(_) = decl_data.initializer {
                     self::panic!("global cant have expr");
                 }
-                self.emit_data(format!(
-                    "{} {} 0",
-                    decl_data.name,
-                    self.type_to_data_directive(&decl_data.ty)
-                ));
+                match &decl_data.ty {
+                    Type::Array(ty, size) => {
+                        self.emit_data(format!(
+                            "{} {} 0",
+                            decl_data.name,
+                            self.size_directive(&ty)
+                        ));
+                    }
+                    _ => {
+                        self.emit_data(format!(
+                            "{} {} 0",
+                            decl_data.name,
+                            self.type_to_data_directive(&decl_data.ty)
+                        ));
+                    }
+                }
                 let global_var_data = VarData {
                     global_flag: true,
                     stack_pos: 0,

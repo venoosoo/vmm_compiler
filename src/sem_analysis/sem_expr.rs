@@ -41,7 +41,6 @@ impl<'a> Lookup for Analyzer<'a> {
         }
     }
     fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
-        println!("expr: {:?}", ptr_expr);
         match ptr_expr.get_type(self) {
             Type::Pointer(inner) => *inner,
             _ => panic!("Cannot dereference a non-pointer"),
