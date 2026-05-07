@@ -200,6 +200,7 @@ impl Gen {
             out: String::new(),
             generics: HashMap::new(),
             highest_stack_pos: 0,
+            bss_code: Vec::new(),
             func_header: String::new(),
             func_out: String::new(),
             generic_func: HashMap::new(),
@@ -220,6 +221,10 @@ impl Gen {
 
     fn emit_func_data(&mut self, s: String) {
         let _ = writeln!(self.func_data, "{}", s);
+    }
+
+    fn emit_bss(&mut self, s: String) {
+        self.bss_code.push(s);
     }
 
     fn emit_func(&mut self, s: String) {
@@ -266,6 +271,8 @@ impl Gen {
         self.gen_stmts();
         self.emit("section .data".to_string());
         self.emit_all(self.data_code.clone());
+        self.emit("section .bss".to_string());
+        self.emit_all(self.bss_code.clone());
         self.emit("section .text".to_string());
         self.emit("global _start".to_string());
         self.emit("_start:".to_string());

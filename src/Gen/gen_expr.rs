@@ -13,12 +13,7 @@ impl Lookup for Gen {
             return Type::Struct(name.clone());
         } else {
             let var = self.lookup_var(name);
-            match &var.var_type {
-                Type::Array(ty, size) => {
-                    return *ty.clone();
-                }
-                _ => return var.var_type.clone(),
-            }
+            return var.var_type.clone();
         }
     }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
@@ -61,7 +56,7 @@ impl Lookup for Gen {
         match base_ty {
             Type::Array(elem_ty, _) => *elem_ty,
             Type::Pointer(elem_ty) => *elem_ty,
-            _ => self::panic!("Cannot index into non-array type"),
+            _ => base_ty,
         }
     }
     fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
@@ -444,7 +439,6 @@ impl Gen {
             self.generics
                 .insert(generic.clone(), generics[index].clone());
         }
-
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(&name).unwrap().clone();
             let mangled = self.transform_generic_name(&name, generics);

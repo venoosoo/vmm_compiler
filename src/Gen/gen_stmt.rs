@@ -653,7 +653,7 @@ impl Gen {
                 }
                 match &decl_data.ty {
                     Type::Array(ty, size) => {
-                        self.emit_data(format!(
+                        self.emit_bss(format!(
                             "{} {} 0",
                             decl_data.name,
                             self.size_directive(&ty)

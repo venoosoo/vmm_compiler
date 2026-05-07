@@ -27,6 +27,7 @@ pub struct Gen {
     pub func_header: String,
     pub func_data: String,
     pub func_out: String,
+    pub bss_code: Vec<String>,
     pub structs: HashMap<String, StructData>,
     pub functions: HashMap<String, Vec<FuncData>>,
     pub enums: HashMap<String, EnumData>,
@@ -37,7 +38,6 @@ pub struct Gen {
 pub struct FuncData {
     pub args: Vec<Declaration>,
     pub generic: Vec<String>,
-    // return type and pointer depth
     pub return_type: Type,
 }
 
