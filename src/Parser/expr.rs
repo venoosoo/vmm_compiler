@@ -135,7 +135,7 @@ impl<'a> Parser<'a> {
             BinOp::BitOr => 2,
             BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => 1,
             BinOp::Eq | BinOp::Neq => 1,
-            BinOp::And => 1,
+            BinOp::And => 0,
             BinOp::Or => 0,
         }
     }

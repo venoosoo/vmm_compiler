@@ -218,16 +218,7 @@ impl Gen {
                 self.emit_func_data(format!("    movzx {}, al", left_reg));
             }
             BinOp::And => {
-                let left_byte =
-                    reg_for_size(left_reg, &Type::Primitive(TokenType::CharType)).unwrap();
-                let right_byte =
-                    reg_for_size(right_reg, &Type::Primitive(TokenType::CharType)).unwrap();
-                self.emit_func_data(format!("    cmp {}, 0", left_reg));
-                self.emit_func_data(format!("    setne {}", left_byte));
-                self.emit_func_data(format!("    cmp {}, 0", right_reg));
-                self.emit_func_data(format!("    setne {}", right_byte));
-                self.emit_func_data(format!("    and {}, {}", left_byte, right_byte));
-                self.emit_func_data(format!("    movzx {}, {}", left_reg, left_byte));
+                unreachable!()
             }
             BinOp::Or => {
                 let left_byte =
@@ -317,13 +308,27 @@ impl Gen {
         expected_type: &Type,
     ) -> String {
         let (op, left, right) = data;
+        let left_reg = reg_for_size("rax", &expected_type).unwrap();
+        let right_reg = reg_for_size("rbx", &expected_type).unwrap();
+
+        // the and exception
+        if *op == BinOp::And {
+            let id = self.get_id();
+            self.emit_func_data(format!("and_{id}:"));
+            self.eval_expr(left, expected_type);
+            self.emit_func_data(format!("    cmp {}, 0", left_reg));
+            self.emit_func_data(format!("    je and_end_{}", id));
+            self.eval_expr(right, expected_type);
+            self.emit_func_data(format!("    cmp {}, 0", right_reg));
+            self.emit_func_data(format!("and_end_{id}:"));
+
+            return left_reg;
+        }
+
         self.eval_expr(right, expected_type);
         self.push_result();
         self.eval_expr(left, expected_type);
         self.pop_into("rbx");
-
-        let left_reg = reg_for_size("rax", &expected_type).unwrap();
-        let right_reg = reg_for_size("rbx", &expected_type).unwrap();
 
         self.gen_expr_binop(op, &left_reg, &right_reg, expected_type);
 
