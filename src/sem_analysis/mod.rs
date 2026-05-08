@@ -16,7 +16,6 @@ mod sem_stmt;
 fn numeric_rank(ty: &Type) -> Option<u8> {
     match ty {
         //Type::Primitive(TokenType::Bool)  => Some(0),
-        Type::Primitive(TokenType::CharType) => Some(1),
         Type::Primitive(TokenType::ShortType) => Some(2),
         Type::Primitive(TokenType::IntType) => Some(3),
         Type::Primitive(TokenType::LongType) => Some(4),

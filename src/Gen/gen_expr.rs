@@ -18,8 +18,10 @@ impl Lookup for Gen {
     }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
         match op {
+            UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => expr.get_type(self),
             UnaryOp::Not => Type::Primitive(TokenType::CharType), // boolean
+            UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
     fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
@@ -86,7 +88,6 @@ impl Lookup for Gen {
                     .all(|(index, expr)| check_types(&expr.get_type(self), &func.args[index].ty))
             })
             .expect(&format!("no matching overload for function '{}'", name));
-
         func_data.return_type.clone()
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -122,7 +123,6 @@ impl Expr {
             } => helper.look_struct_init(struct_name_ty),
             Expr::StructMember { base, name } => helper.look_struct_member(base, name),
             Expr::Deref(expr) => helper.look_deref(expr),
-            Expr::AddressOf(expr) => helper.look_addres_of(expr),
             Expr::Index { base, index } => helper.look_index(base, index),
             Expr::ArrayInit { elements } => helper.look_array_init(elements),
             Expr::SizeOf { ty } => Type::Primitive(TokenType::LongType),
@@ -146,25 +146,39 @@ impl Gen {
     fn gen_expr_binop(
         &mut self,
         op: &BinOp,
-        left_reg: &str,  // rbx/ebx etc
-        right_reg: &str, // rax/eax etc
+        left_reg: &str,
+        right_reg: &str,
         expected_type: &Type,
     ) {
-        let result_reg = reg_for_size("rax", expected_type).unwrap();
-        let left_sized = reg_for_size("rbx", expected_type).unwrap();
-
         match op {
+            BinOp::BitAnd => {
+                self.emit_func_data(format!("    and {}, {}", left_reg, right_reg));
+            }
+            BinOp::BitOr => {
+                self.emit_func_data(format!("    or {}, {}", left_reg, right_reg));
+            }
+            BinOp::BitXor => {
+                self.emit_func_data(format!("    xor {}, {}", left_reg, right_reg));
+            }
+            BinOp::ShiftLeft => {
+                // shift amount must be in cl
+                self.emit(format!("    mov rcx, {}", right_reg));
+                self.emit(format!("    shl {}, cl", left_reg));
+            }
+            BinOp::ShiftRight => {
+                self.emit(format!("    mov rcx, {}", right_reg));
+                self.emit(format!("    shr {}, cl", left_reg));
+            }
             BinOp::Add => {
                 self.emit_func_data(format!("    add {}, {}", left_reg, right_reg));
-                self.emit_func_data(format!("    mov {}, {}", result_reg, left_sized));
             }
             BinOp::Sub => {
-                self.emit_func_data(format!("    sub {}, {}", left_reg, right_reg));
-                self.emit_func_data(format!("    mov {}, {}", result_reg, left_sized));
+                self.emit_func_data(format!("    sub {}, {}", right_reg, left_reg));
+                self.emit_func_data(format!("    mov {}, {}", left_reg, right_reg));
             }
             BinOp::Mul => {
                 self.emit_func_data(format!("    imul {}, {}", left_reg, right_reg));
-                self.emit_func_data(format!("    mov {}, {}", result_reg, left_sized));
+                self.emit_func_data(format!("    mov {}, {}", left_reg, right_reg));
             }
             BinOp::Div => {
                 if self.type_size(expected_type) == 8 {
@@ -172,10 +186,7 @@ impl Gen {
                 } else {
                     self.emit_func_data("    cdq".to_string());
                 }
-                self.emit_func_data(format!(
-                    "    idiv {}",
-                    reg_for_size("rbx", expected_type).unwrap()
-                ));
+                self.emit_func_data(format!("    idiv {}", right_reg));
                 // result already in rax
             }
             BinOp::Mod => {
@@ -184,19 +195,16 @@ impl Gen {
                 } else {
                     self.emit_func_data("    cdq".to_string());
                 }
-                self.emit_func_data(format!(
-                    "    idiv {}",
-                    reg_for_size("rbx", expected_type).unwrap()
-                ));
+                self.emit_func_data(format!("    idiv {}", right_reg));
                 // remainder in rdx, move to rax
                 self.emit_func_data(format!(
                     "    mov {}, {}",
-                    result_reg,
+                    left_reg,
                     reg_for_size("rdx", expected_type).unwrap()
                 ));
             }
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                self.emit_func_data(format!("    cmp {}, {}", right_reg, left_reg));
+                self.emit_func_data(format!("    cmp {}, {}", left_reg, right_reg));
                 let set_instr = match op {
                     BinOp::Eq => "sete",
                     BinOp::Neq => "setne",
@@ -207,7 +215,7 @@ impl Gen {
                     _ => unreachable!(),
                 };
                 self.emit_func_data(format!("    {} al", set_instr));
-                self.emit_func_data(format!("    movzx {}, al", result_reg));
+                self.emit_func_data(format!("    movzx {}, al", left_reg));
             }
             BinOp::And => {
                 let left_byte =
@@ -219,7 +227,7 @@ impl Gen {
                 self.emit_func_data(format!("    cmp {}, 0", right_reg));
                 self.emit_func_data(format!("    setne {}", right_byte));
                 self.emit_func_data(format!("    and {}, {}", left_byte, right_byte));
-                self.emit_func_data(format!("    movzx {}, {}", result_reg, left_byte));
+                self.emit_func_data(format!("    movzx {}, {}", left_reg, left_byte));
             }
             BinOp::Or => {
                 let left_byte =
@@ -231,7 +239,7 @@ impl Gen {
                 self.emit_func_data(format!("    cmp {}, 0", right_reg));
                 self.emit_func_data(format!("    setne {}", right_byte));
                 self.emit_func_data(format!("    or {}, {}", left_byte, right_byte));
-                self.emit_func_data(format!("    movzx {}, {}", result_reg, left_byte));
+                self.emit_func_data(format!("    movzx {}, {}", left_reg, left_byte));
             }
         }
     }
@@ -292,24 +300,6 @@ impl Gen {
             Type::Pointer(_) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
-            Type::Array(ty, size) => {
-                let src = var_data.stack_pos;
-                let dst = self.stack_pos;
-                let id = self.get_id();
-                let res_size = self.type_size(ty);
-                let reg = reg_for_size("rax", ty).unwrap();
-                self.emit_func_data(format!("    lea rsi, [rbp - {}]", src));
-                self.emit_func_data(format!("    lea rdi, [rbp - {}]", dst));
-                self.emit_func_data(format!("    mov rcx, {}", size));
-                self.emit_func_data(format!(".copy_loop_{}:", id));
-                self.emit_func_data(format!("    mov {reg}, [rsi]"));
-                self.emit_func_data(format!("    mov [rdi], {reg}"));
-                self.emit_func_data(format!("    add rsi, {res_size}"));
-                self.emit_func_data(format!("    add rdi, {res_size}"));
-                self.emit_func_data("    dec rcx".to_string());
-                self.emit_func_data(format!("    jnz .copy_loop_{}", id));
-                dbg!("look here");
-            }
             Type::Enum(ty) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
@@ -332,8 +322,8 @@ impl Gen {
         self.eval_expr(left, expected_type);
         self.pop_into("rbx");
 
-        let left_reg = reg_for_size("rbx", &expected_type).unwrap(); // e.g. ebx
-        let right_reg = reg_for_size("rax", &expected_type).unwrap();
+        let left_reg = reg_for_size("rax", &expected_type).unwrap();
+        let right_reg = reg_for_size("rbx", &expected_type).unwrap();
 
         self.gen_expr_binop(op, &left_reg, &right_reg, expected_type);
 
@@ -353,6 +343,12 @@ impl Gen {
                 self.emit_func_data(format!("    cmp {}, 0", sized));
                 self.emit_func_data("    sete al".to_string());
                 self.emit_func_data(format!("    movzx {}, al", sized));
+            }
+            UnaryOp::GetAddr => {
+                self.gen_expr_addres_of(expr);
+            }
+            UnaryOp::BitNot => {
+                todo!();
             }
         }
         "rax".to_string()
@@ -726,7 +722,7 @@ impl Gen {
                 self.eval_expr(inner, &ptr_type)
             }
 
-            _ => self::panic!("Cannot take address of this expression: {:?}",expr),
+            _ => self::panic!("Cannot take address of this expression: {:?}", expr),
         }
     }
 
@@ -743,9 +739,9 @@ impl Gen {
         //runtime checking
         match arr_ty {
             Type::Array(ty, size) => {
-                self.emit_func_data(format!("    cmp {}, {}", index_reg,size));
+                self.emit_func_data(format!("    cmp {}, {}", index_reg, size));
                 self.emit_func_data(format!("    jge __bounds_fail__"));
-                self.emit_func_data(format!("    cmp {}, 0",index_reg));
+                self.emit_func_data(format!("    cmp {}, 0", index_reg));
                 self.emit_func_data(format!("    jl __bounds_fail__"));
             }
             _ => {}
@@ -973,8 +969,6 @@ impl Gen {
                 let ty = expr.get_type(self);
                 self.gen_expr_deref(inner, &ty)
             }
-
-            Expr::AddressOf(inner) => self.gen_expr_addres_of(inner),
 
             Expr::Index { base, index } => {
                 let ty = expr.get_type(self);

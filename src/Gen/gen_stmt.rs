@@ -174,7 +174,7 @@ impl Gen {
             Type::GenericType(name) => self.generics.get(&name).unwrap().clone(),
             _ => data_ty,
         };
-        
+
         let stack_pos = self.alloc_type(&data_ty);
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
@@ -325,23 +325,27 @@ impl Gen {
                         self.emit_func_data(format!("    jge __bounds_fail__"));
                         self.emit_func_data(format!("    cmp {}, 0", index_reg));
                         self.emit_func_data(format!("    jl __bounds_fail__"));
-                        self.emit_func_data(format!("    imul {}, {}",index_reg,self.type_size(&ty)));
+                        self.emit_func_data(format!(
+                            "    imul {}, {}",
+                            index_reg,
+                            self.type_size(&ty)
+                        ));
                     }
                     _ => {}
                 }
 
                 match addr {
                     Addr::Reg(reg) => {
-                        self.emit_func_data(format!("    mov rcx, {} ",reg));
+                        self.emit_func_data(format!("    mov rcx, {} ", reg));
                     }
                     Addr::Stack(pos) => {
-                        self.emit_func_data(format!("    lea rcx, [rbp - {}]",pos));
+                        self.emit_func_data(format!("    lea rcx, [rbp - {}]", pos));
                     }
                 }
 
-                self.emit_func_data(format!("    add rcx, {}",index_reg));
+                self.emit_func_data(format!("    add rcx, {}", index_reg));
                 self.emit_func_data(format!("    pop rax"));
-            
+
                 (Addr::Reg("rcx".to_string()), ty)
             }
         }
@@ -598,7 +602,7 @@ impl Gen {
                 _ => self::panic!("Unsupported primitive type: {:?}", token),
             },
             Type::Pointer(_) => 8,
-            Type::Array(elem_type, count) => self.type_size(elem_type),
+            Type::Array(elem_type, count) => self.type_size(elem_type) * count,
             Type::Struct(name) => {
                 self.structs
                     .get(name)
@@ -624,9 +628,9 @@ impl Gen {
             2 => "dw",
             1 => "db",
             _ => {
-                println!("warning unkown type: {:?} ",ty);
+                println!("warning unkown type: {:?} ", ty);
                 return "dq";
-            }, // default to 8 for unknown/structs/arrays
+            } // default to 8 for unknown/structs/arrays
         }
     }
 
@@ -637,13 +641,11 @@ impl Gen {
             2 => "resw",
             1 => "resb",
             _ => {
-                println!("warning unkown type: {:?} ",ty);
+                println!("warning unkown type: {:?} ", ty);
                 return "resq";
-            }, // default to 8 for unknown/structs/arrays
+            } // default to 8 for unknown/structs/arrays
         }
     }
-
-    
 
     fn gen_global(&mut self, global: Box<Stmt>) {
         match *global {
@@ -653,11 +655,7 @@ impl Gen {
                 }
                 match &decl_data.ty {
                     Type::Array(ty, size) => {
-                        self.emit_bss(format!(
-                            "{} {} 0",
-                            decl_data.name,
-                            self.size_directive(&ty)
-                        ));
+                        self.emit_bss(format!("{} {} 0", decl_data.name, self.size_directive(&ty)));
                     }
                     _ => {
                         self.emit_data(format!(

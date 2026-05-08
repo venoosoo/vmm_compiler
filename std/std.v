@@ -47,6 +47,20 @@ fn print(char* str) {
     }
 }
 
+fn print(char str) {
+    print_char(str);
+    asm {
+        "sub rsp, 1"
+        "mov byte [rsp], 10"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}
+
 
 fn print(long number) {
     print_num(number);

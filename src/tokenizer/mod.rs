@@ -55,6 +55,11 @@ pub enum TokenType {
     As,
     Match,
     Other,
+    BitOr,
+    BitXor,
+    BitNot,
+    LeftShift,
+    RightShift,
     Semi,
 }
 #[derive(Clone, Debug)]
@@ -177,6 +182,10 @@ impl Tokenizer {
             } else {
                 let smth = self.consume();
                 match smth {
+                    '|' => self.push_token(TokenType::BitOr, None),
+                    '^' => self.push_token(TokenType::BitXor, None),
+                    '~' => self.push_token(TokenType::BitNot, None),
+
                     ':' => self.push_token(TokenType::Colon, None),
                     '%' => self.push_token(TokenType::Remainder, None),
                     '\'' => {
@@ -238,6 +247,9 @@ impl Tokenizer {
                         if self.peek(0) == '=' {
                             self.push_token(TokenType::LessThan, None);
                             self.consume();
+                        } else if self.peek(0) == '<' {
+                            self.push_token(TokenType::LeftShift, None);
+                            self.consume();
                         } else {
                             self.push_token(TokenType::Less, None);
                         }
@@ -245,6 +257,9 @@ impl Tokenizer {
                     '>' => {
                         if self.peek(0) == '=' {
                             self.push_token(TokenType::MoreThan, None);
+                            self.consume();
+                        } else if self.peek(0) == '>' {
+                            self.push_token(TokenType::RightShift, None);
                             self.consume();
                         } else {
                             self.push_token(TokenType::More, None);

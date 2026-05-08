@@ -34,7 +34,6 @@ pub enum Expr {
     },
 
     Deref(Box<Expr>),
-    AddressOf(Box<Expr>),
 
     Index {
         base: Box<Expr>,
@@ -75,12 +74,19 @@ pub enum BinOp {
     Gte,
     And,
     Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
     Neg,
     Not,
+    GetAddr,
+    BitNot,
 }
 
 #[derive(Debug, Clone, PartialEq)]

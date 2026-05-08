@@ -66,10 +66,6 @@ impl<'a> Parser<'a> {
                 let rhs = self.parse_primary();
                 Expr::Deref(Box::new(rhs))
             }
-            TokenType::Address => {
-                let rhs = self.parse_primary();
-                Expr::AddressOf(Box::new(rhs))
-            }
 
             TokenType::Not => {
                 let rhs = self.parse_primary();
@@ -90,7 +86,7 @@ impl<'a> Parser<'a> {
 
             TokenType::CharValue => {
                 let s: i64 = token.value.unwrap().parse().unwrap();
-                Expr::Number(s as i64)
+                Expr::Number(s)
             }
 
             TokenType::SizeOf => {
@@ -109,6 +105,12 @@ impl<'a> Parser<'a> {
                 return Expr::String { str: str_value };
             }
 
+            TokenType::OpenParen => {
+                let expr = self.parse_expr();
+                self.expect(TokenType::CloseParen);
+                return expr;
+            }
+
             _ => panic!(
                 "Unexpected token in primary expression: {:?}\n{:?}",
                 token.token, self.m_tokens
@@ -125,10 +127,14 @@ impl<'a> Parser<'a> {
 
     fn precedence(op: &BinOp) -> u8 {
         match op {
-            BinOp::Mul | BinOp::Div | BinOp::Mod => 5,
-            BinOp::Add | BinOp::Sub => 4,
-            BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => 3,
-            BinOp::Eq | BinOp::Neq => 2,
+            BinOp::Mul | BinOp::Div | BinOp::Mod => 7,
+            BinOp::Add | BinOp::Sub => 6,
+            BinOp::ShiftLeft | BinOp::ShiftRight => 5,
+            BinOp::BitAnd => 4,
+            BinOp::BitXor => 3,
+            BinOp::BitOr => 2,
+            BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => 1,
+            BinOp::Eq | BinOp::Neq => 1,
             BinOp::And => 1,
             BinOp::Or => 0,
         }
@@ -144,7 +150,10 @@ impl<'a> Parser<'a> {
             TokenType::Address => {
                 self.consume();
                 let rhs = self.parse_unary();
-                Expr::AddressOf(Box::new(rhs))
+                Expr::Unary {
+                    op: UnaryOp::GetAddr,
+                    expr: Box::new(rhs),
+                }
             }
             TokenType::Sub => {
                 self.consume();
@@ -326,6 +335,11 @@ impl<'a> Parser<'a> {
             TokenType::And => Some(BinOp::And),
             TokenType::Or => Some(BinOp::Or),
             TokenType::Remainder => Some(BinOp::Mod),
+            TokenType::Address => Some(BinOp::BitAnd),
+            TokenType::BitOr => Some(BinOp::BitOr),
+            TokenType::BitXor => Some(BinOp::BitXor),
+            TokenType::LeftShift => Some(BinOp::ShiftLeft),
+            TokenType::RightShift => Some(BinOp::ShiftRight),
             _ => None,
         }
     }

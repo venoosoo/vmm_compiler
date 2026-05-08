@@ -24,8 +24,10 @@ impl<'a> Lookup for Analyzer<'a> {
     }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
         match op {
+            UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => expr.get_type(self),
             UnaryOp::Not => Type::Primitive(TokenType::CharType), // boolean
+            UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
     fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
@@ -139,8 +141,10 @@ impl<'a> Analyzer<'a> {
     fn check_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>, expected_ty: &Type) -> Type {
         let expr_type = self.check_expr(expr, expected_ty);
         let valid = match op {
+            UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => is_arithmetic(&expr_type), // -int, -long, -float ok; -char not
             UnaryOp::Not => is_numeric(&expr_type),    // !int, !long etc (C-style, no bool yet)
+            UnaryOp::GetAddr => true,                  // fix later
         };
         if !valid {
             self.errors.push(SemanticError::InvalidUnary {
@@ -229,6 +233,7 @@ impl<'a> Analyzer<'a> {
                 }
                 Ok(Type::Primitive(TokenType::IntType))
             }
+            _ => todo!(),
         }
     }
 
@@ -436,7 +441,6 @@ impl<'a> Analyzer<'a> {
             } => self.check_struct_expr(struct_name_ty, fields),
             Expr::StructMember { base, name } => self.check_struct_member(base, name, expected_ty),
             Expr::Deref(expr) => self.check_deref(expr, expected_ty),
-            Expr::AddressOf(expr) => self.check_addres_of(expr, expected_ty),
             Expr::Index { base, index } => self.check_index(base, index, expected_ty),
             Expr::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
             Expr::SizeOf { ty } => self.check_size_of(ty),
