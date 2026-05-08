@@ -173,8 +173,7 @@ impl Gen {
                 self.emit_func_data(format!("    add {}, {}", left_reg, right_reg));
             }
             BinOp::Sub => {
-                self.emit_func_data(format!("    sub {}, {}", right_reg, left_reg));
-                self.emit_func_data(format!("    mov {}, {}", left_reg, right_reg));
+                self.emit_func_data(format!("    sub {}, {}", left_reg, right_reg));
             }
             BinOp::Mul => {
                 self.emit_func_data(format!("    imul {}, {}", left_reg, right_reg));
@@ -639,22 +638,11 @@ impl Gen {
                 // . operator: compile-time offset
                 let var = self.lookup_var(var_name);
                 let reg = reg_for_size("rax", &field.ty).unwrap();
-                match var.var_type {
-                    Type::Primitive(..) => {
-                        let field_addr = var.stack_pos - field.offset;
-                        self.emit_func_data(format!(
-                            "    mov {}, {} [rbp - {}]",
-                            reg, size_word, field_addr
-                        ));
-                    }
-                    _ => {
-                        let field_addr = var.stack_pos;
-                        self.emit_func_data(format!(
-                            "    lea {}, {} [rbp - {}]",
-                            reg, size_word, field_addr
-                        ));
-                    }
-                }
+                let field_addr = var.stack_pos - field.offset;
+                self.emit_func_data(format!(
+                    "    mov {}, {} [rbp - {}]",
+                    reg, size_word, field_addr
+                ));
             }
             _ => {
                 // chained a.b.c — runtime fallback

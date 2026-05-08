@@ -127,16 +127,16 @@ impl<'a> Parser<'a> {
 
     fn precedence(op: &BinOp) -> u8 {
         match op {
-            BinOp::Mul | BinOp::Div | BinOp::Mod => 7,
-            BinOp::Add | BinOp::Sub => 6,
-            BinOp::ShiftLeft | BinOp::ShiftRight => 5,
-            BinOp::BitAnd => 4,
-            BinOp::BitXor => 3,
-            BinOp::BitOr => 2,
-            BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => 1,
-            BinOp::Eq | BinOp::Neq => 1,
-            BinOp::And => 0,
-            BinOp::Or => 0,
+            BinOp::Mul | BinOp::Div | BinOp::Mod => 10,
+            BinOp::Add | BinOp::Sub => 8,
+            BinOp::ShiftLeft | BinOp::ShiftRight => 7,
+            BinOp::BitAnd => 6,
+            BinOp::BitXor => 5,
+            BinOp::BitOr => 4,
+            BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => 3,
+            BinOp::Eq | BinOp::Neq => 3,
+            BinOp::And => 2,
+            BinOp::Or => 1,
         }
     }
 
