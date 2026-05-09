@@ -41,12 +41,22 @@ impl<'a> Parser<'a> {
             self.parse_stmt()
                 .expect(&format!("the func: {} is empty", name)),
         );
-        return Some(Stmt::InitFunc {
-            generic_types: generics,
-            name,
-            args,
-            ret_type,
-            data,
-        });
+        if generics.len() > 0 {
+            return Some(Stmt::GenericInitFunc {
+                name,
+                generic_types: generics,
+                args,
+                ret_type,
+                data,
+            });
+        } else {
+            return Some(Stmt::InitFunc {
+                generic_types: HashMap::new(),
+                name,
+                args,
+                ret_type,
+                data,
+            });
+        }
     }
 }

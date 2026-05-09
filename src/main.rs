@@ -46,13 +46,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::create("parser_result.txt").expect("Failed to create parser_result.txt");
 
     write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
-    let mut analyzer = Analyzer::new(&res);
-    analyzer.check_code();
-    if analyzer.errors.len() > 0 {
-        let error_dump = format!("{:#?}", analyzer.errors);
-        fs::write("errors.txt", error_dump).expect("Failed to write errors.txt");
-        // panic!("errors");
-    }
+
+    // sem_analyser is broken for now
+
+    //let mut analyzer = Analyzer::new(&res);
+    //analyzer.check_code();
+    //if analyzer.errors.len() > 0 {
+    //    let error_dump = format!("{:#?}", analyzer.errors);
+    //    fs::write("errors.txt", error_dump).expect("Failed to write errors.txt");
+    // panic!("errors");
+    //}
 
     let mut generator = crate::Ir::r#gen::Gen::new(res);
     let asm = generator.gen_asm()?;

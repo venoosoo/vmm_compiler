@@ -174,7 +174,6 @@ impl Gen {
             Type::GenericType(name) => self.generics.get(&name).unwrap().clone(),
             _ => data_ty,
         };
-
         let stack_pos = self.alloc_type(&data_ty);
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
@@ -192,8 +191,8 @@ impl Gen {
             self.eval_expr(expr, &data_ty);
             match data_ty.clone() {
                 Type::Primitive(_) | Type::Pointer(_) => {
-                    let size_word = get_word(&data_ty);
-                    let sized_reg = reg_for_size("rax", &data_ty).unwrap();
+                    let size_word = self.get_word(&data_ty);
+                    let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
                     self.emit_func_data(format!(
                         "    mov {} [rbp - {}], {}",
                         size_word, stack_pos, sized_reg
@@ -201,8 +200,8 @@ impl Gen {
                 }
                 Type::Array(ref ty, size) => match **ty {
                     Type::Primitive(TokenType::CharType) => {
-                        let size_word = get_word(&data_ty);
-                        let sized_reg = reg_for_size("rax", &data_ty).unwrap();
+                        let size_word = self.get_word(&data_ty);
+                        let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
                         self.emit_func_data(format!(
                             "    mov {} [rbp - {}], {}",
                             size_word, stack_pos, sized_reg
@@ -217,8 +216,8 @@ impl Gen {
                         value,
                     } => {
                         if value.len() == 0 {
-                            let size_word = get_word(&data_ty);
-                            let sized_reg = reg_for_size("rax", &data_ty).unwrap();
+                            let size_word = self.get_word(&data_ty);
+                            let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
                             self.emit_func_data(format!(
                                 "    mov {} [rbp - {}], {}",
                                 size_word, stack_pos, sized_reg
@@ -355,19 +354,19 @@ impl Gen {
         let value_expr = value.get_type(self);
         let val_reg = self.eval_expr(value, &value_expr);
         let (addr, ty) = self.calc_lvalue(target);
-        let sized_reg = reg_for_size("rax", &ty).unwrap();
+        let sized_reg = self.reg_for_size("rax", &ty).unwrap();
         match addr {
             Addr::Stack(pos) => {
-                let size_word = get_word(&ty);
+                let size_word = self.get_word(&ty);
                 self.emit_func_data(format!(
                     "    mov {} [rbp - {}], {}",
                     size_word, pos, sized_reg
                 ));
             }
             Addr::Reg(reg) => {
-                let size_word = get_word(&ty);
+                let size_word = self.get_word(&ty);
 
-                let sized_reg = reg_for_size(&val_reg, &ty).unwrap();
+                let sized_reg = self.reg_for_size(&val_reg, &ty).unwrap();
                 self.emit_func_data(format!("    mov {} [{}], {}", size_word, reg, sized_reg));
             }
         }
@@ -484,7 +483,7 @@ impl Gen {
                 self::panic!("too many args, stack args not supported yet");
             }
             let pos = self.alloc_type(&decl.ty);
-            let reg = reg_for_size(arg_regs[i], &decl.ty).unwrap();
+            let reg = self.reg_for_size(arg_regs[i], &decl.ty).unwrap();
             self.emit_func_data(format!("    mov [rbp - {}], {}", pos, reg));
             let map = self.scopes.last_mut().unwrap();
             map.insert(
@@ -518,7 +517,13 @@ impl Gen {
 
     pub fn gen_func(
         &mut self,
-        data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>, &Vec<String>),
+        data: (
+            &String,
+            &Vec<Declaration>,
+            &Type,
+            &Box<Stmt>,
+            &HashMap<String, Type>,
+        ),
     ) {
         let saved_func_out = std::mem::take(&mut self.func_out);
         let saved_func_data = std::mem::take(&mut self.func_data);
@@ -545,8 +550,6 @@ impl Gen {
             .expect(&format!("no matching overload for '{}'", name));
         if self.functions.get(name).unwrap().len() > 1 {
             self.emit_func_header(format!("{}___{}:", name, overload_pos));
-        } else if generics.len() > 0 {
-            return;
         } else {
             self.emit_func_header(format!("{}:", name));
         }
@@ -755,7 +758,7 @@ impl Gen {
                     let new_var_pos = self.stack_pos;
                     // the tag size
                     let mut pos = var_pos - field.offset;
-                    let reg = reg_for_size("rax", &field.ty).unwrap();
+                    let reg = self.reg_for_size("rax", &field.ty).unwrap();
                     self.gen_match_field_arg(var_ty, &field, &reg, &mut pos);
                     self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));
                 }
@@ -893,6 +896,13 @@ impl Gen {
             }
             Stmt::Return(expr) => self.gen_ret(expr),
             Stmt::AsmCode(data) => self.gen_inline_asm(data),
+            Stmt::GenericInitFunc {
+                name,
+                generic_types,
+                args,
+                ret_type,
+                data,
+            } => {}
             Stmt::InitFunc {
                 name,
                 args,

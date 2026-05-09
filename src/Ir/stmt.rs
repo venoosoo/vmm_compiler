@@ -63,11 +63,19 @@ pub enum Stmt {
     AsmCode(Vec<String>),
     InitFunc {
         name: String,
+        generic_types: HashMap<String, Type>,
+        args: Vec<Declaration>,
+        ret_type: Type,
+        data: Box<Stmt>,
+    },
+    GenericInitFunc {
+        name: String,
         generic_types: Vec<String>,
         args: Vec<Declaration>,
         ret_type: Type,
         data: Box<Stmt>,
     },
+
     InitStruct(StructDef),
     GlobalDecl(Box<Stmt>),
     InitEnum {

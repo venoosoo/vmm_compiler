@@ -59,54 +59,6 @@ fn to_base_reg(reg: &str) -> &str {
     }
 }
 
-pub fn reg_for_size(base: &str, ty: &Type) -> Option<String> {
-    let base = to_base_reg(base);
-    let size = match ty {
-        Type::Primitive(token) => match token {
-            TokenType::CharType => 1,
-            TokenType::ShortType => 2,
-            TokenType::IntType => 4,
-            TokenType::LongType => 8,
-            _ => return None,
-        },
-
-        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => return None,
-        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
-    };
-
-    match (base, size) {
-        ("rax", 8) => Some("rax".into()),
-        ("rax", 4) => Some("eax".into()),
-        ("rax", 2) => Some("ax".into()),
-        ("rax", 1) => Some("al".into()),
-        ("rbx", 8) => Some("rbx".into()),
-        ("rbx", 4) => Some("ebx".into()),
-        ("rbx", 2) => Some("bx".into()),
-        ("rbx", 1) => Some("bl".into()),
-        ("rcx", 8) => Some("rcx".into()),
-        ("rcx", 4) => Some("ecx".into()),
-        ("rcx", 2) => Some("cx".into()),
-        ("rcx", 1) => Some("cl".into()),
-        ("rdx", 8) => Some("rdx".into()),
-        ("rdx", 4) => Some("edx".into()),
-        ("rdx", 2) => Some("dx".into()),
-        ("rdx", 1) => Some("dl".into()),
-        ("rsi", 8) => Some("rsi".into()),
-        ("rsi", 4) => Some("esi".into()),
-        ("rsi", 2) => Some("si".into()),
-        ("rsi", 1) => Some("sil".into()),
-        ("rdi", 8) => Some("rdi".into()),
-        ("rdi", 4) => Some("edi".into()),
-        ("rdi", 2) => Some("di".into()),
-        ("rdi", 1) => Some("dil".into()),
-        (reg, 8) => Some(reg.to_string()),
-        (reg, 4) if reg.starts_with('r') => Some(format!("{}d", reg)),
-        (reg, 2) if reg.starts_with('r') => Some(format!("{}w", reg)),
-        (reg, 1) if reg.starts_with('r') => Some(format!("{}b", reg)),
-        _ => None,
-    }
-}
-
 pub fn arg_pos(pos: usize, ty: &Type) -> String {
     let size = match ty {
         Type::Primitive(token) => match token {
@@ -160,23 +112,6 @@ pub fn arg_pos(pos: usize, ty: &Type) -> String {
     .to_string()
 }
 
-pub fn get_word(ty: &Type) -> String {
-    match ty {
-        Type::Primitive(token) => match token {
-            TokenType::CharType => "BYTE".to_string(),
-            TokenType::ShortType => "WORD".to_string(),
-            TokenType::IntType => "DWORD".to_string(),
-            TokenType::LongType => "QWORD".to_string(),
-            _ => panic!("Unsupported primitive type: {:?}", token),
-        },
-        Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
-        Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
-        Type::Struct(struct_name) => "QWORD".to_string(),
-        Type::Enum(_) => "QWORD".to_string(),
-        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => panic!("unkown type"),
-    }
-}
-
 pub fn lvalue_root(lvalue: &LValue) -> String {
     match lvalue {
         LValue::Variable(name) => name.clone(),
@@ -208,6 +143,79 @@ impl Gen {
             global_vars: HashMap::new(),
             enums: HashMap::new(),
             id: 0,
+        }
+    }
+
+    pub fn reg_for_size(&self, base: &str, ty: &Type) -> Option<String> {
+        let base = to_base_reg(base);
+        let size = match ty {
+            Type::Primitive(token) => match token {
+                TokenType::CharType => 1,
+                TokenType::ShortType => 2,
+                TokenType::IntType => 4,
+                TokenType::LongType => 8,
+                _ => return None,
+            },
+            Type::GenericType(name) => {
+                let res = self.generics.get(name).unwrap();
+                return self.reg_for_size(base, res);
+            }
+
+            Type::Unknown | Type::GenericInst(..) => return None,
+            Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
+        };
+
+        match (base, size) {
+            ("rax", 8) => Some("rax".into()),
+            ("rax", 4) => Some("eax".into()),
+            ("rax", 2) => Some("ax".into()),
+            ("rax", 1) => Some("al".into()),
+            ("rbx", 8) => Some("rbx".into()),
+            ("rbx", 4) => Some("ebx".into()),
+            ("rbx", 2) => Some("bx".into()),
+            ("rbx", 1) => Some("bl".into()),
+            ("rcx", 8) => Some("rcx".into()),
+            ("rcx", 4) => Some("ecx".into()),
+            ("rcx", 2) => Some("cx".into()),
+            ("rcx", 1) => Some("cl".into()),
+            ("rdx", 8) => Some("rdx".into()),
+            ("rdx", 4) => Some("edx".into()),
+            ("rdx", 2) => Some("dx".into()),
+            ("rdx", 1) => Some("dl".into()),
+            ("rsi", 8) => Some("rsi".into()),
+            ("rsi", 4) => Some("esi".into()),
+            ("rsi", 2) => Some("si".into()),
+            ("rsi", 1) => Some("sil".into()),
+            ("rdi", 8) => Some("rdi".into()),
+            ("rdi", 4) => Some("edi".into()),
+            ("rdi", 2) => Some("di".into()),
+            ("rdi", 1) => Some("dil".into()),
+            (reg, 8) => Some(reg.to_string()),
+            (reg, 4) if reg.starts_with('r') => Some(format!("{}d", reg)),
+            (reg, 2) if reg.starts_with('r') => Some(format!("{}w", reg)),
+            (reg, 1) if reg.starts_with('r') => Some(format!("{}b", reg)),
+            _ => None,
+        }
+    }
+
+    pub fn get_word(&self, ty: &Type) -> String {
+        match ty {
+            Type::Primitive(token) => match token {
+                TokenType::CharType => "BYTE".to_string(),
+                TokenType::ShortType => "WORD".to_string(),
+                TokenType::IntType => "DWORD".to_string(),
+                TokenType::LongType => "QWORD".to_string(),
+                _ => panic!("Unsupported primitive type: {:?}", token),
+            },
+            Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
+            Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
+            Type::Struct(struct_name) => "QWORD".to_string(),
+            Type::Enum(_) => "QWORD".to_string(),
+            Type::GenericType(name) => {
+                let res = self.generics.get(name).unwrap();
+                return self.get_word(res);
+            }
+            Type::Unknown | Type::GenericInst(..) => panic!("unkown type"),
         }
     }
 
@@ -320,23 +328,31 @@ impl Gen {
                 } => {
                     let func_data = FuncData {
                         args: args.clone(),
-                        generic: generic_types.clone(),
+                        generic: Vec::new(),
                         return_type: ret_type.clone(),
                     };
-                    if generic_types.len() > 0 {
-                        let suka = Stmt::InitFunc {
-                            name: name.clone(),
-                            generic_types: generic_types.clone(),
-                            args: args.clone(),
-                            ret_type: ret_type.clone(),
-                            data: data.clone(),
-                        };
-                        self.generic_func.insert(name.clone(), suka);
-                    }
                     self.functions
                         .entry(name.clone())
                         .or_insert_with(Vec::new)
                         .push(func_data);
+                }
+                Stmt::GenericInitFunc {
+                    name,
+                    generic_types,
+                    args,
+                    ret_type,
+                    data,
+                } => {
+                    let func_data = FuncData {
+                        args: args.clone(),
+                        generic: generic_types.clone(),
+                        return_type: ret_type.clone(),
+                    };
+                    self.functions
+                        .entry(name.clone())
+                        .or_insert_with(Vec::new)
+                        .push(func_data);
+                    self.generic_func.insert(name.clone(), i.clone());
                 }
                 Stmt::InitStruct(data) => {
                     self.gen_init_struct(&data);

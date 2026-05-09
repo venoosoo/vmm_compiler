@@ -172,7 +172,13 @@ impl<'a> Analyzer<'a> {
 
     pub fn check_init_func(
         &mut self,
-        data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>, &Vec<String>),
+        data: (
+            &String,
+            &Vec<Declaration>,
+            &Type,
+            &Box<Stmt>,
+            &HashMap<String, Type>,
+        ),
     ) {
         let (name, args, ret_type, body, generic_types) = data;
 
@@ -335,6 +341,13 @@ impl<'a> Analyzer<'a> {
                     panic!("global decl must be a declaration");
                 }
             }
+            Stmt::GenericInitFunc {
+                name,
+                generic_types,
+                args,
+                ret_type,
+                data,
+            } => {}
             Stmt::InitEnum { .. } => {}
             Stmt::Match { expr, variants } => self.check_match(expr, variants),
         }

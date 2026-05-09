@@ -104,7 +104,7 @@ pub trait Lookup {
     fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type;
     fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Type;
     fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type;
-    fn look_call(&self, name: &String, arg: &Vec<Expr>) -> Type;
+    fn look_call(&self, name: &String, arg: &Vec<Expr>, generics: &Vec<Type>) -> Type;
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type;
     fn look_get_enum(&self, base: &String) -> Type;
 }

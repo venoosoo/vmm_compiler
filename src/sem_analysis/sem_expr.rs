@@ -78,7 +78,7 @@ impl<'a> Lookup for Analyzer<'a> {
         let field = struct_data.elements.get(name).unwrap();
         field.ty.clone()
     }
-    fn look_call(&self, name: &String, args: &Vec<Expr>) -> Type {
+    fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Type {
         let vec_func_data = self.functions.get(name).unwrap();
         let func_data =
             vec_func_data.args.iter().enumerate().all(|(index, expr)| {

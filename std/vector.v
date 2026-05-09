@@ -19,7 +19,7 @@ fn create_vector<T>() -> *Vector<T> {
     return res;
 }
 
-fn vector_push<T>(Vector<T>* vec, T* element) {
+fn vector_push<T>(Vector<T>* vec, T element) {
     if vec->length == vec->capacity {
         long new_capacity = vec->capacity * 2;
         T* new_data = malloc(new_capacity * vec->element_size);
@@ -29,9 +29,10 @@ fn vector_push<T>(Vector<T>* vec, T* element) {
     }
     long offset = vec->length * vec->element_size;
     T* dest = vec->data + offset;
-    memcpy(dest, element, vec->element_size);
+    memcpy(dest, &element, vec->element_size);
     vec->length = vec->length + 1;
 }
+
 
 fn vector_pop<T>(Vector<T>* vec) -> *T {
     if vec->length == 0 {
@@ -43,11 +44,11 @@ fn vector_pop<T>(Vector<T>* vec) -> *T {
     return *element;
 }
 
-fn vec_get_element<T>(Vector<T>* vec, int element_pos) -> *T {
+fn vec_get_element<T>(Vector<T>* vec, int element_pos) -> T {
     if vec->length < element_pos {
         exit(1);
     }
     long offset = vec->element_size * element_pos;
-    int* element = vec->data + offset;
+    T* element = vec->data + offset;
     return *element;
 }
