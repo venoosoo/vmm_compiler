@@ -29,41 +29,43 @@ fn print_num(long n) {
     }
 }
 
+fn println(char* str) {
+    print(str);
+    asm {
+        "sub rsp, 1"
+        "mov byte [rsp], 10"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}
+
 fn print(char* str) {
     int length = 0;
     while str[length] != 0 {
         print_char(str[length])
         length = length + 1;
     }
-    asm {
-        "sub rsp, 1"
-        "mov byte [rsp], 10"
-        "mov rax, 1"
-        "mov rdi, 1"
-        "mov rsi, rsp"
-        "mov rdx, 1"
-        "syscall"
-        "add rsp, 1"
-    }
 }
 
 fn print(char str) {
     print_char(str);
-    asm {
-        "sub rsp, 1"
-        "mov byte [rsp], 10"
-        "mov rax, 1"
-        "mov rdi, 1"
-        "mov rsi, rsp"
-        "mov rdx, 1"
-        "syscall"
-        "add rsp, 1"
-    }
+}
+
+fn println(char str) {
+    print(str);
 }
 
 
 fn print(long number) {
     print_num(number);
+}
+
+fn println(long number) {
+    print(number);
     asm {
         "sub rsp, 1"
         "mov byte [rsp], 10"

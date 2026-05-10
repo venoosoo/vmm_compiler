@@ -482,8 +482,9 @@ impl Gen {
             if i >= arg_regs.len() {
                 self::panic!("too many args, stack args not supported yet");
             }
-            let pos = self.alloc_type(&decl.ty);
-            let reg = self.reg_for_size(arg_regs[i], &decl.ty).unwrap();
+            let arg_ty = self.ensure_monomorphized(&decl.ty);
+            let pos = self.alloc_type(&arg_ty);
+            let reg = self.reg_for_size(arg_regs[i], &arg_ty).unwrap();
             self.emit_func_data(format!("    mov [rbp - {}], {}", pos, reg));
             let map = self.scopes.last_mut().unwrap();
             map.insert(
@@ -528,6 +529,7 @@ impl Gen {
         let saved_func_out = std::mem::take(&mut self.func_out);
         let saved_func_data = std::mem::take(&mut self.func_data);
         let saved_func_header = std::mem::take(&mut self.func_header);
+        let saved_highest_stack_pos = self.highest_stack_pos;
         self.highest_stack_pos = 0;
         let (name, args, ret_type, body, generics) = data;
         self.current_return_type = ret_type.clone();
@@ -557,8 +559,6 @@ impl Gen {
         self.gen_stmt(body);
 
         // restore outer scopes
-        self.scopes = saved_scopes;
-        self.stack_pos = saved_stack;
         match ret_type {
             Type::Primitive(ty) if *ty == TokenType::Void => {
                 self.emit_func_data("    mov rsp, rbp".to_string());
@@ -574,6 +574,9 @@ impl Gen {
         self.emit_func(self.func_header.clone());
         self.emit_func(self.func_data.clone());
         self.emit_main(self.func_out.clone());
+        self.highest_stack_pos = saved_highest_stack_pos;
+        self.scopes = saved_scopes;
+        self.stack_pos = saved_stack;
         self.func_data = saved_func_data;
         self.func_header = saved_func_header;
         self.func_out = saved_func_out;

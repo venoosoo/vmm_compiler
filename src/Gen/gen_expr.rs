@@ -63,11 +63,14 @@ impl Lookup for Gen {
     }
     fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
         let base_ty = base.get_type(self);
+        let base_ty = self.resolve_generic_inst(&base_ty);
+
         let struct_name = match &base_ty {
             Type::Struct(n) => n.clone(),
+            // todo: fix this
             Type::Pointer(inner) => match inner.as_ref() {
                 Type::Struct(n) => n.clone(),
-                _ => self::panic!("pointer to non-struct"),
+                _ => self::panic!("pointer to non-struct: {:?}", inner),
             },
             _ => self::panic!("member access on non-struct: {:?}", base_ty),
         };
@@ -84,16 +87,18 @@ impl Lookup for Gen {
                 existing.clone()
             } else {
                 let func_data = self.functions.get(&func_name).unwrap()[0].clone();
-                let new_args: Vec<Declaration> = self.convert_generic_args(&func_data.args, generics, &self.generics);
+                let new_args: Vec<Declaration> =
+                    self.convert_generic_args(&func_data.args, generics, &self.generics);
                 let ret_type: Type = match &func_data.return_type {
                     Type::GenericType(name) => {
-                        let pos = func_data.generic
+                        let pos = func_data
+                            .generic
                             .iter()
                             .position(|g| g == name)
                             .expect(&format!("non existing generic var: {}", name));
                         generics[pos].clone()
                     }
-                    _ => func_data.return_type.clone()
+                    _ => func_data.return_type.clone(),
                 };
                 vec![FuncData {
                     args: new_args,
@@ -104,16 +109,17 @@ impl Lookup for Gen {
         } else {
             self.functions.get(&func_name).unwrap().clone()
         };
-
         let func_data = vec_func_data
             .iter()
             .find(|func| {
                 if func.args.len() != args.len() {
                     return false;
                 }
-                args.iter()
-                    .enumerate()
-                    .all(|(index, expr)| check_types(&expr.get_type(self), &func.args[index].ty))
+                args.iter().enumerate().all(|(index, expr)| {
+                    let expr_ty = self.resolve_generic_inst(&expr.get_type(self));
+                    let arg_ty = self.resolve_generic_inst(&func.args[index].ty);
+                    check_types(&expr_ty, &arg_ty)
+                })
             })
             .expect(&format!(
                 "no matching overload for function '{}'",
@@ -420,14 +426,23 @@ impl Gen {
         generic_map: &HashMap<String, Type>,
     ) -> Declaration {
         match arg_ty {
-            Type::GenericInst(name, _) => {
-                let normal_name = self.transform_generic_name(name, generics);
+            Type::GenericInst(name, inner_types) => {
+                let resolved_inner: Vec<Type> = inner_types
+                    .iter()
+                    .map(|t| match t {
+                        Type::GenericType(g) => {
+                            generic_map.get(g).cloned().unwrap_or_else(|| t.clone())
+                        }
+                        _ => self.resolve_generic_inst(t),
+                    })
+                    .collect();
+                let normal_name = self.transform_generic_name(name, &resolved_inner);
                 let ty = if self.structs.contains_key(&normal_name) {
                     Type::Struct(normal_name)
                 } else if self.enums.contains_key(&normal_name) {
                     Type::Enum(normal_name)
                 } else {
-                    generics[index].clone()
+                    self::panic!("GenericInst not monomorphized: {}", normal_name)
                 };
                 Declaration {
                     name: arg.name.clone(),
@@ -670,6 +685,7 @@ impl Gen {
 
     fn gen_expr_struct_member(&mut self, base: &Box<Expr>, name: &String) -> String {
         let base_type = base.get_type(self);
+        let base_type = self.resolve_generic_inst(&base_type);
 
         let struct_name = match &base_type {
             Type::Struct(n) => n.clone(),
@@ -870,6 +886,23 @@ impl Gen {
         "rax".to_string()
     }
 
+    pub fn resolve_generic_inst(&self, ty: &Type) -> Type {
+        match ty {
+            Type::GenericInst(_, _) => {
+                let mangled = type_name(ty);
+                if self.structs.contains_key(&mangled) {
+                    Type::Struct(mangled)
+                } else if self.enums.contains_key(&mangled) {
+                    Type::Enum(mangled)
+                } else {
+                    self::panic!("GenericInst not yet monomorphized: {:?}", ty)
+                }
+            }
+            Type::Pointer(inner) => Type::Pointer(Box::new(self.resolve_generic_inst(inner))),
+            _ => ty.clone(),
+        }
+    }
+
     pub fn enum_get_size(&self, base: &String) -> usize {
         let mut size = 0;
         let enum_data = self.enums.get(base).unwrap();
@@ -994,8 +1027,10 @@ impl Gen {
                 }
                 args.iter().enumerate().all(|(i, expr)| {
                     let expr_ty = expr.get_type(self);
-                    let param_ty = &func.args[i].ty;
-                    check_types(&expr_ty, param_ty)
+                    let param_ty = &func.args[i].ty.clone();
+                    let expr_ty = self.ensure_monomorphized(&expr_ty);
+                    let param_ty = self.ensure_monomorphized(param_ty);
+                    check_types(&expr_ty, &param_ty)
                 })
             })
             .expect(&format!(

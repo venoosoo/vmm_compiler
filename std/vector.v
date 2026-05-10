@@ -7,6 +7,8 @@ struct Vector<T> {
     long element_size;
 }
 
+
+
 fn create_vector<T>() -> *Vector<T> {
     int el_size = sizeof(T);
     long base_capacity = 8;
