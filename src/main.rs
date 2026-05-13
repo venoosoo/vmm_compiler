@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tokenizer = tokenizer::Tokenizer::new(contents);
     tokenizer.tokenize();
 
-    println!("{}", tokenizer);
+    // println!("{}", tokenizer);
 
     let file_path = Path::new(&cli.file);
     let base_dir = file_path.parent().unwrap().to_path_buf();

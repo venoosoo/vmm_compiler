@@ -23,6 +23,7 @@ impl<'a> Parser<'a> {
             TokenType::Global => return self.parse_global(),
             TokenType::Enum => return self.parse_enum(),
             TokenType::Match => return self.parse_match(),
+            TokenType::ExternFn => return self.parse_extern(),
             TokenType::Import => {
                 return {
                     self.parse_import();
@@ -44,6 +45,32 @@ impl<'a> Parser<'a> {
                 return self.parse_expr_stmt();
             }
         };
+    }
+
+    fn parse_extern(&mut self) -> Option<Stmt> {
+        self.expect(TokenType::ExternFn);
+        self.consume(); //keyword
+        let name = self.consume().value.unwrap();
+        let generics = self.parse_generic();
+        let args = self.parse_args();
+        let mut ret_type = Type::Primitive(TokenType::Void);
+        if self.peek(0).token == TokenType::Access {
+            self.consume();
+            let ty = self.get_type();
+            let ty = self.parse_ptr(ty);
+            let ty = self.parse_array(ty);
+            let ty = self.parse_generic_types(ty);
+
+            ret_type = ty;
+        }
+        let data = Box::new(Stmt::InitFunc {
+            name,
+            generic_types: HashMap::new(),
+            args,
+            ret_type,
+            data: Box::new(Stmt::Block(Vec::new())),
+        });
+        return Some(Stmt::ExternFn(data));
     }
 
     fn parse_match_field(&mut self) -> MatchLeftValue {

@@ -75,7 +75,7 @@ pub enum Stmt {
         ret_type: Type,
         data: Box<Stmt>,
     },
-
+    ExternFn(Box<Stmt>),
     InitStruct(StructDef),
     GlobalDecl(Box<Stmt>),
     InitEnum {

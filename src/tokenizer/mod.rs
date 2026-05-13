@@ -60,6 +60,7 @@ pub enum TokenType {
     BitNot,
     LeftShift,
     RightShift,
+    ExternFn,
     Semi,
 }
 #[derive(Clone, Debug)]
@@ -153,6 +154,7 @@ impl Tokenizer {
                     "enum" => self.push_token(TokenType::Enum, None),
                     "match" => self.push_token(TokenType::Match, None),
                     "as" => self.push_token(TokenType::As, None),
+                    "extern" => self.push_token(TokenType::ExternFn, None),
                     // we think its variable
                     _ => self.push_token(TokenType::Var, Some(self.m_buf.clone())),
                 }

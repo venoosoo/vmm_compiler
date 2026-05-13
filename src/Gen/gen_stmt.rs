@@ -7,6 +7,7 @@ use std::io::Read;
 use super::*;
 
 use crate::Ir::expr::{Expr, Lookup};
+use crate::Ir::r#gen;
 use crate::Ir::stmt::{EnumVariant, LValue, MatchField, MatchLeftValue, StructDef, StructField};
 use crate::Ir::{Stmt, stmt::Declaration};
 
@@ -871,6 +872,27 @@ impl Gen {
         self.resolve_match_expr(expr, variants, id, &expr_ty);
     }
 
+    fn gen_extern(&mut self, function: &Box<Stmt>) {
+        match *function.clone() {
+            Stmt::InitFunc {
+                name,
+                generic_types,
+                args,
+                ret_type,
+                data,
+            } => {
+                let extern_func_data = FuncData {
+                    args,
+                    generic: Vec::new(),
+                    return_type: ret_type,
+                };
+                self.emit(format!("extern {}", name));
+                self.functions.insert(name.clone(), vec![extern_func_data]);
+            }
+            _ => self::panic!("the extern is not a function: {:?}", function),
+        }
+    }
+
     pub fn gen_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Block(v) => self.gen_block(v),
@@ -917,6 +939,7 @@ impl Gen {
             Stmt::GlobalDecl(global) => self.gen_global(global.clone()),
             Stmt::InitEnum { .. } => {}
             Stmt::Match { expr, variants } => self.gen_match(expr, variants),
+            Stmt::ExternFn(function) => self.gen_extern(function),
         }
     }
 }

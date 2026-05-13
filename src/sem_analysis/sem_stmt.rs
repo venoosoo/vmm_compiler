@@ -341,6 +341,7 @@ impl<'a> Analyzer<'a> {
                     panic!("global decl must be a declaration");
                 }
             }
+            Stmt::ExternFn(_) => {}
             Stmt::GenericInitFunc {
                 name,
                 generic_types,
