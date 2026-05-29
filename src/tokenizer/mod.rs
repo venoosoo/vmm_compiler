@@ -65,6 +65,8 @@ pub enum TokenType {
 }
 #[derive(Clone, Debug)]
 pub struct Token {
+    pub line: usize,
+    pub col: usize,
     pub token: TokenType,
     pub value: Option<String>,
 }
@@ -89,6 +91,8 @@ pub struct Tokenizer {
     m_index: usize,
     m_src: Vec<char>,
     m_buf: String,
+    pub line: usize,
+    pub col: usize,
     pub m_res: Vec<Token>,
 }
 
@@ -98,12 +102,19 @@ impl Tokenizer {
             m_index: 0,
             m_src: file.chars().collect(),
             m_buf: String::new(),
+            line: 1,
+            col: 0,
             m_res: Vec::new(),
         }
     }
 
     fn push_token(&mut self, token: TokenType, value: Option<String>) {
-        let x = Token { token, value };
+        let x = Token {
+            token,
+            value,
+            line: self.line,
+            col: self.col,
+        };
         self.m_res.push(x);
     }
 
@@ -125,6 +136,11 @@ impl Tokenizer {
 
     pub fn tokenize(&mut self) {
         while self.m_index <= self.m_src.len() - 1 {
+            self.col += 1;
+            if self.peek(0) == '\n' {
+                self.line += 1;
+                self.col = 0;
+            }
             if self.peek(0).is_alphabetic() {
                 let v = self.consume();
                 self.m_buf.push(v);
@@ -237,7 +253,20 @@ impl Tokenizer {
                     }
                     '&' => self.push_token(TokenType::Address, None),
                     '*' => self.push_token(TokenType::Mul, Some('*'.to_string())),
-                    '/' => self.push_token(TokenType::Div, Some('/'.to_string())),
+                    '/' => {
+                        if self.peek(0) == '/' {
+                            let current_line = self.line;
+                            while current_line == self.line {
+                                if self.consume() == '\n' {
+                                    self.line += 1;
+                                    self.col = 0;
+                                }
+                            }
+                        }
+                        else {
+                            self.push_token(TokenType::Div, Some('/'.to_string()))
+                        }
+                    },
                     '(' => self.push_token(TokenType::OpenParen, Some('('.to_string())),
                     ')' => self.push_token(TokenType::CloseParen, Some(')'.to_string())),
                     '{' => self.push_token(TokenType::OpenScope, None),

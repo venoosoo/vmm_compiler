@@ -25,9 +25,15 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect(TokenType::CloseScope);
-        Expr::StructInit {
+        let expr_ty = ExprType::StructInit {
             fields,
             struct_name_ty: struct_name.clone(),
+        };
+        Expr {
+            ty: expr_ty,
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
         }
     }
 
@@ -42,7 +48,14 @@ impl<'a> Parser<'a> {
         }
 
         self.expect(TokenType::CloseScope);
-        Expr::ArrayInit { elements }
+
+        let expr_ty = ExprType::ArrayInit { elements };
+        Expr {
+            ty: expr_ty,
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
+        }
     }
 
     fn parse_primary(&mut self) -> Expr {
@@ -53,32 +66,71 @@ impl<'a> Parser<'a> {
                 if self.is_struct(&token_value) && self.peek(0).token == TokenType::OpenScope {
                     self.parse_struct_expr(&token_value)
                 } else {
-                    Expr::Variable(token_value)
+                    let expr_ty = ExprType::Variable(token_value);
+                    Expr {
+                        ty: expr_ty,
+                        file: self.current_file.clone(),
+                        line: self.line,
+                        col: self.col,
+                    }
                 }
             }
 
-            TokenType::Num => Expr::Number(token.value.unwrap().parse().unwrap()),
+            TokenType::Num => {
+                let expr_ty = ExprType::Number(token.value.unwrap().parse().unwrap());
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                }
+            }
             TokenType::HexNum => {
                 let token_value = &token.value.unwrap();
-                Expr::Number(i64::from_str_radix(token_value, 16).unwrap())
+
+                let expr_ty = ExprType::Number(i64::from_str_radix(token_value, 16).unwrap());
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                }
             }
             TokenType::Mul => {
                 let rhs = self.parse_primary();
-                Expr::Deref(Box::new(rhs))
+                let expr_ty = ExprType::Deref(Box::new(rhs));
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                }
             }
 
             TokenType::Not => {
                 let rhs = self.parse_primary();
-                Expr::Unary {
+                let expr_ty = ExprType::Unary {
                     op: UnaryOp::Not,
                     expr: Box::new(rhs),
+                };
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
                 }
             }
             TokenType::Sub => {
                 let rhs = self.parse_primary();
-                Expr::Unary {
+                let expr_ty = ExprType::Unary {
                     op: UnaryOp::Neg,
                     expr: Box::new(rhs),
+                };
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
                 }
             }
 
@@ -86,7 +138,13 @@ impl<'a> Parser<'a> {
 
             TokenType::CharValue => {
                 let s: i64 = token.value.unwrap().parse().unwrap();
-                Expr::Number(s)
+                let expr_ty = ExprType::Number(s);
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                }
             }
 
             TokenType::SizeOf => {
@@ -97,12 +155,24 @@ impl<'a> Parser<'a> {
                 let stmt = self.parse_stmt().unwrap();
 
                 self.expect(TokenType::Semi);
-                return Expr::SizeOf { ty: Box::new(stmt) };
+                let expr_ty = ExprType::SizeOf { ty: Box::new(stmt) };
+                return Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                };
             }
 
             TokenType::String => {
                 let str_value = token.value.unwrap();
-                return Expr::String { str: str_value };
+                let expr_ty = ExprType::String { str: str_value };
+                return Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                };
             }
 
             TokenType::OpenParen => {
@@ -119,8 +189,8 @@ impl<'a> Parser<'a> {
     }
 
     fn expr_to_ident(&self, expr: Expr) -> String {
-        match expr {
-            Expr::Variable(var) => var,
+        match expr.ty {
+            ExprType::Variable(var) => var,
             _ => panic!("in expr_to_ident go wrong type of expr: {:?}", expr),
         }
     }
@@ -145,31 +215,55 @@ impl<'a> Parser<'a> {
             TokenType::Mul => {
                 self.consume();
                 let rhs = self.parse_unary();
-                Expr::Deref(Box::new(rhs))
+                let expr_ty = ExprType::Deref(Box::new(rhs));
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                }
             }
             TokenType::Address => {
                 self.consume();
                 let rhs = self.parse_unary();
-                Expr::Unary {
+                let expr_ty = ExprType::Unary {
                     op: UnaryOp::GetAddr,
                     expr: Box::new(rhs),
-                }
+                };
+                return Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                };
             }
             TokenType::Sub => {
                 self.consume();
                 let rhs = self.parse_unary();
-                Expr::Unary {
+                let expr_ty = ExprType::Unary {
                     op: UnaryOp::Neg,
                     expr: Box::new(rhs),
+                };
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
                 }
             }
             TokenType::Not => {
                 self.consume();
                 let rhs = self.parse_unary();
-                Expr::Unary {
+                let expr_ty = ExprType::Unary {
                     op: UnaryOp::Not,
                     expr: Box::new(rhs),
-                }
+                };
+                return Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                };
             }
             _ => self.parse_postfix_chain(),
         }
@@ -191,45 +285,66 @@ impl<'a> Parser<'a> {
                     self.consume();
                     let index = self.parse_expr();
                     self.expect(TokenType::CloseBracket);
-                    expr = Expr::Index {
+                    let expr_ty = ExprType::Index {
                         base: Box::new(expr),
                         index: Box::new(index),
                     };
+                    expr = Expr {
+                        ty: expr_ty,
+                        file: self.current_file.clone(),
+                        line: self.line,
+                        col: self.col,
+                    }
                 }
 
                 TokenType::As => {
                     self.consume();
-                    let mut pointer_depth = 0;
-                    while self.peek(0).token == TokenType::Mul {
-                        self.consume();
-                        pointer_depth += 1;
-                    }
+                    let pre_ptr = self.parse_ptr();
                     let ty = self.get_type();
-                    let mut ty = self.parse_ptr(ty);
-                    for _ in 1..pointer_depth {
-                        ty = Type::Pointer(Box::new(ty));
-                    }
-                    return Expr::Cast {
+                    let post_ptr = self.parse_ptr();
+                    let mut ty = self.apply_ptr(ty, pre_ptr + post_ptr);
+                    let expr_ty = ExprType::Cast {
                         expr: Box::new(expr),
                         ty,
+                    };
+                    return Expr {
+                        ty: expr_ty,
+                        file: self.current_file.clone(),
+                        line: self.line,
+                        col: self.col,
                     };
                 }
 
                 TokenType::Dot => {
                     self.consume();
                     let name = self.consume().value.unwrap();
-                    expr = Expr::StructMember {
+                    let expr_ty = ExprType::StructMember {
                         base: Box::new(expr),
                         name,
                     };
+                    expr = Expr {
+                        ty: expr_ty,
+                        file: self.current_file.clone(),
+                        line: self.line,
+                        col: self.col,
+                    }
                 }
 
                 TokenType::Access => {
                     self.consume();
                     let name = self.consume().value.unwrap();
-                    return Expr::StructMember {
-                        base: Box::new(Expr::Deref(Box::new(expr))),
-                        name: name,
+                    let base = Box::new(Expr {
+                        ty: ExprType::Deref(Box::new(expr)),
+                        file: self.current_file.clone(),
+                        line: self.line,
+                        col: self.col,
+                    });
+                    let expr_ty = ExprType::StructMember { base, name: name };
+                    return Expr {
+                        ty: expr_ty,
+                        file: self.current_file.clone(),
+                        line: self.line,
+                        col: self.col,
                     };
                 }
 
@@ -238,9 +353,11 @@ impl<'a> Parser<'a> {
                         let mut generics = Vec::new();
                         self.consume();
                         while self.peek(0).token != TokenType::More {
+                            let bef_ptr = self.parse_ptr();
                             let ty = self.get_type();
-                            let ty = self.parse_ptr(ty);
+                            let aft_ptr = self.parse_ptr();
                             let ty = self.parse_array(ty);
+                            let ty = self.apply_ptr(ty, bef_ptr + aft_ptr);
                             generics.push(ty);
                             if self.peek(0).token == TokenType::Coma {
                                 self.consume();
@@ -259,11 +376,17 @@ impl<'a> Parser<'a> {
                             }
                         }
                         self.expect(TokenType::CloseParen);
-                        expr = Expr::Call {
+                        let expr_ty = ExprType::Call {
                             generics: generics,
                             name: self.expr_to_ident(expr),
                             args,
                         };
+                        expr = Expr {
+                            ty: expr_ty,
+                            file: self.current_file.clone(),
+                            line: self.line,
+                            col: self.col,
+                        }
                     } else {
                         break;
                     }
@@ -282,11 +405,17 @@ impl<'a> Parser<'a> {
                         }
                     }
                     self.expect(TokenType::CloseParen);
-                    expr = Expr::Call {
+                    let expr_ty = ExprType::Call {
                         generics: Vec::new(),
                         name: self.expr_to_ident(expr),
                         args,
                     };
+                    expr = Expr {
+                        ty: expr_ty,
+                        file: self.current_file.clone(),
+                        line: self.line,
+                        col: self.col,
+                    }
                 }
 
                 TokenType::Colon => {
@@ -303,13 +432,20 @@ impl<'a> Parser<'a> {
                         self.expect(TokenType::CloseParen);
                     }
                     self.expect(TokenType::Semi);
-                    match expr {
-                        Expr::Variable(name) => {
-                            expr = Expr::GetEnum {
-                                base: name,
+                    match &expr.ty {
+                        ExprType::Variable(name) => {
+                            let expr_ty = ExprType::GetEnum {
+                                base: name.to_string(),
                                 variant: value_name,
                                 value: variant_expr,
                             };
+
+                            expr = Expr {
+                                ty: expr_ty,
+                                file: self.current_file.clone(),
+                                line: self.line,
+                                col: self.col,
+                            }
                         }
                         _ => panic!("really strange syntax error"),
                     }
@@ -366,10 +502,17 @@ impl<'a> Parser<'a> {
 
             let right = self.parse_binary(prec + 1);
 
-            left = Expr::Binary {
+            let bin_ty = ExprType::Binary {
                 op,
                 left: Box::new(left),
                 right: Box::new(right),
+            };
+
+            left = Expr {
+                ty: bin_ty,
+                file: self.current_file.clone(),
+                line: self.line,
+                col: self.col,
             };
         }
 

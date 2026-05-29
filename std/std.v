@@ -29,6 +29,7 @@ fn print_num(long n) {
     }
 }
 
+
 fn println(char* str) {
     print(str);
     asm {
@@ -94,7 +95,7 @@ global long* malloc_heap_current;
 global long malloc_heap_remaining;
 
 fn malloc(long size) -> void* {
-    if malloc_heap_start == 0 {
+    if malloc_heap_start as long == 0 {
         malloc_heap_start = syscall(9,0,4096,3,34,-1);
         malloc_heap_current = malloc_heap_start;
         malloc_heap_remaining = 4096;
@@ -104,10 +105,10 @@ fn malloc(long size) -> void* {
         malloc_heap_current = malloc_heap_start;
         malloc_heap_remaining = 4096;
     }
-    long* ptr = malloc_heap_current;
+    void* ptr = malloc_heap_current;
     malloc_heap_current = malloc_heap_current + size;
     malloc_heap_remaining = malloc_heap_remaining - size;
-    return ptr
+    return ptr 
 }
 
 fn free(long* ptr, long size) {
@@ -122,7 +123,7 @@ fn memcpy(void* dst, void* src, long size) -> void {
 }
 
 
-fn syscall(long a_rax, long a_rdi, long a_rsi, long a_rdx, long a_r10, long a_r8) -> void* {
+fn syscall(long a_rax, long a_rdi, long a_rsi, long a_rdx, long a_r10, long a_r8) -> long* {
     asm {
         "mov rax, [rbp - 8]"
         "mov rdi, [rbp - 16]"
@@ -133,9 +134,12 @@ fn syscall(long a_rax, long a_rdi, long a_rsi, long a_rdx, long a_r10, long a_r8
         "mov r9, 0"
         "syscall"
     }
-    return;
+    asm {
+        "mov [rbp - 56], rax"
+    }
+    long* result;
+    return result;
 }
-
 
 fn strlen(char* str) -> long {
     long i = 0;

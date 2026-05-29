@@ -1,36 +1,39 @@
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap};
+
+use clap::builder::Str;
 
 use crate::Ir::{
     Stmt,
     expr::{BinOp, UnaryOp},
-    r#gen::StructData,
+    r#gen::{FuncData, StructData},
     stmt::{EnumData, Type},
 };
 
 #[derive(Debug, Clone)]
-pub struct ArgData {
-    pub arg_name: String,
-    pub arg_type: Type,
-}
-
-#[derive(Debug, Clone)]
-pub struct SemFuncData {
-    pub args: Vec<ArgData>,
-    pub ret_type: Type,
-}
-
-#[derive(Debug, Clone)]
 pub struct Analyzer<'a> {
     pub stmts: &'a Vec<Stmt>,
-    pub errors: Vec<SemanticError>,
+    pub had_error: Cell<bool>,
     pub scopes: Vec<HashMap<String, Type>>,
+    pub generics: HashMap<String, Type>,
     pub global_vars: HashMap<String, Type>,
-    pub functions: HashMap<String, SemFuncData>,
+    pub functions: HashMap<String, Vec<FuncData>>,
     pub enums: HashMap<String, EnumData>,
+    pub generic_func: HashMap<String, Stmt>,
     pub structs: HashMap<String, StructData>,
     pub current_ret_type: Type,
+    pub line: usize,
+    pub current_file: String,
+    pub col: usize,
     // track loop depth for break/continue
     pub loop_depth: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Error {
+    pub ty: SemanticError,
+    pub file: String,
+    pub line: usize,
+    pub col: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -48,17 +51,6 @@ pub enum SemanticError {
         got: usize,
     },
     TypeMismatch {
-        expected: Type,
-        got: Type,
-    },
-    ArgCountMismatch {
-        func: String,
-        expected: usize,
-        got: usize,
-    },
-    ArgTypeMismatch {
-        func: String,
-        pos: usize,
         expected: Type,
         got: Type,
     },

@@ -1,7 +1,9 @@
 use std::env::Args;
 
-use crate::Ir::expr::{EnumExprField, Lookup};
+use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
 use crate::Ir::sem_analysis::SemanticError;
+use crate::Ir::stmt::Declaration;
+use crate::shared::{coerce_numeric, is_arithmetic, is_integer, is_numeric};
 use crate::{
     Ir::{
         expr::{BinOp, Expr, UnaryOp},
@@ -14,12 +16,11 @@ use crate::{
 use super::*;
 
 impl<'a> Lookup for Analyzer<'a> {
-    fn look_var(&self, name: &String) -> Type {
+    fn look_var(&self, name: &String) -> Option<Type> {
         if self.structs.get(name).is_some() {
-            return Type::Struct(name.clone());
+            return Some(Type::Struct(name.clone()));
         } else {
-            let var = self.lookup(name).unwrap();
-            var
+            self.lookup(name)
         }
     }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
@@ -79,13 +80,9 @@ impl<'a> Lookup for Analyzer<'a> {
         field.ty.clone()
     }
     fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Type {
-        let vec_func_data = self.functions.get(name).unwrap();
-        let func_data =
-            vec_func_data.args.iter().enumerate().all(|(index, expr)| {
-                check_types(&expr.arg_type, &vec_func_data.args[index].arg_type)
-            });
-        vec_func_data.ret_type.clone()
+        todo!()
     }
+
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
         if elements.len() > 0 {
             return elements[0].get_type(self);
@@ -111,9 +108,7 @@ impl<'a> Analyzer<'a> {
         if let Some(var) = var_data {
             var
         } else {
-            self.errors
-                .push(SemanticError::UndeclaredVariable(var.clone()));
-
+            self.print_error(self.type_to_error(SemanticError::UndeclaredVariable(var.clone())));
             // satisfy return type it wouldnt be compiled because of error anyway
             Type::Primitive(TokenType::LongType)
         }
@@ -132,8 +127,8 @@ impl<'a> Analyzer<'a> {
         match res {
             Ok(ty) => ty,
             Err(err) => {
-                self.errors.push(err);
-                Type::Unknown
+                self.print_error(err);
+                Type::Primitive(TokenType::LongType)
             }
         }
     }
@@ -142,27 +137,22 @@ impl<'a> Analyzer<'a> {
         let expr_type = self.check_expr(expr, expected_ty);
         let valid = match op {
             UnaryOp::BitNot => todo!(),
-            UnaryOp::Neg => is_arithmetic(&expr_type), // -int, -long, -float ok; -char not
-            UnaryOp::Not => is_numeric(&expr_type),    // !int, !long etc (C-style, no bool yet)
-            UnaryOp::GetAddr => true,                  // fix later
+            UnaryOp::Neg => is_arithmetic(&expr_type),
+            UnaryOp::Not => is_numeric(&expr_type),
+            UnaryOp::GetAddr => true, // fix later
         };
         if !valid {
-            self.errors.push(SemanticError::InvalidUnary {
+            self.print_error(self.type_to_error(SemanticError::InvalidUnary {
                 op: op.clone(),
                 ty: expr_type.clone(),
-            });
-            return Type::Unknown;
+            }));
+            return Type::Primitive(TokenType::LongType);
         }
 
         expr_type
     }
 
-    pub fn check_binary_types(
-        &mut self,
-        op: &BinOp,
-        l: Type,
-        r: Type,
-    ) -> Result<Type, SemanticError> {
+    pub fn check_binary_types(&mut self, op: &BinOp, l: Type, r: Type) -> Result<Type, Error> {
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
                 if matches!(&l, Type::Pointer(_)) && is_integer(&r) {
@@ -172,36 +162,34 @@ impl<'a> Analyzer<'a> {
                     return Ok(r);
                 }
                 if !is_arithmetic(&l) || !is_arithmetic(&r) {
-                    return Err(SemanticError::InvalidBinary {
+                    return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
                         right: r,
-                    });
+                    }));
                 }
                 Ok(coerce_numeric(&l, &r))
             }
 
             BinOp::Mod => {
                 if !is_integer(&l) || !is_integer(&r) {
-                    return Err(SemanticError::InvalidBinary {
+                    return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
                         right: r,
-                    });
+                    }));
                 }
                 Ok(coerce_numeric(&l, &r))
             }
 
             BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                let compatible = (is_numeric(&l) && is_numeric(&r))
-                    || is_ptr_long_pair(&l, &r)
-                    || is_ptr_long_pair(&r, &l);
+                let compatible = (is_numeric(&l) && is_numeric(&r));
                 if !compatible {
-                    return Err(SemanticError::InvalidBinary {
+                    return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
                         right: r,
-                    });
+                    }));
                 }
                 Ok(Type::Primitive(TokenType::IntType))
             }
@@ -209,70 +197,185 @@ impl<'a> Analyzer<'a> {
             BinOp::Eq | BinOp::Neq => {
                 let compatible = (is_numeric(&l) && is_numeric(&r))
                     || l == r
-                    || is_ptr_long_pair(&l, &r)
-                    || is_ptr_long_pair(&r, &l)
                     || matches!((&l, &r), (Type::Pointer(_), Type::Pointer(_)));
                 if !compatible {
-                    return Err(SemanticError::InvalidBinary {
+                    return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
                         right: r,
-                    });
+                    }));
                 }
                 Ok(Type::Primitive(TokenType::IntType))
             }
 
             BinOp::And | BinOp::Or => {
                 if !is_numeric(&l) || !is_numeric(&r) {
-                    // any nonzero int is truthy
-                    return Err(SemanticError::InvalidBinary {
+                    return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
                         right: r,
-                    });
+                    }));
                 }
                 Ok(Type::Primitive(TokenType::IntType))
             }
-            _ => todo!(),
+
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                if !is_integer(&l) || !is_integer(&r) {
+                    return Err(self.type_to_error(SemanticError::InvalidBinary {
+                        op: op.clone(),
+                        left: l,
+                        right: r,
+                    }));
+                }
+                Ok(coerce_numeric(&l, &r))
+            }
+
+            BinOp::ShiftLeft | BinOp::ShiftRight => {
+                if !is_integer(&l) || !is_integer(&r) {
+                    return Err(self.type_to_error(SemanticError::InvalidBinary {
+                        op: op.clone(),
+                        left: l,
+                        right: r,
+                    }));
+                }
+                Ok(l) // result type is always the left operand's type
+            }
         }
     }
 
-    fn check_call(&mut self, name: &String, args: &Vec<Expr>, expected_ty: &Type) -> Type {
-        let res = self.functions.get(name).cloned();
-        if let Some(func_data) = res {
-            if func_data.args.len() != args.len() {
-                self.errors.push(SemanticError::ArgCountMismatch {
-                    func: name.clone(),
-                    expected: func_data.args.len(),
-                    got: args.len(),
-                });
-                return Type::Unknown;
+    pub fn transform_generic_name(&self, name: &String, generics: &Vec<Type>) -> String {
+        let mut new_generics = Vec::new();
+        for i in generics {
+            match i {
+                Type::GenericType(name) => {}
+                _ => new_generics.push(i),
             }
+        }
+        let mangled = format!(
+            "{}__{}",
+            name,
+            generics
+                .iter()
+                .map(|t| type_name(t))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
+        mangled
+    }
 
-            let error_len = self.errors.len();
-
-            for (arg, expr) in args.iter().enumerate() {
-                let expr_ty = self.check_expr(expr, expected_ty);
-                if !check_types(&func_data.args[arg].arg_type, &expr_ty) {
-                    self.errors.push(SemanticError::ArgTypeMismatch {
-                        func: name.clone(),
-                        pos: arg,
-                        expected: func_data.args[arg].arg_type.clone(),
-                        got: expr_ty,
-                    });
+    fn convert_generic_arg(
+        &mut self,
+        arg: &Declaration,
+        arg_ty: &Type,
+        generics: &Vec<Type>,
+        index: usize,
+        generic_map: &HashMap<String, Type>,
+    ) -> Declaration {
+        match arg_ty {
+            Type::GenericInst(name, inner_types) => {
+                let resolved_inner: Vec<Type> = inner_types
+                    .iter()
+                    .map(|t| match t {
+                        Type::GenericType(g) => {
+                            generic_map.get(g).cloned().unwrap_or_else(|| t.clone())
+                        }
+                        _ => t.clone(),
+                    })
+                    .collect();
+                let resolved_inst = Type::GenericInst(name.clone(), resolved_inner);
+                let ty = self.ensure_monomorphized(&resolved_inst);
+                Declaration {
+                    name: arg.name.clone(),
+                    ty,
+                    initializer: arg.initializer.clone(),
                 }
             }
-
-            if error_len != self.errors.len() {
-                return Type::Unknown;
+            Type::GenericType(name) => {
+                let ty = generic_map.get(name).unwrap();
+                Declaration {
+                    name: arg.name.clone(),
+                    ty: ty.clone(),
+                    initializer: arg.initializer.clone(),
+                }
             }
-
-            func_data.ret_type.clone()
-        } else {
-            self.errors
-                .push(SemanticError::UndeclaredFunction(name.clone()));
-            Type::Unknown
+            Type::Pointer(ty) => {
+                let mut decl = self.convert_generic_arg(arg, ty, generics, index, generic_map);
+                decl.ty = Type::Pointer(Box::new(decl.ty));
+                decl
+            }
+            Type::Array(ty, size) => {
+                let mut decl = self.convert_generic_arg(arg, ty, generics, index, generic_map);
+                decl.ty = Type::Array(Box::new(decl.ty), *size);
+                decl
+            }
+            _ => arg.clone(),
         }
+    }
+
+    fn convert_generic_args(
+        &mut self,
+        args: &Vec<Declaration>,
+        generics: &Vec<Type>,
+        generic_map: &HashMap<String, Type>,
+    ) -> Vec<Declaration> {
+        args.iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                self.convert_generic_arg(arg, &arg.ty, generics, index, generic_map)
+            })
+            .collect()
+    }
+
+    fn check_call(
+        &mut self,
+        name: &String,
+        args: &Vec<Expr>,
+        expected_ty: &Type,
+        generics: &Vec<Type>,
+    ) -> Type {
+        let (func_data, func_index) = self.resolve_call(name, args, generics);
+        for (index, generic) in func_data.generic.iter().enumerate() {
+            self.generics
+                .insert(generic.clone(), generics[index].clone());
+        }
+        let args = func_data.args.clone();
+        let generic_map = self.generics.clone();
+        let new_args = self.convert_generic_args(&args, generics, &generic_map);
+        if func_data.generic.len() > 0 {
+            let generic_data = self.generic_func.get(name).unwrap().clone();
+            let name = self.transform_generic_name(name, generics);
+            if self.functions.get(&name).is_none() {
+                let res_func_data = FuncData {
+                    args: new_args.clone(),
+                    generic: Vec::new(),
+                    // possible bug
+                    return_type: func_data.return_type.clone(),
+                };
+                self.functions.insert(name.clone(), vec![res_func_data]);
+                match generic_data.ty {
+                    StmtType::GenericInitFunc {
+                        generic_types,
+                        args,
+                        ret_type,
+                        data,
+                        ..
+                    } => {
+                        let generic_data: HashMap<String, Type> = HashMap::new();
+                        let ret_type = substitute_type(&ret_type, &generic_types, generics);
+                        let ret_type = self.ensure_monomorphized(&ret_type);
+
+                        let saved_ret_type = self.current_ret_type.clone();
+                        // TODO: add normal support for return
+                        
+                        //self.check_init_func((&name, &new_args, &ret_type, &data, &generic_data));
+                        self.current_ret_type = saved_ret_type;
+                        return ret_type;
+                    }
+                    _ => panic!("error"),
+                };
+            }
+        }
+        return func_data.return_type;
     }
 
     fn check_struct_expr(&mut self, struct_name: &String, fields: &Vec<(String, Expr)>) -> Type {
@@ -281,35 +384,37 @@ impl<'a> Analyzer<'a> {
             .get(struct_name)
             .expect(&format!("no struct with name: {}", struct_name));
         if fields.len() != struct_data.elements.len() {
-            self.errors.push(SemanticError::StructCountMismatch {
+            self.print_error(self.type_to_error(SemanticError::StructCountMismatch {
                 struct_name: struct_name.clone(),
                 expected: struct_data.elements.len(),
                 got: fields.len(),
-            });
+            }));
         }
-
         for (arg_name, arg) in fields.iter() {
             let res = struct_data.elements.get(arg_name);
             if let Some(struct_arg) = res {
-                if check_types(&struct_arg.ty, &arg.get_type(self)) {
-                    self.errors.push(SemanticError::StructTypeMismatch {
+                if !check_types(&struct_arg.ty, &arg.get_type(self)) {
+                    self.print_error(self.type_to_error(SemanticError::StructTypeMismatch {
                         struct_name: struct_name.clone(),
                         expected: struct_arg.ty.clone(),
                         got: arg.get_type(self),
-                    });
+                    }));
                 }
             } else {
-                self.errors.push(SemanticError::StructNameNotFound {
+                self.print_error(self.type_to_error(SemanticError::StructNameNotFound {
                     struct_name: struct_name.clone(),
                     got: arg_name.clone(),
-                });
+                }));
             }
         }
-        Type::Struct(struct_name.to_string())
+
+        return Type::Struct(struct_name.to_string());
     }
+
 
     fn check_struct_member(&mut self, base: &Box<Expr>, name: &String, expected_ty: &Type) -> Type {
         let base = self.check_expr(base, expected_ty);
+        let base = self.ensure_monomorphized(&base);
         match base {
             Type::Struct(struct_name) => {
                 let res = self.structs.get(&struct_name);
@@ -318,20 +423,19 @@ impl<'a> Analyzer<'a> {
                     if let Some(arg) = name_res {
                         return arg.ty.clone();
                     } else {
-                        self.errors.push(SemanticError::StructNameNotFound {
+                        self.print_error(self.type_to_error(SemanticError::StructNameNotFound {
                             struct_name,
                             got: name.clone(),
-                        });
+                        }));
                         return Type::Unknown;
                     }
                 } else {
-                    self.errors
-                        .push(SemanticError::UndeclaredStruct(struct_name));
+                    self.print_error(self.type_to_error(SemanticError::UndeclaredStruct(struct_name)));
                     return Type::Unknown;
                 }
             }
             _ => {
-                self.errors.push(SemanticError::NotAStruct(base.clone()));
+                self.print_error(self.type_to_error(SemanticError::NotAStruct(base.clone())));
                 return Type::Unknown;
             }
         }
@@ -344,7 +448,7 @@ impl<'a> Analyzer<'a> {
                 return *ty.clone();
             }
             _ => {
-                self.errors.push(SemanticError::NotAPointer(expr_ty));
+                self.print_error(self.type_to_error(SemanticError::NotAPointer(expr_ty)));
                 Type::Unknown
             }
         }
@@ -360,16 +464,14 @@ impl<'a> Analyzer<'a> {
         let index_ty = self.check_expr(index, expected_ty);
 
         if !is_numeric(&index_ty) {
-            self.errors
-                .push(SemanticError::InvalidArrayIndex(index_ty.clone()));
+            self.print_error(self.type_to_error(SemanticError::InvalidArrayIndex(index_ty.clone())));
         }
 
         match base_ty {
             Type::Array(arr_type, size) => *arr_type.clone(),
             Type::Pointer(ty) => *ty,
             _ => {
-                self.errors
-                    .push(SemanticError::NonArrayIndex(base_ty.clone()));
+                self.print_error(self.type_to_error(SemanticError::NonArrayIndex(base_ty.clone())));
                 Type::Unknown
             }
         }
@@ -377,19 +479,18 @@ impl<'a> Analyzer<'a> {
 
     fn check_array_init(&mut self, elements: &Vec<Expr>, expected_ty: &Type) -> Type {
         if elements.is_empty() {
-            self.errors.push(SemanticError::EmptyArray);
+            self.print_error(self.type_to_error(SemanticError::EmptyArray));
             return Type::Unknown;
         }
 
         let first_ty = expected_ty;
-
         for elem in elements.iter().skip(1) {
             let elem_ty = self.check_expr(elem, expected_ty);
             if !check_types(&first_ty, &elem_ty) {
-                self.errors.push(SemanticError::TypeMismatch {
+                self.print_error(self.type_to_error(SemanticError::TypeMismatch {
                     expected: first_ty.clone(),
                     got: elem_ty,
-                });
+                }));
             }
         }
 
@@ -424,38 +525,43 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
-        match expr {
-            Expr::Number(num) => self.check_num(num, expected_ty),
-            Expr::Float(num) => panic!("not implemented"),
-            Expr::Variable(var) => self.check_var(var),
-            Expr::Binary { op, left, right } => self.check_binary(op, left, right, expected_ty),
-            Expr::Unary { op, expr } => self.check_unary(op, expr, expected_ty),
-            Expr::Call {
+        match &expr.ty {
+            ExprType::Number(num) => self.check_num(num, expected_ty),
+            ExprType::Float(num) => panic!("not implemented"),
+            ExprType::Variable(var) => self.check_var(var),
+            ExprType::Binary { op, left, right } => self.check_binary(op, left, right, expected_ty),
+            ExprType::Unary { op, expr } => self.check_unary(op, expr, expected_ty),
+            ExprType::Call {
                 name,
                 args,
                 generics,
-            } => self.check_call(name, args, expected_ty),
-            Expr::StructInit {
+            } => {
+                let ty = self.check_call(name, args, expected_ty, generics);
+                return ty;
+            }
+            ExprType::StructInit {
                 struct_name_ty,
                 fields,
             } => self.check_struct_expr(struct_name_ty, fields),
-            Expr::StructMember { base, name } => self.check_struct_member(base, name, expected_ty),
-            Expr::Deref(expr) => self.check_deref(expr, expected_ty),
-            Expr::Index { base, index } => self.check_index(base, index, expected_ty),
-            Expr::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
-            Expr::SizeOf { ty } => self.check_size_of(ty),
-            Expr::String { str } => {
+            ExprType::StructMember { base, name } => {
+                self.check_struct_member(base, name, expected_ty)
+            }
+            ExprType::Deref(expr) => self.check_deref(expr, expected_ty),
+            ExprType::Index { base, index } => self.check_index(base, index, expected_ty),
+            ExprType::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
+            ExprType::SizeOf { ty } => self.check_size_of(ty),
+            ExprType::String { str } => {
                 return Type::Array(
                     Box::new(Type::Primitive(TokenType::CharType)),
                     str.len() + 1,
                 );
             }
-            Expr::GetEnum {
+            ExprType::GetEnum {
                 base,
                 value,
                 variant,
             } => self.check_gen_enum(base, value, variant),
-            Expr::Cast { expr, ty } => ty.clone(),
+            ExprType::Cast { expr, ty } => ty.clone(),
         }
     }
 }

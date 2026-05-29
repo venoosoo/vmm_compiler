@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
+
 use crate::Ir::{
     Stmt,
     stmt::{Declaration, EnumData, StructField, Type},
@@ -44,7 +46,7 @@ pub struct FuncData {
 #[derive(Debug, Clone)]
 pub struct StructData {
     // TODO: make this vec because we need order
-    pub elements: HashMap<String, StructField>,
+    pub elements: IndexMap<String, StructField>,
     pub name: String,
     pub generic_type: Vec<String>,
     pub byte_size: usize,

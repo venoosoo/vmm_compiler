@@ -66,24 +66,42 @@ fn rand_init() {
 }
 
 global char termios[60];
-
 fn set_raw_mode() {
     syscall(16,0,0x5401,termios as long,0,0);
-    termios[12] = termios[12] & 0xF5;
-    termios[23] = 1;
+    termios[12] = termios[12] & 0xF4;
+    termios[23] = 0;
     termios[22] = 0;
     syscall(16,0,0x5402,termios as long,0,0);
 }
 
-fn set_nonblocking() {
-    syscall(72,0,4,0x800,0,0);
+fn restore_terminal() {
+    termios[12] = termios[12] | 59;
+
+    termios[23] = 1;
+    termios[22] = 0;
+
+    syscall(16,0,0x5402,termios as long,0,0);
 }
 
 global char buf[3];
 
 fn read_key() -> int {
-    int n = syscall(0, 0, buf as long, 3,0,0);
+    int n = syscall(0, 0, buf as long, 3,0,0) as long;
     if n <= 0 { return 0; }
+
+    if buf[0] == 0x03 {
+        restore_terminal();
+        println("Exiting via ctrl+c");
+        exit(0);
+    }
+
+    if buf[0] == 0x71 {
+        restore_terminal();
+        println("");
+        println("Exited via 'q' key");
+        exit(0);
+    }
+
     if buf[0] == 0x1B {
         if buf[1] == 0x5B {
             if buf[2] == 0x41 { return 1; }
@@ -95,8 +113,8 @@ fn read_key() -> int {
     return 0;
 }
 
-fn check_collision(Vector<vec2>* player) -> int {
-    vec2* head = vec_get_element<vec2>(player,0);
+fn check_collision(Vector<vec2*>* player) -> int {
+    vec2* head = vec_get_element<vec2*>(player,0);
     if head->x == 4294967295 {
         head->x = 9;
     }
@@ -114,7 +132,7 @@ fn check_collision(Vector<vec2>* player) -> int {
         return 0;
     }
     for (int i = 1; i < player->length; i = i + 1) {
-        vec2* el = vec_get_element<vec2>(player,i);
+        vec2* el = vec_get_element<vec2*>(player,i);
         if head->x == el->x and head->y == el->y {
             return 1;
         }
@@ -122,8 +140,8 @@ fn check_collision(Vector<vec2>* player) -> int {
     return 0;
 }
 
-fn change_player_pos(Vector<vec2>* player,int* key,int previous_key) {
-    vec2* head = vec_get_element<vec2>(player,0);
+fn change_player_pos(Vector<vec2*>* player,int* key,int previous_key) {
+    vec2* head = vec_get_element<vec2*>(player,0);
     
     if *key == 1 and previous_key == 2 { *key = previous_key; } 
     else if *key == 2 and previous_key == 1 { *key = previous_key; } 
@@ -132,9 +150,9 @@ fn change_player_pos(Vector<vec2>* player,int* key,int previous_key) {
 
     if player->length > 1 {
         for (int i = player->length - 1; i > 0; i = i - 1) {
-            vec2* pos = vec_get_element<vec2>(player,i);
+            vec2* pos = vec_get_element<vec2*>(player,i);
 
-            vec2* next_pos = vec_get_element<vec2>(player,i-1);
+            vec2* next_pos = vec_get_element<vec2*>(player,i-1);
             pos->x = next_pos->x;
             pos->y = next_pos->y;
         }
@@ -160,14 +178,14 @@ fn change_player_pos(Vector<vec2>* player,int* key,int previous_key) {
     }
 }
 
-fn respawn_apple(Vector<vec2>* player,vec2* apple_pos) {
+fn respawn_apple(Vector<vec2*>* player,vec2* apple_pos) {
     int isTaken = 1;
     while isTaken {
         int x = rand(0,9);
         int y = rand(0,19);
         int temp = 1;
         for (int i = 0; i < player->length; i = i + 1) {
-            vec2* el = vec_get_element<vec2>(player,i);
+            vec2* el = vec_get_element<vec2*>(player,i);
             if el->x == x and el->y == y {
                 temp = 0;
             }
@@ -180,25 +198,25 @@ fn respawn_apple(Vector<vec2>* player,vec2* apple_pos) {
     }
 }
 
-fn render_screen(GameData* game_data,Vector<vec2>* vec, vec2* apple_pos) {
+fn render_screen(GameData* game_data,Vector<vec2*>* vec, vec2* apple_pos) {
     for (int i = 0; i < 10; i = i + 1) {
         for (int j = 0; j < 20; j = j + 1) {
             int found = 0;
             for (int k = 0; k < vec->length; k = k + 1) {
-                vec2* player_pos = vec_get_element<vec2>(vec, k);
+                vec2* player_pos = vec_get_element<vec2*>(vec, k);
                 if player_pos->x == i and player_pos->y == j {
                     found = 1;
                 }
             }
 
-            vec2* head = vec_get_element<vec2>(vec,0);
+            vec2* head = vec_get_element<vec2*>(vec,0);
             if (found == 1) and (apple_pos->x == head->x and apple_pos->y == head->y) {
                 vec2* new_pos = malloc(sizeof(vec2));
-                vec2* last_el = vec_get_element<vec2>(vec,vec->length - 1);
+                vec2* last_el = vec_get_element<vec2*>(vec,vec->length - 1);
                 new_pos->x = last_el->x;
                 new_pos->y = last_el->y;
                 game_data->score = game_data->score + 1;
-                vector_push<vec2>(vec,new_pos);
+                vector_push<vec2*>(vec,new_pos);
                 respawn_apple(vec,apple_pos);
             }
             if found == 1 {
@@ -217,10 +235,11 @@ fn render_screen(GameData* game_data,Vector<vec2>* vec, vec2* apple_pos) {
         println("");
     }
     print("score: ");
-    print(game_data->score);
+    print_num(game_data->score);
     print("                        ");
     print("time: ");
-    println(game_data->time);
+    print_num(game_data->time);
+    println("");
 }
 
 
@@ -234,7 +253,6 @@ fn clear_screen() {
 fn main() {
     init_timer();
     set_raw_mode();
-    set_nonblocking();
     vec2 player_pos = vec2 {
         x: 1,
         y: 1,
@@ -251,9 +269,9 @@ fn main() {
         y: 4,
     };
 
-    Vector<vec2>* vec = create_vector<vec2>();
-    vector_push<vec2>(vec,&player_pos);
-
+    Vector<vec2*>* vec = create_vector<vec2*>();
+    vector_push<vec2*>(vec,&player_pos);
+    
     render_screen(&game_data,vec,&apple);
 
     int last_pressed = 3;
@@ -275,6 +293,7 @@ fn main() {
             change_player_pos(vec,&last_pressed,previous_key);
             if check_collision(vec) {
                 println("you lose");
+                restore_terminal();
                 exit(0);
             }
             clear_screen();

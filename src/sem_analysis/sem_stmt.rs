@@ -3,14 +3,14 @@ use std::{collections::HashMap, env, fs::File};
 use super::*;
 
 use crate::{
-    Gen::lvalue_root,
     Ir::{
         Stmt,
         expr::Expr,
-        r#gen::StructData,
-        sem_analysis::{Analyzer, ArgData, SemFuncData, SemanticError},
+        r#gen::{StructData, VarData},
+        sem_analysis::{Analyzer, SemanticError},
         stmt::{Declaration, LValue, MatchField, MatchLeftValue, StructDef, Type},
     },
+    shared::lvalue_root,
     tokenizer::TokenType,
 };
 
@@ -24,40 +24,39 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_declaration(&mut self, data: &Declaration) {
-        if data.ty == Type::Primitive(TokenType::Void) {
-            self.errors
-                .push(SemanticError::VoidVariable(data.name.clone()));
+        let ty = self.ensure_monomorphized(&data.ty);
+        if ty == Type::Primitive(TokenType::Void) {
+            self.print_error(self.type_to_error(SemanticError::VoidVariable(data.name.clone())));
             return;
         }
         if self.lookup(&data.name).is_some() {
-            self.errors
-                .push(SemanticError::AlreadyDeclared(data.name.clone()));
+            self.print_error(self.type_to_error(SemanticError::AlreadyDeclared(data.name.clone())));
         }
 
         if let Some(expr) = &data.initializer {
-            let expr_ty = self.check_expr(expr, &data.ty);
-            if !check_types(&data.ty, &expr_ty) {
-                self.errors.push(SemanticError::TypeMismatch {
-                    expected: data.ty.clone(),
-                    got: expr_ty.clone(),
-                });
+            let expr_ty = self.check_expr(expr, &ty);
+            if !check_types(&ty, &expr_ty) {
+                self.print_error(self.type_to_error(SemanticError::TypeMismatch {
+                        expected: ty.clone(),
+                        got: expr_ty.clone(),
+                    }));
             }
-            if let (Type::Array(_, decl_size), Type::Array(_, init_size)) = (&data.ty, &expr_ty) {
+            if let (Type::Array(_, decl_size), Type::Array(_, init_size)) = (&ty, &expr_ty) {
                 if init_size > decl_size {
-                    self.errors.push(SemanticError::ArrayTooLarge {
-                        arr_name: data.name.clone(),
-                        expected: *decl_size,
-                        got: *init_size,
-                    });
+                    self.print_error(self.type_to_error(SemanticError::ArrayTooLarge {
+                            arr_name: data.name.clone(),
+                            expected: *decl_size,
+                            got: *init_size,
+                        }));
                 }
             }
         }
-
         self.add_var(data.name.clone(), data.ty.clone());
     }
 
     fn field_ty_match(&mut self, ty: &Type, name: &String) -> Type {
-        match ty {
+        let ty = self.ensure_monomorphized(ty);
+        match &ty {
             Type::Pointer(p_ty) => {
                 let res = self.field_ty_match(p_ty, name);
                 res
@@ -101,8 +100,8 @@ impl<'a> Analyzer<'a> {
     pub fn check_assignment(&mut self, target: &LValue, value: &Expr) {
         let var_name = lvalue_root(target);
         if self.lookup(&var_name).is_none() {
-            self.errors
-                .push(SemanticError::UndeclaredVariable(var_name));
+
+            self.print_error(self.type_to_error(SemanticError::UndeclaredVariable(var_name)));
             return;
         }
 
@@ -110,10 +109,10 @@ impl<'a> Analyzer<'a> {
         let target_ty = self.lvalue_type(target);
         let expr_ty = self.check_expr(value, &target_ty);
         if !check_types(&target_ty, &expr_ty) {
-            self.errors.push(SemanticError::TypeMismatch {
-                expected: target_ty,
-                got: expr_ty,
-            });
+            self.print_error(self.type_to_error(SemanticError::TypeMismatch {
+                    expected: target_ty,
+                    got: expr_ty,
+                }));
         }
     }
 
@@ -163,10 +162,10 @@ impl<'a> Analyzer<'a> {
             expr_ty = self.check_expr(expr, &self.current_ret_type.clone());
         }
         if !check_types(&self.current_ret_type, &expr_ty) {
-            self.errors.push(SemanticError::ReturnTypeMismatch {
-                expected: self.current_ret_type.clone(),
-                got: expr_ty.clone(),
-            });
+            self.print_error(self.type_to_error(SemanticError::ReturnTypeMismatch {
+                    expected: self.current_ret_type.clone(),
+                    got: expr_ty.clone(),
+                }));
         }
     }
 
@@ -189,27 +188,13 @@ impl<'a> Analyzer<'a> {
         // save outer scopes FIRST before adding any args
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
 
-        // push a fresh scope for function args and locals
         self.scopes.push(HashMap::new());
 
-        let func_args: Vec<ArgData> = args
-            .iter()
-            .map(|decl| {
-                self.add_var(decl.name.clone(), decl.ty.clone()); // now goes into function scope
-                ArgData {
-                    arg_name: decl.name.clone(),
-                    arg_type: decl.ty.clone(),
-                }
-            })
-            .collect();
-
-        self.functions.insert(
-            name.clone(),
-            SemFuncData {
-                args: func_args,
-                ret_type: ret_type.clone(),
-            },
-        );
+        for arg in args.iter() {
+            let ty = self.ensure_monomorphized(&arg.ty);
+            let map = self.scopes.last_mut().unwrap();
+            map.insert(arg.name.clone(), ty);
+        }
 
         self.current_ret_type = ret_type.clone();
         self.check_stmt(body);
@@ -220,10 +205,9 @@ impl<'a> Analyzer<'a> {
 
     pub fn check_struct_init(&mut self, data: &StructDef) {
         if self.lookup(&data.name).is_some() {
-            self.errors
-                .push(SemanticError::AlreadyDeclared(data.name.clone()));
+            self.print_error(self.type_to_error(SemanticError::AlreadyDeclared(data.name.clone())));
         } else {
-            let mut elements = HashMap::new();
+            let mut elements = IndexMap::new();
             for field in &data.fields {
                 elements.insert(field.name.clone(), field.clone());
             }
@@ -234,7 +218,6 @@ impl<'a> Analyzer<'a> {
                 elements,
                 byte_size: data.size,
             };
-
             self.structs.insert(data.name.clone(), struct_data);
         }
     }
@@ -264,10 +247,10 @@ impl<'a> Analyzer<'a> {
                             }
                             _ => {}
                         }
-                        self.errors.push(SemanticError::MatchTypeMismatch {
-                            expected: expr_ty.clone(),
-                            got: left_ty.clone(),
-                        });
+                        self.print_error(self.type_to_error(SemanticError::MatchTypeMismatch {
+                                expected: expr_ty.clone(),
+                                got: left_ty.clone(),
+                            }));
                     }
                 }
             }
@@ -283,38 +266,39 @@ impl<'a> Analyzer<'a> {
                             }
                             _ => {}
                         }
-                        self.errors.push(SemanticError::MatchTypeMismatch {
-                            expected: expr_ty.clone(),
-                            got: left_ty.clone(),
-                        });
+                        self.print_error(self.type_to_error(SemanticError::MatchTypeMismatch {
+                                expected: expr_ty.clone(),
+                                got: left_ty.clone(),
+                            }));
                     }
                 }
             }
 
             _ => {
-                self.errors
-                    .push(SemanticError::MatchExprUnsuported(expr_ty.clone()));
+                self.print_error(self.type_to_error(SemanticError::MatchExprUnsuported(expr_ty.clone())));
             }
         }
     }
 
     pub fn check_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::Block(data) => self.check_block(data),
-            Stmt::Declaration(data) => self.check_declaration(data),
-            Stmt::Assignment { target, value } => self.check_assignment(target, value),
-            Stmt::ExprStmt(expr) => {
+        self.line = stmt.line;
+        self.current_file = stmt.file.clone();
+        match &stmt.ty {
+            StmtType::Block(data) => self.check_block(data),
+            StmtType::Declaration(data) => self.check_declaration(data),
+            StmtType::Assignment { target, value } => self.check_assignment(target, value),
+            StmtType::ExprStmt(expr) => {
                 self.check_expr(expr, &Type::Primitive(TokenType::LongType));
             }
-            Stmt::If {
+            StmtType::If {
                 condition,
                 if_block,
                 else_block,
             } => {
                 self.check_if(condition, if_block, else_block);
             }
-            Stmt::While { condition, body } => self.check_while(condition, body),
-            Stmt::For {
+            StmtType::While { condition, body } => self.check_while(condition, body),
+            StmtType::For {
                 init,
                 condition,
                 update,
@@ -322,9 +306,9 @@ impl<'a> Analyzer<'a> {
             } => {
                 self.check_for((init, condition, update, body));
             }
-            Stmt::Return(expr) => self.check_ret(expr),
-            Stmt::AsmCode(code) => {} // im not sure if there need for checking
-            Stmt::InitFunc {
+            StmtType::Return(expr) => self.check_ret(expr),
+            StmtType::AsmCode(code) => {} // im not sure if there need for checking
+            StmtType::InitFunc {
                 name,
                 args,
                 ret_type,
@@ -333,24 +317,24 @@ impl<'a> Analyzer<'a> {
             } => {
                 self.check_init_func((name, args, ret_type, data, generic_types));
             }
-            Stmt::InitStruct(struct_data) => self.check_struct_init(struct_data),
-            Stmt::GlobalDecl(global) => {
-                if let Stmt::Declaration(decl) = global.as_ref() {
+            StmtType::InitStruct(struct_data) => self.check_struct_init(struct_data),
+            StmtType::GlobalDecl(global) => {
+                if let StmtType::Declaration(decl) = &global.ty {
                     self.global_vars.insert(decl.name.clone(), decl.ty.clone());
                 } else {
                     panic!("global decl must be a declaration");
                 }
             }
-            Stmt::ExternFn(_) => {}
-            Stmt::GenericInitFunc {
+            StmtType::ExternFn(_) => {}
+            StmtType::GenericInitFunc {
                 name,
                 generic_types,
                 args,
                 ret_type,
                 data,
             } => {}
-            Stmt::InitEnum { .. } => {}
-            Stmt::Match { expr, variants } => self.check_match(expr, variants),
+            StmtType::InitEnum { .. } => {}
+            StmtType::Match { expr, variants } => self.check_match(expr, variants),
         }
     }
 }

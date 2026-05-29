@@ -12,7 +12,7 @@ struct Vector<T> {
 fn create_vector<T>() -> *Vector<T> {
     int el_size = sizeof(T);
     long base_capacity = 8;
-    long* memory = malloc(el_size * base_capacity);
+    T* memory = malloc(el_size * base_capacity) as T*;
     Vector<T>* res = malloc(sizeof(Vector<T>));
     res->data = memory;
     res->length = 0;

@@ -4,120 +4,208 @@ use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Write};
 
 use crate::Ir::Stmt;
-use crate::Ir::expr::Expr;
+use crate::Ir::expr::{Expr, ExprType, Lookup};
 use crate::Ir::r#gen::*;
 use crate::Ir::sem_analysis::Analyzer;
-use crate::Ir::stmt::Type;
-use crate::Ir::stmt::{EnumData, LValue};
+use crate::Ir::shared::TypeContext;
+use crate::Ir::stmt::{EnumData, LValue, StmtType};
+use crate::Ir::stmt::{EnumVariant, StructField, Type};
+use crate::shared::{check_types, substitute_type, to_base_reg, type_name};
 use crate::tokenizer::TokenType;
-
-use crate::Ir::sem_analysis::SemanticError;
 
 mod gen_expr;
 mod gen_stmt;
 
-fn align16(n: usize) -> usize {
-    (n + 15) & !15
-}
+impl TypeContext for Gen {
+    fn resolve_call(
+        &mut self,
+        name: &String,
+        args: &Vec<Expr>,
+        generics: &Vec<Type>,
+    ) -> (FuncData, usize) {
+        if generics.len() > 0 {
+            let vec_func_data = self.functions.get(name).unwrap().clone();
+            return (vec_func_data[0].clone(), 0);
+        }
+        let vec_func_data = self.functions.get(name).unwrap().clone();
+        let (overload_pos, func_data) = vec_func_data
+            .iter()
+            .enumerate()
+            .find(|(_, func)| {
+                if func.args.len() != args.len() {
+                    return false;
+                }
+                args.iter().enumerate().all(|(i, expr)| {
+                    let expr_ty = expr.get_type(self);
+                    let param_ty = &func.args[i].ty.clone();
+                    let expr_ty = self.ensure_monomorphized(&expr_ty);
+                    let param_ty = self.ensure_monomorphized(param_ty);
+                    check_types(&expr_ty, &param_ty)
+                })
+            })
+            .expect(&format!("no matching overload for function '{}'", name,));
+        (func_data.clone(), overload_pos)
+    }
 
-pub fn type_name(ty: &Type) -> String {
-    match ty {
-        Type::Primitive(token) => match token {
-            TokenType::IntType => "int".to_string(),
-            TokenType::LongType => "long".to_string(),
-            TokenType::CharType => "char".to_string(),
-            TokenType::ShortType => "short".to_string(),
-            TokenType::Void => "void".to_string(),
-            _ => format!("{:?}", token),
-        },
-        Type::Pointer(inner) => format!("{}__ptr", type_name(inner)),
-        Type::Array(inner, size) => format!("{}__arr__{}", type_name(inner), size),
-        Type::Struct(name) => name.clone(),
-        Type::Enum(name) => name.clone(),
-        Type::GenericType(name) => name.clone(),
-        Type::GenericInst(name, types) => {
-            let type_args = types
+    fn monomorphize_struct(&mut self, def: &StructData, type_args: &Vec<Type>) -> Type {
+        let mangled = format!(
+            "{}__{}",
+            def.name,
+            type_args
                 .iter()
                 .map(|t| type_name(t))
                 .collect::<Vec<_>>()
-                .join("_");
-            format!("{}__{}", name, type_args)
+                .join("_")
+        );
+        if self.structs.contains_key(&mangled) {
+            return Type::Struct(mangled.clone()); // already done
         }
-        Type::Unknown => "unknown".to_string(),
-    }
-}
 
-fn to_base_reg(reg: &str) -> &str {
-    match reg {
-        "eax" | "ax" | "al" => "rax",
-        "ebx" | "bx" | "bl" => "rbx",
-        "ecx" | "cx" | "cl" => "rcx",
-        "edx" | "dx" | "dl" => "rdx",
-        "esi" | "si" | "sil" => "rsi",
-        "edi" | "di" | "dil" => "rdi",
-        _ => reg, // already 64-bit or r8-r15
+        // substitute types in fields and recompute offsets
+        let mut offset = 0;
+        let fields: Vec<StructField> = def
+            .elements
+            .iter()
+            .map(|f| {
+                let concrete_ty = substitute_type(&f.1.ty, &def.generic_type, type_args);
+                let field_size = self.type_size(&concrete_ty);
+                let field = StructField {
+                    name: f.1.name.clone(),
+                    ty: concrete_ty,
+                    offset,
+                };
+                offset += field_size;
+                field
+            })
+            .collect();
+        self.structs.insert(
+            mangled.clone(),
+            StructData {
+                generic_type: Vec::new(),
+                name: mangled.clone(),
+                elements: fields.iter().map(|f| (f.name.clone(), f.clone())).collect(),
+                byte_size: offset, // total size
+            },
+        );
+        return Type::Struct(mangled);
     }
-}
 
-pub fn arg_pos(pos: usize, ty: &Type) -> String {
-    let size = match ty {
-        Type::Primitive(token) => match token {
-            TokenType::CharType => 1,
-            TokenType::ShortType => 2,
-            TokenType::IntType => 4,
-            TokenType::LongType => 8,
-            _ => panic!("unsupported primitive type in arg_pos: {:?}", token),
-        },
-        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => {
-            panic!("unkown type: {:?}", ty)
+    fn monomorphize_enum(&mut self, def: &EnumData, type_args: &Vec<Type>) -> Type {
+        let mangled = format!(
+            "{}__{}",
+            def.name,
+            type_args
+                .iter()
+                .map(|t| type_name(t))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
+
+        if self.enums.contains_key(&mangled) {
+            return Type::Enum(mangled.clone()); // already done
         }
-        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
-    };
 
-    match (pos, size) {
-        (0, 8) => "rdi",
-        (0, 4) => "edi",
-        (0, 2) => "di",
-        (0, 1) => "dil",
-        (1, 8) => "rsi",
-        (1, 4) => "esi",
-        (1, 2) => "si",
-        (1, 1) => "sil",
-        (2, 8) => "rdx",
-        (2, 4) => "edx",
-        (2, 2) => "dx",
-        (2, 1) => "dl",
-        (3, 8) => "rcx",
-        (3, 4) => "ecx",
-        (3, 2) => "cx",
-        (3, 1) => "cl",
-        (4, 8) => "r8",
-        (4, 4) => "r8d",
-        (4, 2) => "r8w",
-        (4, 1) => "r8b",
-        (5, 8) => "r9",
-        (5, 4) => "r9d",
-        (5, 2) => "r9w",
-        (5, 1) => "r9b",
-        (6, 8) => "r10",
-        (6, 4) => "r10d",
-        (6, 2) => "r10w",
-        (6, 1) => "r10b",
-        (7, 8) => "r11",
-        (7, 4) => "r11d",
-        (7, 2) => "r11w",
-        (7, 1) => "r11b",
-        _ => panic!("arg_pos: unsupported pos={} size={}", pos, size),
+        let mut new_variants = HashMap::new();
+        for (var_name, variant) in def.variants.iter() {
+            let new_args: Vec<StructField> = variant
+                .args
+                .iter()
+                .map(|arg| StructField {
+                    name: arg.name.clone(),
+                    ty: substitute_type(&arg.ty, &def.generic_type, type_args),
+                    // the tag offest
+                    offset: arg.offset + 8,
+                })
+                .collect();
+            new_variants.insert(
+                var_name.clone(),
+                EnumVariant {
+                    name: variant.name.clone(),
+                    tag: variant.tag,
+                    args: new_args,
+                },
+            );
+        }
+        self.enums.insert(
+            mangled.clone(),
+            EnumData {
+                name: mangled.clone(),
+                generic_type: Vec::new(),
+                variants: new_variants,
+            },
+        );
+        return Type::Enum(mangled);
     }
-    .to_string()
+
+    fn ensure_monomorphized(&mut self, ty: &Type) -> Type {
+        match ty {
+            Type::GenericInst(name, type_args) => {
+                let mangled = type_name(ty);
+                // already done?
+                if self.structs.contains_key(&mangled) {
+                    return Type::Struct(mangled.clone());
+                }
+                if self.enums.contains_key(&mangled) {
+                    return Type::Enum(mangled.clone());
+                }
+                // find the generic definition and monomorphize
+                if let Some(struct_def) = self.structs.get(name).cloned() {
+                    return self.monomorphize_struct(&struct_def, type_args);
+                } else if let Some(enum_def) = self.enums.get(name).cloned() {
+                    return self.monomorphize_enum(&enum_def, type_args);
+                } else {
+                    self::panic!("unknown generic type: {}", name);
+                }
+            }
+            Type::Pointer(inner) => {
+                let ty = self.ensure_monomorphized(inner);
+                Type::Pointer(Box::new(ty))
+            }
+            Type::Array(inner, size) => {
+                let ty = self.ensure_monomorphized(inner);
+                Type::Array(Box::new(ty), *size)
+            }
+            _ => ty.clone(),
+        }
+    }
 }
 
-pub fn lvalue_root(lvalue: &LValue) -> String {
-    match lvalue {
-        LValue::Variable(name) => name.clone(),
-        LValue::Field { base, .. } => lvalue_root(base),
-        LValue::Deref(inner) => lvalue_root(inner),
-        LValue::Index { base, .. } => lvalue_root(base),
+impl Expr {
+    /// Returns the Type of this expression
+    pub fn get_type(&self, helper: &impl Lookup) -> Type {
+        match &self.ty {
+            ExprType::Number(_) => Type::Primitive(TokenType::LongType),
+            ExprType::Float(_) => todo!(),
+            ExprType::Variable(var_name) => helper.look_var(var_name).unwrap_or(Type::Primitive(TokenType::LongType)),
+            ExprType::Binary { op, left, right } => helper.look_binary(op, left, right),
+            ExprType::Unary { op, expr } => helper.look_unary(op, expr),
+            ExprType::Call {
+                name,
+                args,
+                generics,
+            } => helper.look_call(name, args, generics),
+            ExprType::StructInit {
+                struct_name_ty,
+                fields,
+            } => helper.look_struct_init(struct_name_ty),
+            ExprType::StructMember { base, name } => helper.look_struct_member(base, name),
+            ExprType::Deref(expr) => helper.look_deref(expr),
+            ExprType::Index { base, index } => helper.look_index(base, index),
+            ExprType::ArrayInit { elements } => helper.look_array_init(elements),
+            ExprType::SizeOf { ty } => Type::Primitive(TokenType::LongType),
+            ExprType::String { str } => {
+                return Type::Array(
+                    Box::new(Type::Primitive(TokenType::CharType)),
+                    str.len() + 1,
+                );
+            }
+            ExprType::GetEnum {
+                base,
+                variant,
+                value,
+            } => helper.look_get_enum(base),
+            ExprType::Cast { expr, ty } => ty.clone(),
+        }
     }
 }
 
@@ -316,8 +404,8 @@ impl Gen {
 
     pub fn reg_inits(&mut self, stmt: &Vec<Stmt>) {
         for i in stmt.iter() {
-            match i {
-                Stmt::InitFunc {
+            match &i.ty {
+                StmtType::InitFunc {
                     name,
                     args,
                     ret_type,
@@ -334,7 +422,7 @@ impl Gen {
                         .or_insert_with(Vec::new)
                         .push(func_data);
                 }
-                Stmt::GenericInitFunc {
+                StmtType::GenericInitFunc {
                     name,
                     generic_types,
                     args,
@@ -352,10 +440,10 @@ impl Gen {
                         .push(func_data);
                     self.generic_func.insert(name.clone(), i.clone());
                 }
-                Stmt::InitStruct(data) => {
+                StmtType::InitStruct(data) => {
                     self.gen_init_struct(&data);
                 }
-                Stmt::InitEnum {
+                StmtType::InitEnum {
                     name,
                     variants,
                     generic_types,

@@ -15,6 +15,7 @@ mod Ir;
 mod Parser;
 // mod llvm_gen;
 mod sem_analysis;
+mod shared;
 mod tokenizer;
 
 #[derive(CliParser, Debug)]
@@ -38,29 +39,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let file_path = Path::new(&cli.file);
     let base_dir = file_path.parent().unwrap().to_path_buf();
-
+    let current_file = file_path.to_str().unwrap().to_string();
     let mut imported_files = HashSet::new();
-    let mut parser = Parser::Parser::new(tokenizer.m_res, base_dir.clone(), &mut imported_files);
+    let mut parser = Parser::Parser::new(
+        tokenizer.m_res,
+        base_dir.clone(),
+        &mut imported_files,
+        current_file,
+    );
     let res = parser.parse();
 
     let mut file = File::create("parser_result.txt").expect("Failed to create parser_result.txt");
 
     write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
-
-    // sem_analyser is broken for now
-
-    //let mut analyzer = Analyzer::new(&res);
-    //analyzer.check_code();
-    //if analyzer.errors.len() > 0 {
-    //    let error_dump = format!("{:#?}", analyzer.errors);
-    //    fs::write("errors.txt", error_dump).expect("Failed to write errors.txt");
-    // panic!("errors");
-    //}
-
-    let mut generator = crate::Ir::r#gen::Gen::new(res);
-    let asm = generator.gen_asm()?;
-    let mut file = File::create("main.asm")?;
-    let _res = file.write(asm.as_bytes())?;
+    let mut analyzer = Analyzer::new(&res);
+    analyzer.check_code();
+    if analyzer.had_error.get() {
+        std::process::exit(1);
+    } else {
+        let mut generator = crate::Ir::r#gen::Gen::new(res);
+        let asm = generator.gen_asm()?;
+        let mut file = File::create("main.asm")?;
+        let _res = file.write(asm.as_bytes())?;
+    }
 
     Ok(())
 }

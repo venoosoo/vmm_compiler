@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::Ir::expr::{BinOp, Expr, UnaryOp};
@@ -19,6 +19,9 @@ pub struct Parser<'a> {
     types: HashSet<String>,
     enums_table: HashMap<String, EnumData>,
     base_dir: PathBuf,
+    current_file: String,
+    line: usize,
+    col: usize,
     generic: HashSet<String>,
     imported_files: &'a mut HashSet<String>,
 }
@@ -39,6 +42,7 @@ impl<'a> Parser<'a> {
         m_tokens: Vec<Token>,
         base_dir: PathBuf,
         imported_files: &'a mut HashSet<String>,
+        current_file: String,
     ) -> Self {
         Parser {
             m_tokens,
@@ -46,6 +50,9 @@ impl<'a> Parser<'a> {
             struct_table: HashMap::new(),
             expressions: Vec::new(),
             types: HashSet::new(),
+            line: 1,
+            col: 0,
+            current_file,
             generic: HashSet::new(),
             enums_table: HashMap::new(),
             base_dir,

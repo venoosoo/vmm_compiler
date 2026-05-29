@@ -1,16 +1,19 @@
+use core::panic;
+use std::backtrace;
 use std::fs::File;
 use std::io::Read;
 
 use super::*;
-
-use crate::Gen::type_name;
-use crate::Ir::expr::Expr;
+use crate::Ir::expr::{Expr, ExprType};
 use crate::Ir::stmt::*;
+use crate::shared::type_name;
 use crate::tokenizer;
 
 impl<'a> Parser<'a> {
     pub fn parse_stmt(&mut self) -> Option<Stmt> {
-        let token = self.peek(0);
+        let token = self.peek(0).clone();
+        self.line = token.line;
+        self.col = token.col;
         match token.token {
             TokenType::If => return self.parse_if(),
             TokenType::While => return self.parse_while(),
@@ -29,8 +32,8 @@ impl<'a> Parser<'a> {
                     self.parse_import();
 
                     // the import shouldnt return any stmt
-                    // but we need to return something to satisfy the func needs refactor
-                    Some(Stmt::Block(Vec::new()))
+                    // but we need to return something to satisfy the func needs
+                    Some(self.type_to_stmt(StmtType::Block(Vec::new())))
                 };
             }
             ty if self.is_type(&token) => {
@@ -56,21 +59,23 @@ impl<'a> Parser<'a> {
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
             self.consume();
+            let pre_ptr = self.parse_ptr();
             let ty = self.get_type();
-            let ty = self.parse_ptr(ty);
-            let ty = self.parse_array(ty);
             let ty = self.parse_generic_types(ty);
+            let ty = self.parse_array(ty);
+            let post_ptr = self.parse_ptr();
+            let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
 
             ret_type = ty;
         }
-        let data = Box::new(Stmt::InitFunc {
+        let data = Box::new(self.type_to_stmt(StmtType::InitFunc {
             name,
             generic_types: HashMap::new(),
             args,
             ret_type,
-            data: Box::new(Stmt::Block(Vec::new())),
-        });
-        return Some(Stmt::ExternFn(data));
+            data: Box::new(self.type_to_stmt(StmtType::Block(Vec::new()))),
+        }));
+        return Some(self.type_to_stmt(StmtType::ExternFn(data)));
     }
 
     fn parse_match_field(&mut self) -> MatchLeftValue {
@@ -122,7 +127,7 @@ impl<'a> Parser<'a> {
             self.expect(TokenType::Coma);
         }
         self.expect(TokenType::CloseScope);
-        return Some(Stmt::Match { expr, variants });
+        return Some(self.type_to_stmt(StmtType::Match { expr, variants }));
     }
 
     fn parse_enum_field(&mut self, tag: usize) -> EnumVariant {
@@ -135,9 +140,10 @@ impl<'a> Parser<'a> {
         let mut offset = 0;
         while self.peek(0).token != TokenType::CloseScope {
             let ty = self.get_type();
-            let ty = self.parse_ptr(ty);
+            let index = self.parse_ptr();
             let name = self.consume().value.unwrap();
             let ty = self.parse_array(ty);
+            let ty = self.apply_ptr(ty, index);
             self.expect(TokenType::Semi);
             args.push(StructField {
                 name,
@@ -175,6 +181,14 @@ impl<'a> Parser<'a> {
         generic
     }
 
+    pub fn type_to_stmt(&self, stmt: StmtType) -> Stmt {
+        Stmt {
+            ty: stmt,
+            line: self.line,
+            file: self.current_file.clone(),
+        }
+    }
+
     fn parse_enum(&mut self) -> Option<Stmt> {
         self.consume();
         let name = self.consume().value.unwrap();
@@ -198,18 +212,18 @@ impl<'a> Parser<'a> {
                 variants: variants.clone(),
             },
         );
-        return Some(Stmt::InitEnum {
+        return Some(self.type_to_stmt(StmtType::InitEnum {
             name,
             variants,
             generic_types: generic,
-        });
+        }));
     }
 
     fn parse_global(&mut self) -> Option<Stmt> {
         self.consume();
         let stmt = self.parse_declaration().unwrap();
         self.expect(TokenType::Semi);
-        return Some(Stmt::GlobalDecl(Box::new(stmt)));
+        return Some(self.type_to_stmt(StmtType::GlobalDecl(Box::new(stmt))));
     }
 
     pub fn is_type(&self, token: &Token) -> bool {
@@ -230,12 +244,21 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_ptr(&mut self, mut ty: Type) -> Type {
-        while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::Mul {
-            self.consume();
+    pub fn apply_ptr(&mut self, ty: Type, index: u32) -> Type {
+        let mut ty = ty.clone();
+        for i in 0..index {
             ty = Type::Pointer(Box::new(ty));
         }
-        ty
+        return ty;
+    }
+
+    pub fn parse_ptr(&mut self) -> u32 {
+        let mut index = 0;
+        while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::Mul {
+            index += 1;
+            self.consume();
+        }
+        index
     }
     pub fn parse_array(&mut self, mut ty: Type) -> Type {
         while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::OpenBracket {
@@ -252,31 +275,19 @@ impl<'a> Parser<'a> {
     }
 
     pub fn get_type(&mut self) -> Type {
-        let mut pointer_depth = 0;
-        while self.peek(0).token == TokenType::Mul {
-            self.consume();
-            pointer_depth += 1;
-        }
-
         let token = self.consume();
-
-        let mut ty = if token.token == TokenType::Var {
+        if token.token == TokenType::Var {
             let name = self.types.get(&token.value.unwrap()).unwrap();
             if self.struct_table.get(name).is_some() {
-                Type::Struct(name.to_string())
+                return Type::Struct(name.to_string());
             } else if self.generic.get(name).is_some() {
-                Type::GenericType(name.clone())
+                return Type::GenericType(name.clone());
             } else {
-                Type::Enum(name.to_string())
+                return Type::Enum(name.to_string());
             }
         } else {
-            Type::Primitive(token.token)
+            return Type::Primitive(token.token);
         };
-        for _ in 0..pointer_depth {
-            ty = Type::Pointer(Box::new(ty));
-        }
-
-        ty
     }
 
     pub fn parse_generic_types(&mut self, ty: Type) -> Type {
@@ -284,9 +295,11 @@ impl<'a> Parser<'a> {
             self.consume();
             let mut res = Vec::new();
             while self.peek(0).token != TokenType::More {
+                let pre_ptr = self.parse_ptr();
                 let ty = self.get_type();
-                let ty = self.parse_ptr(ty);
+                let post_ptr = self.parse_ptr();
                 let ty = self.parse_array(ty);
+                let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
                 res.push(ty);
                 if self.peek(0).token == TokenType::Coma {
                     self.consume();
@@ -300,47 +313,48 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
+        let pre_ptr = self.parse_ptr();
         let ty = self.get_type();
         let ty = self.parse_generic_types(ty);
-        let ty = self.parse_ptr(ty);
+        let post_ptr = self.parse_ptr();
         let var_name = self.consume();
         let mut ty = self.parse_array(ty);
+        ty = self.apply_ptr(ty, pre_ptr + post_ptr);
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
             self.consume();
             let initializer = self.parse_expr();
-
-            // fix up char[] size from string literal
-            if let (Type::Array(inner, 0), Expr::String { str: s }) = (&ty, &initializer) {
+            if let (Type::Array(inner, 0), ExprType::String { str: s }) = (&ty, &initializer.ty) {
                 if **inner == Type::Primitive(TokenType::CharType) {
                     ty = Type::Array(Box::new(Type::Primitive(TokenType::CharType)), s.len() + 1);
                 }
             }
-
             expr = Some(initializer);
         }
-        return Some(Stmt::Declaration(Declaration {
+        return Some(self.type_to_stmt(StmtType::Declaration(Declaration {
             name: var_name.value.unwrap(),
             ty: ty,
             initializer: expr,
-        }));
+        })));
     }
 
     fn parse_import(&mut self) {
         self.consume();
+
+        let saved = self.current_file.clone();
+
         let file_name = self.consume().value.unwrap();
         let full_path = self
             .base_dir
             .join(&file_name)
             .canonicalize()
             .expect(&format!("Cannot find import: {}", file_name));
-
         let canonical_str = full_path.to_str().unwrap().to_string();
         if self.imported_files.contains(&canonical_str) {
             return;
         }
+        self.current_file = canonical_str.clone();
         self.imported_files.insert(canonical_str);
-
         let mut file = File::open(&full_path).expect(&format!("Cannot find import: {}", file_name));
 
         let mut content = String::new();
@@ -349,7 +363,12 @@ impl<'a> Parser<'a> {
         let mut tokenizer = tokenizer::Tokenizer::new(content);
         tokenizer.tokenize();
 
-        let mut parser = Parser::new(tokenizer.m_res, self.base_dir.clone(), self.imported_files);
+        let mut parser = Parser::new(
+            tokenizer.m_res,
+            self.base_dir.clone(),
+            self.imported_files,
+            self.current_file.clone(),
+        );
         parser.base_dir = full_path.parent().unwrap().to_path_buf();
         let imported_stmts = parser.parse();
         self.types.extend(parser.types);
@@ -358,6 +377,7 @@ impl<'a> Parser<'a> {
         for stmt in imported_stmts {
             self.expressions.push(stmt);
         }
+        self.current_file = full_path.join(saved).to_string_lossy().to_string();
     }
 
     fn parse_struct_init(&mut self) -> Option<Stmt> {
@@ -381,10 +401,11 @@ impl<'a> Parser<'a> {
                 panic!("Expected type in struct field");
             };
 
-            ty = self.parse_ptr(ty);
+            let index = self.parse_ptr();
             let field_name = self.consume().value.unwrap();
 
             ty = self.parse_array(ty);
+            ty = self.apply_ptr(ty, index);
 
             self.expect(TokenType::Semi);
 
@@ -413,7 +434,7 @@ impl<'a> Parser<'a> {
         // register struct in type table
         self.types.insert(struct_name.clone());
         self.struct_table.insert(struct_name.clone(), def.clone());
-        Some(Stmt::InitStruct(def))
+        Some(self.type_to_stmt(StmtType::InitStruct(def)))
     }
 
     fn check_assignment_start(&self) -> bool {
@@ -525,10 +546,10 @@ impl<'a> Parser<'a> {
 
         let value = self.parse_expr();
 
-        Some(Stmt::Assignment {
+        Some(self.type_to_stmt(StmtType::Assignment {
             target: lvalue,
             value,
-        })
+        }))
     }
 
     fn parse_assignment(&mut self) -> Option<Stmt> {
@@ -545,7 +566,7 @@ impl<'a> Parser<'a> {
             stmts.push(stmt);
         }
         self.consume();
-        return Some(Stmt::Block(stmts));
+        return Some(self.type_to_stmt(StmtType::Block(stmts)));
     }
 
     fn parse_if(&mut self) -> Option<Stmt> {
@@ -558,18 +579,18 @@ impl<'a> Parser<'a> {
             let else_data = Box::new(self.parse_stmt().unwrap());
             else_block = Some(else_data);
         }
-        return Some(Stmt::If {
+        return Some(self.type_to_stmt(StmtType::If {
             condition,
             if_block,
             else_block,
-        });
+        }));
     }
 
     fn parse_while(&mut self) -> Option<Stmt> {
         self.consume();
         let condition = self.parse_expr();
         let body = Box::new(self.parse_stmt().unwrap());
-        return Some(Stmt::While { condition, body });
+        return Some(self.type_to_stmt(StmtType::While { condition, body }));
     }
 
     fn parse_for(&mut self) -> Option<Stmt> {
@@ -597,12 +618,12 @@ impl<'a> Parser<'a> {
 
         self.consume(); // )
         let body = Box::new(self.parse_stmt().unwrap());
-        return Some(Stmt::For {
+        return Some(self.type_to_stmt(StmtType::For {
             init,
             condition,
             update,
             body,
-        });
+        }));
     }
 
     fn parse_asm_stmt(&mut self) -> Option<Stmt> {
@@ -614,7 +635,7 @@ impl<'a> Parser<'a> {
             asm_code.push(str.value.unwrap());
         }
         self.consume();
-        return Some(Stmt::AsmCode(asm_code));
+        return Some(self.type_to_stmt(StmtType::AsmCode(asm_code)));
     }
 
     fn parse_ret(&mut self) -> Option<Stmt> {
@@ -625,13 +646,13 @@ impl<'a> Parser<'a> {
             None
         };
         self.expect(TokenType::Semi);
-        Some(Stmt::Return(expr))
+        Some(self.type_to_stmt(StmtType::Return(expr)))
     }
 
     fn parse_expr_stmt(&mut self) -> Option<Stmt> {
         let expr = self.parse_expr();
         self.expect(TokenType::Semi);
-        Some(Stmt::ExprStmt(expr))
+        Some(self.type_to_stmt(StmtType::ExprStmt(expr)))
     }
 }
 

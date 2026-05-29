@@ -1,7 +1,15 @@
 use crate::Ir::{Stmt, stmt::Type};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub struct Expr {
+    pub ty: ExprType,
+    pub file: String,
+    pub line: usize,
+    pub col: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExprType {
     Number(i64),
     Float(f64),
     Variable(String),
@@ -96,7 +104,7 @@ pub struct EnumExprField {
 }
 
 pub trait Lookup {
-    fn look_var(&self, name: &String) -> Type;
+    fn look_var(&self, name: &String) -> Option<Type>;
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type;
     fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type;
     fn look_struct_init(&self, struct_name: &String) -> Type;

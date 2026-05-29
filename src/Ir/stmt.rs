@@ -30,9 +30,15 @@ pub struct Declaration {
     pub initializer: Option<Expr>,
 }
 
-/// Statements
 #[derive(Debug, Clone, PartialEq)]
-pub enum Stmt {
+pub struct Stmt {
+    pub ty: StmtType,
+    pub line: usize,
+    pub file: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StmtType {
     Block(Vec<Stmt>), // scopes
     Declaration(Declaration),
     Assignment {
