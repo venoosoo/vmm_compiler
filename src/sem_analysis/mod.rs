@@ -24,12 +24,18 @@ impl<'a> TypeContext for Analyzer<'a> {
         name: &String,
         args: &Vec<Expr>,
         generics: &Vec<Type>,
-    ) -> (FuncData, usize) {
+    ) -> Option<(FuncData, usize)> {
         if generics.len() > 0 {
-            let vec_func_data = self.functions.get(name).unwrap().clone();
-            return (vec_func_data[0].clone(), 0);
+            let vec_func_data = self.get_function(name);
+            if vec_func_data.len() < 1 {
+                return None;
+            }
+            return Some((vec_func_data[0].clone(), 0));
         }
-        let vec_func_data = self.functions.get(name).unwrap().clone();
+        let vec_func_data = self.get_function(name);
+        if vec_func_data.len() < 1 {
+            return None;
+        }
         let (overload_pos, func_data) = vec_func_data
             .iter()
             .enumerate()
@@ -46,7 +52,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                 })
             })
             .expect(&format!("no matching overload for function '{}'", name,));
-        (func_data.clone(), overload_pos)
+        Some((func_data.clone(), overload_pos))
     }
 
     fn monomorphize_struct(&mut self, def: &StructData, type_args: &Vec<Type>) -> Type {
@@ -104,7 +110,7 @@ impl<'a> TypeContext for Analyzer<'a> {
         );
 
         if self.enums.contains_key(&mangled) {
-            return Type::Enum(mangled.clone()); // already done
+            return Type::Enum(mangled.clone(), None); // already done
         }
 
         let mut new_variants = HashMap::new();
@@ -125,6 +131,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                     name: variant.name.clone(),
                     tag: variant.tag,
                     args: new_args,
+                    size: 0,
                 },
             );
         }
@@ -134,9 +141,10 @@ impl<'a> TypeContext for Analyzer<'a> {
                 name: mangled.clone(),
                 generic_type: Vec::new(),
                 variants: new_variants,
+                size: 0,
             },
         );
-        return Type::Enum(mangled);
+        return Type::Enum(mangled, None);
     }
 
     fn ensure_monomorphized(&mut self, ty: &Type) -> Type {
@@ -148,7 +156,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                     return Type::Struct(mangled.clone());
                 }
                 if self.enums.contains_key(&mangled) {
-                    return Type::Enum(mangled.clone());
+                    return Type::Enum(mangled.clone(), None);
                 }
                 // find the generic definition and monomorphize
                 if let Some(struct_def) = self.structs.get(name).cloned() {
@@ -192,7 +200,6 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-
     // this is just copy from gen
     // TODO: make this a trait so and expand it for gen and analyzer
     pub fn type_size(&self, ty: &Type) -> usize {
@@ -214,7 +221,7 @@ impl<'a> Analyzer<'a> {
             }
             Type::GenericInst(..) => todo!(),
             Type::GenericType(_) => todo!(),
-            Type::Enum(_) => 8,
+            Type::Enum(..) => 8,
             Type::Unknown => panic!("unkown type"),
         }
     }
@@ -286,10 +293,12 @@ impl<'a> Analyzer<'a> {
                     variants,
                     generic_types,
                 } => {
+                    // TODO: add size checking
                     let enum_data = EnumData {
                         name: name.clone(),
                         generic_type: generic_types.clone(),
                         variants: variants.clone(),
+                        size: 0,
                     };
                     self.enums.insert(name.clone(), enum_data);
                 }
@@ -319,6 +328,16 @@ impl<'a> Analyzer<'a> {
             return Some(global_data.clone());
         }
         return None;
+    }
+
+    pub fn get_function(&mut self, name: &String) -> Vec<FuncData> {
+        let func_data = self.functions.get(name);
+        if func_data.is_some() {
+            return func_data.unwrap().to_vec();
+        } else {
+            self.print_error(self.type_to_error(SemanticError::UndeclaredFunction(name.clone())));
+            Vec::new()
+        }
     }
 
     pub fn add_var(&mut self, name: String, ty: Type) {

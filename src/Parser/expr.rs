@@ -273,7 +273,9 @@ impl<'a> Parser<'a> {
         let name = self.consume().value.unwrap();
         self.expect(TokenType::Colon);
         let expr = self.parse_expr();
-        self.expect(TokenType::Coma);
+        if self.peek(0).token == TokenType::Coma {
+            self.expect(TokenType::Coma);
+        }
         return EnumExprField { name, expr };
     }
 

@@ -127,7 +127,7 @@ impl<'a> Parser<'a> {
                     .expect(&format!("unkown struct: {}", name))
                     .size
             }
-            Type::Enum(_) => 8,
+            Type::Enum(..) => 8,
             Type::GenericType(_) => 0,
             _ => {
                 println!("ty: {:?}", ty);
@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
             if self.struct_table.contains_key(name) {
                 return Some(Type::Struct(name.clone()));
             } else if self.enums_table.contains_key(name) {
-                return Some(Type::Enum(name.clone()));
+                return Some(Type::Enum(name.clone(), None));
             } else {
                 return Some(Type::GenericType(name.clone()));
             }

@@ -17,7 +17,8 @@ pub enum Type {
     Pointer(Box<Type>),
     Array(Box<Type>, usize),
     Struct(String),
-    Enum(String),
+    /// name, variant name
+    Enum(String, Option<String>),
     GenericType(String),
     GenericInst(String, Vec<Type>),
     Unknown,
@@ -104,12 +105,14 @@ pub struct StructField {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: String,
+    pub size: usize,
     pub tag: usize,
     pub args: Vec<StructField>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumData {
+    pub size: usize,
     pub name: String,
     pub generic_type: Vec<String>,
     pub variants: HashMap<String, EnumVariant>,

@@ -29,6 +29,24 @@ fn print_num(long n) {
     }
 }
 
+fn print(long number) {
+    print_num(number);
+}
+
+fn println(long number) {
+    print(number);
+    asm {
+        "sub rsp, 1"
+        "mov byte [rsp], 10"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}
+
 
 fn println(char* str) {
     print(str);
@@ -58,25 +76,6 @@ fn print(char str) {
 
 fn println(char str) {
     print(str);
-}
-
-
-fn print(long number) {
-    print_num(number);
-}
-
-fn println(long number) {
-    print(number);
-    asm {
-        "sub rsp, 1"
-        "mov byte [rsp], 10"
-        "mov rax, 1"
-        "mov rdi, 1"
-        "mov rsi, rsp"
-        "mov rdx, 1"
-        "syscall"
-        "add rsp, 1"
-    }
 }
 
 fn exit(int code) {
@@ -169,6 +168,11 @@ enum Option<T> {
         T data;
     }
     None,
+}
+
+
+fn Some<T>(T data) -> Option<T> {
+    return Option::Some(data: data);
 }
 
 

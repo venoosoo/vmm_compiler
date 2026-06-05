@@ -48,7 +48,7 @@ pub fn type_name(ty: &Type) -> String {
         Type::Pointer(inner) => format!("{}__ptr", type_name(inner)),
         Type::Array(inner, size) => format!("{}__arr__{}", type_name(inner), size),
         Type::Struct(name) => name.clone(),
-        Type::Enum(name) => name.clone(),
+        Type::Enum(name, _) => name.clone(),
         Type::GenericType(name) => name.clone(),
         Type::GenericInst(name, types) => {
             let type_args = types
@@ -86,7 +86,7 @@ pub fn arg_pos(pos: usize, ty: &Type) -> String {
         Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => {
             panic!("unkown type: {:?}", ty)
         }
-        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
+        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(..) => 8,
     };
 
     match (pos, size) {

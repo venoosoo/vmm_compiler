@@ -91,8 +91,8 @@ impl<'a> Lookup for Analyzer<'a> {
         }
     }
 
-    fn look_get_enum(&self, base: &String) -> Type {
-        Type::Enum(base.clone())
+    fn look_get_enum(&self, base: &String, variant: &String) -> Type {
+        Type::Enum(base.clone(), Some(variant.clone()))
     }
 }
 
@@ -333,7 +333,14 @@ impl<'a> Analyzer<'a> {
         expected_ty: &Type,
         generics: &Vec<Type>,
     ) -> Type {
-        let (func_data, func_index) = self.resolve_call(name, args, generics);
+        let (func_data, func_index) = {
+            let data = self.resolve_call(name, args, generics);
+            if data.is_none() {
+                return Type::Primitive(TokenType::LongType);
+            } else {
+                data.unwrap()
+            }
+        };
         for (index, generic) in func_data.generic.iter().enumerate() {
             self.generics
                 .insert(generic.clone(), generics[index].clone());
@@ -366,7 +373,7 @@ impl<'a> Analyzer<'a> {
 
                         let saved_ret_type = self.current_ret_type.clone();
                         // TODO: add normal support for return
-                        
+
                         //self.check_init_func((&name, &new_args, &ret_type, &data, &generic_data));
                         self.current_ret_type = saved_ret_type;
                         return ret_type;
@@ -411,7 +418,6 @@ impl<'a> Analyzer<'a> {
         return Type::Struct(struct_name.to_string());
     }
 
-
     fn check_struct_member(&mut self, base: &Box<Expr>, name: &String, expected_ty: &Type) -> Type {
         let base = self.check_expr(base, expected_ty);
         let base = self.ensure_monomorphized(&base);
@@ -430,7 +436,9 @@ impl<'a> Analyzer<'a> {
                         return Type::Unknown;
                     }
                 } else {
-                    self.print_error(self.type_to_error(SemanticError::UndeclaredStruct(struct_name)));
+                    self.print_error(
+                        self.type_to_error(SemanticError::UndeclaredStruct(struct_name)),
+                    );
                     return Type::Unknown;
                 }
             }
@@ -464,7 +472,9 @@ impl<'a> Analyzer<'a> {
         let index_ty = self.check_expr(index, expected_ty);
 
         if !is_numeric(&index_ty) {
-            self.print_error(self.type_to_error(SemanticError::InvalidArrayIndex(index_ty.clone())));
+            self.print_error(
+                self.type_to_error(SemanticError::InvalidArrayIndex(index_ty.clone())),
+            );
         }
 
         match base_ty {
@@ -521,7 +531,7 @@ impl<'a> Analyzer<'a> {
                 panic!("debil²")
             }
         }
-        Type::Enum(base.clone())
+        Type::Enum(base.clone(), None)
     }
 
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {

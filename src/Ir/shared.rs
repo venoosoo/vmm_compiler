@@ -13,5 +13,5 @@ pub trait TypeContext {
         name: &String,
         args: &Vec<Expr>,
         generics: &Vec<Type>,
-    ) -> (FuncData, usize);
+    ) -> Option<(FuncData, usize)>;
 }

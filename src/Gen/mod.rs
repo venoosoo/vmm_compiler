@@ -16,16 +16,18 @@ use crate::tokenizer::TokenType;
 mod gen_expr;
 mod gen_stmt;
 
+const TAG_SIZE: usize = 8;
+
 impl TypeContext for Gen {
     fn resolve_call(
         &mut self,
         name: &String,
         args: &Vec<Expr>,
         generics: &Vec<Type>,
-    ) -> (FuncData, usize) {
+    ) -> Option<(FuncData, usize)> {
         if generics.len() > 0 {
             let vec_func_data = self.functions.get(name).unwrap().clone();
-            return (vec_func_data[0].clone(), 0);
+            return Some((vec_func_data[0].clone(), 0));
         }
         let vec_func_data = self.functions.get(name).unwrap().clone();
         let (overload_pos, func_data) = vec_func_data
@@ -44,7 +46,7 @@ impl TypeContext for Gen {
                 })
             })
             .expect(&format!("no matching overload for function '{}'", name,));
-        (func_data.clone(), overload_pos)
+        Some((func_data.clone(), overload_pos))
     }
 
     fn monomorphize_struct(&mut self, def: &StructData, type_args: &Vec<Type>) -> Type {
@@ -102,10 +104,11 @@ impl TypeContext for Gen {
         );
 
         if self.enums.contains_key(&mangled) {
-            return Type::Enum(mangled.clone()); // already done
+            return Type::Enum(mangled.clone(), None); // already done
         }
 
         let mut new_variants = HashMap::new();
+        let mut max_size = TAG_SIZE;
         for (var_name, variant) in def.variants.iter() {
             let new_args: Vec<StructField> = variant
                 .args
@@ -113,8 +116,7 @@ impl TypeContext for Gen {
                 .map(|arg| StructField {
                     name: arg.name.clone(),
                     ty: substitute_type(&arg.ty, &def.generic_type, type_args),
-                    // the tag offest
-                    offset: arg.offset + 8,
+                    offset: arg.offset + TAG_SIZE,
                 })
                 .collect();
             new_variants.insert(
@@ -123,8 +125,12 @@ impl TypeContext for Gen {
                     name: variant.name.clone(),
                     tag: variant.tag,
                     args: new_args,
+                    size: variant.size,
                 },
             );
+            if variant.size > max_size {
+                max_size = variant.size
+            }
         }
         self.enums.insert(
             mangled.clone(),
@@ -132,9 +138,10 @@ impl TypeContext for Gen {
                 name: mangled.clone(),
                 generic_type: Vec::new(),
                 variants: new_variants,
+                size: max_size + TAG_SIZE,
             },
         );
-        return Type::Enum(mangled);
+        return Type::Enum(mangled, None);
     }
 
     fn ensure_monomorphized(&mut self, ty: &Type) -> Type {
@@ -146,7 +153,7 @@ impl TypeContext for Gen {
                     return Type::Struct(mangled.clone());
                 }
                 if self.enums.contains_key(&mangled) {
-                    return Type::Enum(mangled.clone());
+                    return Type::Enum(mangled.clone(), None);
                 }
                 // find the generic definition and monomorphize
                 if let Some(struct_def) = self.structs.get(name).cloned() {
@@ -176,7 +183,9 @@ impl Expr {
         match &self.ty {
             ExprType::Number(_) => Type::Primitive(TokenType::LongType),
             ExprType::Float(_) => todo!(),
-            ExprType::Variable(var_name) => helper.look_var(var_name).unwrap_or(Type::Primitive(TokenType::LongType)),
+            ExprType::Variable(var_name) => helper
+                .look_var(var_name)
+                .unwrap_or(Type::Primitive(TokenType::LongType)),
             ExprType::Binary { op, left, right } => helper.look_binary(op, left, right),
             ExprType::Unary { op, expr } => helper.look_unary(op, expr),
             ExprType::Call {
@@ -203,7 +212,7 @@ impl Expr {
                 base,
                 variant,
                 value,
-            } => helper.look_get_enum(base),
+            } => helper.look_get_enum(base, variant),
             ExprType::Cast { expr, ty } => ty.clone(),
         }
     }
@@ -250,7 +259,7 @@ impl Gen {
             }
 
             Type::Unknown | Type::GenericInst(..) => return None,
-            Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
+            Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(..) => 8,
         };
 
         match (base, size) {
@@ -298,7 +307,7 @@ impl Gen {
             Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
             Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
             Type::Struct(struct_name) => "QWORD".to_string(),
-            Type::Enum(_) => "QWORD".to_string(),
+            Type::Enum(..) => "QWORD".to_string(),
             Type::GenericType(name) => {
                 let res = self.generics.get(name).unwrap();
                 return self.get_word(res);
@@ -448,10 +457,18 @@ impl Gen {
                     variants,
                     generic_types,
                 } => {
+                    let mut max_size = TAG_SIZE;
+                    for (_, data) in variants.iter() {
+                        if max_size < data.size {
+                            max_size = data.size
+                        }
+                    }
+
                     let enum_data = EnumData {
                         name: name.clone(),
                         generic_type: generic_types.clone(),
                         variants: variants.clone(),
+                        size: max_size + TAG_SIZE,
                     };
                     self.enums.insert(name.clone(), enum_data);
                 }

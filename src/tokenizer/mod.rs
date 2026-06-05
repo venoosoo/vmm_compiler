@@ -262,11 +262,10 @@ impl Tokenizer {
                                     self.col = 0;
                                 }
                             }
-                        }
-                        else {
+                        } else {
                             self.push_token(TokenType::Div, Some('/'.to_string()))
                         }
-                    },
+                    }
                     '(' => self.push_token(TokenType::OpenParen, Some('('.to_string())),
                     ')' => self.push_token(TokenType::CloseParen, Some(')'.to_string())),
                     '{' => self.push_token(TokenType::OpenScope, None),

@@ -45,11 +45,10 @@ pub struct FuncData {
 
 #[derive(Debug, Clone)]
 pub struct StructData {
-    // TODO: make this vec because we need order
     pub elements: IndexMap<String, StructField>,
     pub name: String,
     pub generic_type: Vec<String>,
-    pub byte_size: usize,
+    pub byte_size: usize, // size of struct
 }
 
 #[derive(Clone, Debug)]

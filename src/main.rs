@@ -61,6 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let asm = generator.gen_asm()?;
         let mut file = File::create("main.asm")?;
         let _res = file.write(asm.as_bytes())?;
+        println!("compiled successfully");
     }
 
     Ok(())

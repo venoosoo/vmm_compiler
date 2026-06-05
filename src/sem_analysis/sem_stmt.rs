@@ -37,17 +37,17 @@ impl<'a> Analyzer<'a> {
             let expr_ty = self.check_expr(expr, &ty);
             if !check_types(&ty, &expr_ty) {
                 self.print_error(self.type_to_error(SemanticError::TypeMismatch {
-                        expected: ty.clone(),
-                        got: expr_ty.clone(),
-                    }));
+                    expected: ty.clone(),
+                    got: expr_ty.clone(),
+                }));
             }
             if let (Type::Array(_, decl_size), Type::Array(_, init_size)) = (&ty, &expr_ty) {
                 if init_size > decl_size {
                     self.print_error(self.type_to_error(SemanticError::ArrayTooLarge {
-                            arr_name: data.name.clone(),
-                            expected: *decl_size,
-                            got: *init_size,
-                        }));
+                        arr_name: data.name.clone(),
+                        expected: *decl_size,
+                        got: *init_size,
+                    }));
                 }
             }
         }
@@ -100,7 +100,6 @@ impl<'a> Analyzer<'a> {
     pub fn check_assignment(&mut self, target: &LValue, value: &Expr) {
         let var_name = lvalue_root(target);
         if self.lookup(&var_name).is_none() {
-
             self.print_error(self.type_to_error(SemanticError::UndeclaredVariable(var_name)));
             return;
         }
@@ -110,9 +109,9 @@ impl<'a> Analyzer<'a> {
         let expr_ty = self.check_expr(value, &target_ty);
         if !check_types(&target_ty, &expr_ty) {
             self.print_error(self.type_to_error(SemanticError::TypeMismatch {
-                    expected: target_ty,
-                    got: expr_ty,
-                }));
+                expected: target_ty,
+                got: expr_ty,
+            }));
         }
     }
 
@@ -163,9 +162,9 @@ impl<'a> Analyzer<'a> {
         }
         if !check_types(&self.current_ret_type, &expr_ty) {
             self.print_error(self.type_to_error(SemanticError::ReturnTypeMismatch {
-                    expected: self.current_ret_type.clone(),
-                    got: expr_ty.clone(),
-                }));
+                expected: self.current_ret_type.clone(),
+                got: expr_ty.clone(),
+            }));
         }
     }
 
@@ -225,7 +224,7 @@ impl<'a> Analyzer<'a> {
     fn get_match_left_value_type(&self, lvalue: &MatchLeftValue) -> Type {
         match lvalue {
             MatchLeftValue::Enum { base, value, args } => {
-                return Type::Enum(base.clone());
+                return Type::Enum(base.clone(), None);
             }
             MatchLeftValue::Expr { expr } => expr.get_type(self),
         }
@@ -234,13 +233,13 @@ impl<'a> Analyzer<'a> {
     fn check_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) {
         let expr_ty = expr.get_type(self);
         match expr_ty.clone() {
-            Type::Enum(enum_data) => {
+            Type::Enum(enum_data, _) => {
                 for var in variants {
                     let left_ty = self.get_match_left_value_type(&var.left);
 
                     if !check_types(&left_ty, &expr_ty) {
                         match left_ty.clone() {
-                            Type::Enum(name) => {
+                            Type::Enum(name, _) => {
                                 if name == "_" {
                                     continue;
                                 }
@@ -248,9 +247,9 @@ impl<'a> Analyzer<'a> {
                             _ => {}
                         }
                         self.print_error(self.type_to_error(SemanticError::MatchTypeMismatch {
-                                expected: expr_ty.clone(),
-                                got: left_ty.clone(),
-                            }));
+                            expected: expr_ty.clone(),
+                            got: left_ty.clone(),
+                        }));
                     }
                 }
             }
@@ -259,7 +258,7 @@ impl<'a> Analyzer<'a> {
                     let left_ty = self.get_match_left_value_type(&var.left);
                     if !check_types(&left_ty, &expr_ty) {
                         match left_ty.clone() {
-                            Type::Enum(name) => {
+                            Type::Enum(name, _) => {
                                 if name == "_" {
                                     continue;
                                 }
@@ -267,15 +266,17 @@ impl<'a> Analyzer<'a> {
                             _ => {}
                         }
                         self.print_error(self.type_to_error(SemanticError::MatchTypeMismatch {
-                                expected: expr_ty.clone(),
-                                got: left_ty.clone(),
-                            }));
+                            expected: expr_ty.clone(),
+                            got: left_ty.clone(),
+                        }));
                     }
                 }
             }
 
             _ => {
-                self.print_error(self.type_to_error(SemanticError::MatchExprUnsuported(expr_ty.clone())));
+                self.print_error(
+                    self.type_to_error(SemanticError::MatchExprUnsuported(expr_ty.clone())),
+                );
             }
         }
     }

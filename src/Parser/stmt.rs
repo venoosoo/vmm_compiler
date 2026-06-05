@@ -134,7 +134,12 @@ impl<'a> Parser<'a> {
         let name = self.consume().value.unwrap();
         let mut args: Vec<StructField> = Vec::new();
         if self.peek(0).token == TokenType::Coma {
-            return EnumVariant { name, args, tag };
+            return EnumVariant {
+                name,
+                args,
+                tag,
+                size: tag,
+            };
         }
         self.expect(TokenType::OpenScope);
         let mut offset = 0;
@@ -153,7 +158,12 @@ impl<'a> Parser<'a> {
             offset += self.size_of(&ty);
         }
         self.expect(TokenType::CloseScope);
-        return EnumVariant { name, args, tag };
+        return EnumVariant {
+            name,
+            args,
+            tag,
+            size: tag + offset,
+        };
     }
 
     pub fn parse_generic(&mut self) -> Vec<String> {
@@ -196,9 +206,13 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::OpenScope);
         let mut variants: HashMap<String, EnumVariant> = HashMap::new();
         let mut tag = 0;
+        let mut max_size = 8; // the min would be the tag_size
         while self.peek(0).token != TokenType::CloseScope {
             let res = self.parse_enum_field(tag);
             tag += 1;
+            if res.size > max_size {
+                max_size = res.size
+            };
             self.expect(TokenType::Coma);
             variants.insert(res.name.clone(), res);
         }
@@ -210,6 +224,7 @@ impl<'a> Parser<'a> {
                 generic_type: generic.clone(),
                 name: name.clone(),
                 variants: variants.clone(),
+                size: max_size,
             },
         );
         return Some(self.type_to_stmt(StmtType::InitEnum {
@@ -280,10 +295,12 @@ impl<'a> Parser<'a> {
             let name = self.types.get(&token.value.unwrap()).unwrap();
             if self.struct_table.get(name).is_some() {
                 return Type::Struct(name.to_string());
+            } else if self.enums_table.get(name).is_some() {
+                return Type::Enum(name.to_string(), None);
             } else if self.generic.get(name).is_some() {
                 return Type::GenericType(name.clone());
             } else {
-                return Type::Enum(name.to_string());
+                return Type::Unknown;
             }
         } else {
             return Type::Primitive(token.token);
@@ -292,7 +309,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse_generic_types(&mut self, ty: Type) -> Type {
         if self.peek(0).token == TokenType::Less {
-            self.consume();
+            self.expect(TokenType::Less);
             let mut res = Vec::new();
             while self.peek(0).token != TokenType::More {
                 let pre_ptr = self.parse_ptr();
@@ -302,10 +319,10 @@ impl<'a> Parser<'a> {
                 let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
                 res.push(ty);
                 if self.peek(0).token == TokenType::Coma {
-                    self.consume();
+                    self.expect(TokenType::Coma);
                 }
             }
-            self.consume();
+            self.expect(TokenType::More);
             return Type::GenericInst(type_name(&ty), res);
         } else {
             return ty;
@@ -373,6 +390,7 @@ impl<'a> Parser<'a> {
         let imported_stmts = parser.parse();
         self.types.extend(parser.types);
         self.struct_table.extend(parser.struct_table);
+        self.enums_table.extend(parser.enums_table);
 
         for stmt in imported_stmts {
             self.expressions.push(stmt);
@@ -655,140 +673,3 @@ impl<'a> Parser<'a> {
         Some(self.type_to_stmt(StmtType::ExprStmt(expr)))
     }
 }
-
-// #[test]
-// fn test_single_pointer() {
-//     let tokens = vec![Token {
-//         token: TokenType::Mul,
-//         value: None,
-//     }];
-
-//     let mut parser = Parser {
-//         m_tokens: tokens,
-//         m_index: 0,
-//         struct_table: HashMap::new(),
-//         expressions: Vec::new(),
-//         types: HashSet::new(),
-//         base_dir: PathBuf::new(),
-//     };
-
-//     let result = parser.parse_ptr(Type::Primitive(TokenType::IntType));
-//     println!("result: {:?}", result);
-//     assert_eq!(
-//         result,
-//         Type::Pointer(Box::new(Type::Primitive(TokenType::IntType)))
-//     );
-// }
-
-// #[test]
-// fn test_double_pointer() {
-//     let tokens = vec![
-//         Token {
-//             token: TokenType::Mul,
-//             value: None,
-//         },
-//         Token {
-//             token: TokenType::Mul,
-//             value: None,
-//         },
-//     ];
-
-//     let mut parser = Parser {
-//         m_tokens: tokens,
-//         m_index: 0,
-//         struct_table: HashMap::new(),
-//         expressions: Vec::new(),
-//         types: HashSet::new(),
-//         base_dir: PathBuf::new(),
-//     };
-
-//     let result = parser.parse_ptr(Type::Primitive(TokenType::IntType));
-//     println!("result: {:?}", result);
-//     assert_eq!(
-//         result,
-//         Type::Pointer(Box::new(Type::Pointer(Box::new(Type::Primitive(
-//             TokenType::IntType
-//         )))))
-//     );
-// }
-
-// #[test]
-// fn test_array_simple() {
-//     let tokens = vec![
-//         Token {
-//             token: TokenType::OpenBracket,
-//             value: None,
-//         },
-//         Token {
-//             token: TokenType::Num,
-//             value: Some("5".to_string()),
-//         },
-//         Token {
-//             token: TokenType::CloseBracket,
-//             value: None,
-//         },
-//     ];
-
-//     let mut parser = Parser {
-//         m_tokens: tokens,
-//         m_index: 0,
-//         struct_table: HashMap::new(),
-//         expressions: Vec::new(),
-//         types: HashSet::new(),
-//         base_dir: PathBuf::new(),
-//     };
-
-//     let result = parser.parse_array(Type::Primitive(TokenType::IntType));
-
-//     assert_eq!(
-//         result,
-//         Type::Array(Box::new(Type::Primitive(TokenType::IntType)), 5)
-//     );
-// }
-
-// #[test]
-// fn test_pointer_array() {
-//     let tokens = vec![
-//         // for parse_ptr (pointer)
-//         Token {
-//             token: TokenType::Mul,
-//             value: None,
-//         },
-//         // for parse_array
-//         Token {
-//             token: TokenType::OpenBracket,
-//             value: None,
-//         },
-//         Token {
-//             token: TokenType::Num,
-//             value: Some("5".to_string()),
-//         },
-//         Token {
-//             token: TokenType::CloseBracket,
-//             value: None,
-//         },
-//     ];
-
-//     let mut parser = Parser {
-//         m_tokens: tokens,
-//         struct_table: HashMap::new(),
-//         m_index: 0,
-//         expressions: Vec::new(),
-//         types: HashSet::new(),
-//         base_dir: PathBuf::new(),
-//     };
-
-//     // First parse pointer
-//     let ty = parser.parse_ptr(Type::Primitive(TokenType::IntType));
-
-//     // Then parse array
-//     let result = parser.parse_array(ty);
-
-//     assert_eq!(
-//         result,
-//         Type::Array(
-//             Box::new(Type::Pointer(Box::new(Type::Primitive(TokenType::IntType)))),
-//             5
-//         )
-//     );
-// }

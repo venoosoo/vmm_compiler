@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use super::*;
 
 use crate::Ir::expr::{Expr, ExprType};
-use crate::Ir::stmt::{EnumVariant, LValue, MatchField, MatchLeftValue, StructDef, StructField};
+use crate::Ir::stmt::{LValue, MatchField, MatchLeftValue, StructDef, StructField};
 use crate::Ir::{Stmt, stmt::Declaration};
 use crate::shared::align16;
 
@@ -20,22 +20,12 @@ impl Gen {
 
     fn gen_declaration(&mut self, data: &Declaration) {
         let data_ty = self.ensure_monomorphized(&data.ty);
-        let data_ty = match data_ty {
+        let mut data_ty = match data_ty {
             Type::GenericType(name) => self.generics.get(&name).unwrap().clone(),
             _ => data_ty,
         };
         let stack_pos = self.alloc_type(&data_ty);
-        let current_scope = self.scopes.last_mut().unwrap();
-        if current_scope.contains_key(&data.name) {
-            self::panic!("Variable already declared in this scope");
-        }
 
-        let var_data = VarData {
-            global_flag: false,
-            stack_pos,
-            var_type: data_ty.clone(),
-        };
-        current_scope.insert(data.name.clone(), var_data);
 
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data_ty);
@@ -59,7 +49,7 @@ impl Gen {
                     }
                     _ => {}
                 },
-                Type::Enum(_) => match &expr.ty {
+                Type::Enum(name, variant) => match &expr.ty {
                     ExprType::GetEnum {
                         base,
                         variant,
@@ -73,12 +63,27 @@ impl Gen {
                                 size_word, stack_pos, sized_reg
                             ));
                         }
+                        if let Type::Enum(_, enum_variant) = &mut data_ty {
+                            *enum_variant = Some(variant.clone());
+                        }
                     }
                     _ => {}
                 },
                 _ => {} // structs/arrays already written to stack by their eval_expr
             }
         }
+
+        let current_scope = self.scopes.last_mut().unwrap();
+        if current_scope.contains_key(&data.name) {
+            self::panic!("Variable already declared in this scope");
+        }
+
+        let var_data = VarData {
+            global_flag: false,
+            stack_pos,
+            var_type: data_ty.clone(),
+        };
+        current_scope.insert(data.name.clone(), var_data);
     }
 
     pub fn calc_lvalue(&mut self, target: &LValue) -> (Addr, Type) {
@@ -294,7 +299,90 @@ impl Gen {
     fn gen_ret(&mut self, expr: &Option<Expr>) {
         if let Some(ret_expr) = expr {
             let ret_type = self.current_return_type.clone();
-            self.eval_expr(ret_expr, &ret_type); // result in rax/eax/ax/al
+            match &ret_expr.ty {
+                ExprType::Variable(name) => {
+                    self.gen_expr_var_addr(name, &ret_type);
+                }
+                ExprType::GetEnum {
+                    base,
+                    variant,
+                    value,
+                } => {
+                    self.gen_get_enum_addr(base, value, variant);
+                }
+                _ => {
+                    self.eval_expr(ret_expr, &ret_type);
+                }
+            }
+            match &self.ensure_monomorphized(&ret_type) {
+                Type::Struct(name) => {
+                    let struct_data = self.structs.get(name).unwrap().clone();
+                    self.emit_func_data("    mov rcx, rax".to_string());
+                    for (_, data) in struct_data.elements.iter() {
+                        let reg = self.reg_for_size("rdx", &data.ty).unwrap();
+                        self.emit_func_data(format!("    mov {}, [rcx + {}]", reg, data.offset));
+                        self.emit_func_data(format!("    mov [rdi + {}], {}", data.offset, reg));
+                    }
+                }
+                Type::Enum(name, variant) => {
+                    match &ret_expr.ty {
+                        ExprType::GetEnum {
+                            base,
+                            variant,
+                            value,
+                        } => {
+                            let enum_data = self.enums.get(name).unwrap().clone();
+                            let field_data = enum_data.variants.get(variant).unwrap().clone();
+                            self.emit_func_data("    mov rcx, rax".to_string()); // save enum base
+                            // copy tag
+                            self.emit_func_data(format!("    mov rdx, [rcx]"));
+                            self.emit_func_data(format!("    mov [rdi], rdx"));
+                            // copy fields
+                            for data in &field_data.args {
+                                let reg = self.reg_for_size("rdx", &data.ty).unwrap();
+                                self.emit_func_data(format!(
+                                    "    mov {}, [rcx + {}]",
+                                    reg, data.offset
+                                ));
+                                self.emit_func_data(format!(
+                                    "    mov [rdi + {}], {}",
+                                    data.offset, reg
+                                ));
+                            }
+                        }
+                        ExprType::Variable(name) => {
+                            let var = self.look_var(name).unwrap();
+                            match &var {
+                                Type::Enum(name, variant) => {
+                                    let enum_data = self.enums.get(name).unwrap().clone();
+                                    let variant = variant.clone().unwrap();
+                                    let field_data =
+                                        enum_data.variants.get(&variant).unwrap().clone();
+                                    self.emit_func_data("    mov rcx, rax".to_string()); // save enum base
+                                    // copy tag
+                                    self.emit_func_data(format!("    mov rdx, [rcx]"));
+                                    self.emit_func_data(format!("    mov [rdi], rdx"));
+                                    // copy fields
+                                    for data in &field_data.args {
+                                        let reg = self.reg_for_size("rdx", &data.ty).unwrap();
+                                        self.emit_func_data(format!(
+                                            "    mov {}, [rcx + {}]",
+                                            reg, data.offset
+                                        ));
+                                        self.emit_func_data(format!(
+                                            "    mov [rdi + {}], {}",
+                                            data.offset, reg
+                                        ));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
         }
         self.emit_func_data("    mov rsp, rbp".to_string());
         self.emit_func_data("    pop rbp".to_string());
@@ -326,9 +414,16 @@ impl Gen {
         }
     }
 
-    pub fn compile_args(&mut self, args: &Vec<Declaration>) {
+    pub fn compile_args(&mut self, args: &Vec<Declaration>, ret_type: &Type) {
+        let mut offset = false;
+        match &self.ensure_monomorphized(ret_type) {
+            Type::Enum(name, _) => offset = true,
+            Type::Struct(name) => offset = true,
+            _ => {}
+        }
         let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
         for (i, decl) in args.iter().enumerate() {
+            let i = if offset { i + 1 } else { i };
             if i >= arg_regs.len() {
                 self::panic!("too many args, stack args not supported yet");
             }
@@ -405,7 +500,7 @@ impl Gen {
         } else {
             self.emit_func_header(format!("{}:", name));
         }
-        self.compile_args(args);
+        self.compile_args(args, ret_type);
         self.gen_stmt(body);
 
         // restore outer scopes
@@ -465,7 +560,7 @@ impl Gen {
                     .expect(&format!("Unknown struct: {}", name))
                     .byte_size
             }
-            Type::Enum(name) => self.enum_get_size(name),
+            Type::Enum(name, _) => self.enum_get_size(name),
             Type::GenericType(name) => {
                 let ty = self.generics.get(name).unwrap();
                 self.type_size(ty)
@@ -583,7 +678,7 @@ impl Gen {
                 }
                 let new_base = {
                     match expr_ty {
-                        Type::Enum(name) => name,
+                        Type::Enum(name, _) => name,
                         _ => base,
                     }
                 };
@@ -596,7 +691,7 @@ impl Gen {
                     let field = &field_data.args[index];
                     let ty = {
                         match field.ty {
-                            Type::Struct(_) | Type::Enum(_) => {
+                            Type::Struct(_) | Type::Enum(..) => {
                                 Type::Pointer(Box::new(field.ty.clone()))
                             }
                             _ => field.ty.clone(),
@@ -639,7 +734,7 @@ impl Gen {
                 }
                 let new_base = {
                     match expr_ty {
-                        Type::Enum(name) => name,
+                        Type::Enum(name, _) => name,
                         _ => base,
                     }
                 };
@@ -672,7 +767,7 @@ impl Gen {
                 } else {
                     let new_base = {
                         match expr_ty {
-                            Type::Enum(name) => name,
+                            Type::Enum(name, _) => name,
                             _ => base,
                         }
                     };

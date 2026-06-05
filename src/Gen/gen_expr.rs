@@ -14,6 +14,10 @@ impl Lookup for Gen {
     fn look_var(&self, name: &String) -> Option<Type> {
         if self.structs.get(name).is_some() {
             return Some(Type::Struct(name.clone()));
+        }
+        if self.enums.get(name).is_some() {
+            // possible bug
+            return Some(Type::Enum(name.clone(), None));
         } else {
             let var = self.lookup_var(name);
             return Some(var.var_type.clone());
@@ -139,11 +143,10 @@ impl Lookup for Gen {
         }
     }
 
-    fn look_get_enum(&self, base: &String) -> Type {
-        Type::Enum(base.clone())
+    fn look_get_enum(&self, base: &String, variant: &String) -> Type {
+        Type::Enum(base.clone(), Some(variant.clone()))
     }
 }
-
 
 impl Gen {
     fn gen_expr_binop(
@@ -255,22 +258,7 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn gen_expr_var(&mut self, var_name: &String, expected_type: &Type) -> String {
-        let var_data = self.lookup_var(var_name).clone();
-        if var_data.global_flag {
-            match var_data.var_type {
-                Type::Primitive(_) | Type::Pointer(_) => {
-                    let sized_rax = self.reg_for_size("rax", &var_data.var_type).unwrap();
-                    self.emit_func_data(format!("    mov {}, [rel {}]", sized_rax, var_name));
-                }
-                _ => {
-                    // struct/array — load address
-                    self.emit_func_data(format!("    lea rax, [rel {}]", var_name));
-                }
-            }
-            return "rax".to_string();
-        }
-
+    fn var_return(&mut self, var_data: &VarData, expected_type: &Type) {
         match &var_data.var_type {
             Type::Primitive(_) => {
                 let actual_size = self.type_size(&var_data.var_type);
@@ -294,7 +282,7 @@ impl Gen {
             Type::Pointer(_) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
-            Type::Enum(ty) => {
+            Type::Enum(ty, _) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
             _ => {
@@ -302,6 +290,82 @@ impl Gen {
                 self.emit_func_data(format!("    lea rax, [rbp - {}]", var_data.stack_pos));
             }
         }
+    }
+
+    fn gen_expr_var(&mut self, var_name: &String, expected_type: &Type) -> String {
+        let var_data = self.lookup_var(var_name).clone();
+        if var_data.global_flag {
+            match var_data.var_type {
+                Type::Primitive(_) | Type::Pointer(_) => {
+                    let sized_rax = self.reg_for_size("rax", &var_data.var_type).unwrap();
+                    self.emit_func_data(format!("    mov {}, [rel {}]", sized_rax, var_name));
+                }
+                _ => {
+                    // struct/array — load address
+                    self.emit_func_data(format!("    lea rax, [rel {}]", var_name));
+                }
+            }
+            return "rax".to_string();
+        }
+
+        self.var_return(&var_data, expected_type);
+
+        "rax".to_string()
+    }
+
+    // TODO: make this better
+    fn var_return_addr(&mut self, var_data: &VarData, expected_type: &Type) {
+        match &var_data.var_type {
+            Type::Primitive(_) => {
+                let actual_size = self.type_size(&var_data.var_type);
+                let expected_size = self.type_size(expected_type);
+                if expected_size > actual_size {
+                    let src_word = self.get_word(&var_data.var_type);
+                    self.emit_func_data(format!(
+                        "    movsx rax, {} [rbp - {}]",
+                        src_word, var_data.stack_pos
+                    ));
+                } else {
+                    let sized_rax = self.reg_for_size("rax", &var_data.var_type).unwrap();
+                    self.emit_func_data(format!(
+                        "    mov {}, {} [rbp - {}]",
+                        sized_rax,
+                        self.get_word(&var_data.var_type),
+                        var_data.stack_pos
+                    ));
+                }
+            }
+            Type::Pointer(_) => {
+                self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
+            }
+            Type::Enum(ty, _) => {
+                self.emit_func_data(format!("    lea rax, [rbp - {}]", var_data.stack_pos));
+            }
+            _ => {
+                // struct/array — load address
+                self.emit_func_data(format!("    lea rax, [rbp - {}]", var_data.stack_pos));
+            }
+        }
+    }
+
+    // TODO: make this better
+    pub fn gen_expr_var_addr(&mut self, var_name: &String, expected_type: &Type) -> String {
+        let var_data = self.lookup_var(var_name).clone();
+        if var_data.global_flag {
+            match var_data.var_type {
+                Type::Primitive(_) | Type::Pointer(_) => {
+                    let sized_rax = self.reg_for_size("rax", &var_data.var_type).unwrap();
+                    self.emit_func_data(format!("    mov {}, [rel {}]", sized_rax, var_name));
+                }
+                _ => {
+                    // struct/array — load address
+                    self.emit_func_data(format!("    lea rax, [rel {}]", var_name));
+                }
+            }
+            return "rax".to_string();
+        }
+        self.var_return_addr(&var_data, expected_type);
+
         "rax".to_string()
     }
 
@@ -382,7 +446,6 @@ impl Gen {
         mangled
     }
 
-
     fn convert_generic_arg(
         &self,
         arg: &Declaration,
@@ -406,7 +469,7 @@ impl Gen {
                 let ty = if self.structs.contains_key(&normal_name) {
                     Type::Struct(normal_name)
                 } else if self.enums.contains_key(&normal_name) {
-                    Type::Enum(normal_name)
+                    Type::Enum(normal_name, None)
                 } else {
                     self::panic!("GenericInst not monomorphized: {}", normal_name)
                 };
@@ -460,19 +523,45 @@ impl Gen {
         overload_pos: usize,
         generics: &Vec<Type>,
     ) -> String {
+        let args = args.clone();
         let mut name = name.clone();
+
+        let mut is_rvo = false; // return value optimization
+
         let stack_pos_save = self.stack_pos;
         self.stack_pos = 0;
+        for (index, generic) in func_data.generic.iter().enumerate() {
+            self.generics
+                .insert(generic.clone(), generics[index].clone());
+        }
+
+        match &self.ensure_monomorphized(&func_data.return_type) {
+            Type::Struct(name) => {
+                let struct_data = self.structs.get(name).unwrap();
+                let pos = self.alloc(struct_data.byte_size);
+
+                self.emit_func_data(format!("    lea rdi, [rbp - {}]", pos));
+                self.emit_func_data(format!("    push rdi"));
+                is_rvo = true;
+            }
+            Type::Enum(name, None) => {
+                let enum_data = self.enums.get(name).unwrap();
+                let pos = self.alloc(enum_data.size);
+
+                self.emit_func_data(format!("    lea rdi, [rbp - {}]", pos));
+                self.emit_func_data(format!("    push rdi"));
+                is_rvo = true;
+            }
+            _ => {}
+        }
+
+        let new_args = self.convert_generic_args(&func_data.args, generics, &self.generics);
         for (index, arg) in args.iter().enumerate() {
             let arg_type = func_data.args[index].ty.clone();
             self.eval_expr(arg, &arg_type);
             self.emit_func_data("    push rax".to_string());
         }
-        for (index, generic) in func_data.generic.iter().enumerate() {
-            self.generics
-                .insert(generic.clone(), generics[index].clone());
-        }
-        let new_args = self.convert_generic_args(&func_data.args, generics, &self.generics);
+
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(&name).unwrap().clone();
             name = self.transform_generic_name(&name, generics);
@@ -513,16 +602,20 @@ impl Gen {
                     if self.structs.get(&mangled).is_some() {
                         arg_type = Type::Struct(mangled);
                     } else if self.enums.get(&mangled).is_some() {
-                        arg_type = Type::Enum(mangled);
+                        arg_type = Type::Enum(mangled, None);
                     }
                 }
                 _ => {}
             }
+            let index = if is_rvo { index + 1 } else { index };
             let arg_reg = arg_pos(index, &arg_type);
             self.emit_func_data(format!("    pop {}", to_base_reg(&arg_reg)));
             // then size it down if needed
             self.reg_for_size(&to_base_reg(&arg_reg), &arg_type)
                 .unwrap();
+        }
+        if is_rvo {
+            self.emit_func_data(format!("    pop rdi"));
         }
         if self.functions.get(&name).unwrap().len() > 1 {
             self.emit_func_data(format!("    call {}___{}", name, overload_pos));
@@ -859,7 +952,7 @@ impl Gen {
                 if self.structs.contains_key(&mangled) {
                     Type::Struct(mangled)
                 } else if self.enums.contains_key(&mangled) {
-                    Type::Enum(mangled)
+                    Type::Enum(mangled, None)
                 } else {
                     self::panic!("GenericInst not yet monomorphized: {:?}", ty)
                 }
@@ -882,7 +975,7 @@ impl Gen {
             }
         }
         // accounting for tag
-        size + 8
+        size + TAG_SIZE
     }
 
     fn handle_generic_enum(
@@ -907,8 +1000,70 @@ impl Gen {
             .map(|param| type_map.get(param).map(type_name).unwrap_or(param.clone()))
             .collect();
         let name = format!("{}__{}", enum_data.name, type_args.join("_"));
-
         name
+    }
+
+    // TODO: make this bettter
+    pub fn gen_get_enum_addr(
+        &mut self,
+        base: &String,
+        value: &Vec<EnumExprField>,
+        variant: &String,
+    ) -> String {
+        let pos = self.stack_pos;
+        let mut base = base.clone();
+        let enum_data = self
+            .enums
+            .get(&base)
+            .expect(&format!("no enum with name {}", base))
+            .clone();
+        if enum_data.generic_type.len() > 0 {
+            base = self.handle_generic_enum(&enum_data, value, variant);
+        }
+        let variant_data = enum_data
+            .variants
+            .get(variant)
+            .expect(&format!("in enum {} no field {}", base, variant));
+        // if we have value its creating an object
+
+        if value.is_empty() {
+            self.emit_func_data(format!("    lea rax, {}", variant_data.tag));
+            return "rax".to_string();
+        }
+
+        self.emit_func_data(format!("    mov rax, {}", variant_data.tag));
+        self.emit_func_data(format!("    mov [rbp - {}], rax", pos));
+        // this reserves space for tag
+        self.stack_pos -= 8;
+        for (index, var) in variant_data.args.clone().iter().enumerate() {
+            let res = &value[index];
+            let mut var_ty = var.ty.clone();
+            match var.ty {
+                Type::GenericType(_) => {
+                    var_ty = res.expr.get_type(self);
+                }
+                _ => {}
+            }
+            self.eval_expr(&res.expr, &var_ty);
+            let reg = self.reg_for_size("rax", &var_ty).unwrap();
+            let word = self.get_word(&var_ty);
+            match &var_ty {
+                Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) => {
+                    self.emit_func_data(format!(
+                        "    mov {} [rbp - {}], {}",
+                        word,
+                        self.stack_pos - var.offset,
+                        reg
+                    ));
+                }
+                _ => {}
+            }
+        }
+        self.emit_func_data(format!("    lea rax, [rbp - {pos}]"));
+        // returns space
+        self.stack_pos += 8;
+
+        return "rax".to_string();
     }
 
     pub fn gen_get_enum(
@@ -932,44 +1087,45 @@ impl Gen {
             .get(variant)
             .expect(&format!("in enum {} no field {}", base, variant));
         // if we have value its creating an object
-        if !value.is_empty() {
-            self.emit_func_data(format!("    mov rax, {}", variant_data.tag));
-            self.emit_func_data(format!("    mov [rbp - {}], rax", pos));
-            // this reserves space for tag
-            self.stack_pos -= 8;
-            for (index, var) in variant_data.args.clone().iter().enumerate() {
-                let res = &value[index];
-                let mut var_ty = var.ty.clone();
-                match var.ty {
-                    Type::GenericType(_) => {
-                        var_ty = res.expr.get_type(self);
-                    }
-                    _ => {}
-                }
-                self.eval_expr(&res.expr, &var_ty);
-                let reg = self.reg_for_size("rax", &var_ty).unwrap();
-                let word = self.get_word(&var_ty);
-                match &var_ty {
-                    Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) => {
-                        self.emit_func_data(format!(
-                            "    mov {} [rbp - {}], {}",
-                            word,
-                            self.stack_pos - var.offset,
-                            reg
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-            self.emit_func_data(format!("    mov rax, [rbp - {pos}]"));
-            // returns space
-            self.stack_pos += 8;
 
-            return "rax".to_string();
-        } else {
+        if value.is_empty() {
             self.emit_func_data(format!("    mov rax, {}", variant_data.tag));
             return "rax".to_string();
         }
+
+        self.emit_func_data(format!("    mov rax, {}", variant_data.tag));
+        self.emit_func_data(format!("    mov [rbp - {}], rax", pos));
+        // this reserves space for tag
+        self.stack_pos -= 8;
+        for (index, var) in variant_data.args.clone().iter().enumerate() {
+            let res = &value[index];
+            let mut var_ty = var.ty.clone();
+            match var.ty {
+                Type::GenericType(_) => {
+                    var_ty = res.expr.get_type(self);
+                }
+                _ => {}
+            }
+            self.eval_expr(&res.expr, &var_ty);
+            let reg = self.reg_for_size("rax", &var_ty).unwrap();
+            let word = self.get_word(&var_ty);
+            match &var_ty {
+                Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) => {
+                    self.emit_func_data(format!(
+                        "    mov {} [rbp - {}], {}",
+                        word,
+                        self.stack_pos - var.offset,
+                        reg
+                    ));
+                }
+                _ => {}
+            }
+        }
+        self.emit_func_data(format!("    mov rax, [rbp - {pos}]"));
+        // returns space
+        self.stack_pos += 8;
+
+        return "rax".to_string();
     }
 
     pub fn eval_expr(&mut self, expr: &Expr, expected_type: &Type) -> String {
@@ -991,7 +1147,7 @@ impl Gen {
                 args,
                 generics,
             } => {
-                let (func_data, overload_pos) = self.resolve_call(name, args, generics);
+                let (func_data, overload_pos) = self.resolve_call(name, args, generics).unwrap();
                 self.gen_call(&name, args, &func_data, overload_pos, generics)
             }
 
