@@ -109,7 +109,7 @@ Semantic Analysis — type checking, scope resolution, function signatures
 
 ## In progress / planned
 
-- 🔧 Standar libary, Strings, Data structures, etc...
+- 🔧 Standart libary, Strings, Data structures, etc...
 - 🔧 Macro system
 - 🔧 Floats support
 - 🔧 Better match support / optimization
