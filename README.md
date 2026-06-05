@@ -92,12 +92,6 @@ Semantic Analysis — type checking, scope resolution, function signatures
 ---
 
 ## What's working
-
-- ✅ Tokenizer — full lexer for all language tokens
-- ✅ Parser — recursive descent with Pratt-style expression parsing
-- ✅ AST / IR — typed expression and statement nodes
-- ✅ Semantic analysis — type checking, scope resolution, function/struct registration
-- ✅ Code generation — x86-64 NASM output, System V ABI compliant
 - ✅ Primitive types: `int`, `char`, `short`, `long`, `void`
 - ✅ Pointers and dereferencing (`*`, `&`)
 - ✅ Arrays with bounds-checked index access
@@ -111,14 +105,15 @@ Semantic Analysis — type checking, scope resolution, function signatures
 - ✅ Global variables
 - ✅ File imports via `import "file.v"`
 - ✅ `sizeof(Type)` operator
-- ✅ Standard library: `print`, `print_str`, `print_char`, `strlen`, `malloc`, `free`, `memcpy`, `syscall`, `exit`
-- ✅ Generic `Vector` type with `create_vector`, `vector_push`, `vector_pop`, `vec_get_element`
+- ✅ Generic Structs, Enums, Functions
 
 ## In progress / planned
 
-- 🔧 Full semantic analysis rewrite — proper numeric coercion, array-to-pointer decay
+- 🔧 Standar libary, Strings, Data structures, etc...
 - 🔧 Macro system
-- 🔧 Improved error reporting with source locations
+- 🔧 Floats support
+- 🔧 Better match support / optimization
+- 🔧 Better error reporting
 
 ---
 
@@ -187,6 +182,7 @@ Point p = Point { x: 1, y: 2 };   // stack allocated, use .
 Point* hp = malloc(sizeof(Point)); // heap allocated, use ->
 hp->x = 10;
 
+
 // Control flow
 if x > 10 {
     // ...
@@ -200,6 +196,26 @@ while x > 0 {
 
 for (int i = 0; i < 10; i = i + 1) {
     // ...
+}
+
+// Enums
+enum Colors {
+    black,
+    white,
+    yellow,
+    purple,
+}
+
+Colors white = Colors::white;
+
+// matches
+match white {
+    Colors::white => {
+        // ...
+    }
+    _ => {
+        // ... 
+    }
 }
 
 // Globals
@@ -259,13 +275,15 @@ src/
 │   ├── mod.rs               — Analyzer impl, scope management, check_code
 │   ├── sem_expr.rs          — expression type checking
 │   └── sem_stmt.rs          — statement type checking
+├── Shared/
+|   ├── mod.rs               - shared function that doesnt rely on classes
 └── Gen/
     ├── mod.rs               — Gen struct, reg_for_size, arg_pos, helpers
     ├── gen_expr.rs          — expression codegen (stack-machine eval)
     └── gen_stmt.rs          — statement codegen, lvalue resolution
 
 std/
-├── std.v                    — print, malloc, memcpy, syscall, strlen, exit
+├── std.v                    — print, malloc, memcpy, syscall, strlen, exit...
 └── vector.v                 — generic Vector with push/pop/get
 ```
 
