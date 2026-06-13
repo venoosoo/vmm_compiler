@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // let mut file = File::create("parser_result.txt").expect("Failed to create parser_result.txt");
 
-    write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
+    //write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
     let mut analyzer = Analyzer::new(&res);
     analyzer.check_code();
     if analyzer.had_error.get() {

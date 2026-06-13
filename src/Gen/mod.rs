@@ -407,6 +407,8 @@ impl Gen {
         self.emit("section .text".to_string());
         self.emit("global _start".to_string());
         self.emit("_start:".to_string());
+        self.emit("    mov rdi, [rsp]".to_string());
+        self.emit("    lea rsi, [rsp+8]".to_string());
         self.emit("    call main".to_string());
         self.emit("    mov rax, 60".to_string());
         self.emit("    xor rdi, rdi".to_string());
