@@ -10,7 +10,7 @@ use crate::Ir::sem_analysis::Analyzer;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{EnumData, LValue, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
-use crate::shared::{check_types, substitute_type, to_base_reg, type_name};
+use crate::shared::{aligned_size, check_types, substitute_type, to_base_reg, type_name};
 use crate::tokenizer::TokenType;
 
 mod gen_expr;
@@ -49,6 +49,31 @@ impl TypeContext for Gen {
         Some((func_data.clone(), overload_pos))
     }
 
+    fn field_alignment(&self, ty: &Type) -> usize {
+        match ty {
+            Type::Struct(name) => {
+                let s = self.structs.get(name).unwrap();
+                s.elements
+                    .values()
+                    .map(|f| self.field_alignment(&f.ty))
+                    .max()
+                    .unwrap_or(1)
+            }
+            Type::Enum(name, _) => {
+                let e = self.enums.get(name).unwrap();
+                let variant_align = e
+                    .variants
+                    .values()
+                    .flat_map(|v| v.args.iter())
+                    .map(|f| self.field_alignment(&f.ty))
+                    .max()
+                    .unwrap_or(1);
+                8usize.max(variant_align)
+            }
+            _ => self.type_size(ty), // primitives: size == alignment
+        }
+    }
+
     fn monomorphize_struct(&mut self, def: &StructData, type_args: &Vec<Type>) -> Type {
         let mangled = format!(
             "{}__{}",
@@ -80,13 +105,14 @@ impl TypeContext for Gen {
                 field
             })
             .collect();
+        let size = self.compute_struct_size(&fields);
         self.structs.insert(
             mangled.clone(),
             StructData {
                 generic_type: Vec::new(),
                 name: mangled.clone(),
                 elements: fields.iter().map(|f| (f.name.clone(), f.clone())).collect(),
-                byte_size: offset, // total size
+                size,
             },
         );
         return Type::Struct(mangled);
@@ -404,11 +430,6 @@ impl Gen {
         }
         println!("scopes: {:?}", self.scopes);
         self::panic!("couldnt find the var with name: {}", name);
-    }
-
-    pub fn add_var(&mut self, var_data: VarData, name: String) {
-        let last_scope = self.scopes.last_mut().unwrap();
-        last_scope.insert(name, var_data);
     }
 
     pub fn reg_inits(&mut self, stmt: &Vec<Stmt>) {

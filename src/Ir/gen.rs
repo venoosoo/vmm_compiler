@@ -48,7 +48,7 @@ pub struct StructData {
     pub elements: IndexMap<String, StructField>,
     pub name: String,
     pub generic_type: Vec<String>,
-    pub byte_size: usize, // size of struct
+    pub size: usize, // size of struct
 }
 
 #[derive(Clone, Debug)]

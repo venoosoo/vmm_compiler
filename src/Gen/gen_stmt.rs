@@ -26,7 +26,6 @@ impl Gen {
         };
         let stack_pos = self.alloc_type(&data_ty);
 
-
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data_ty);
             match data_ty.clone() {
@@ -533,14 +532,35 @@ impl Gen {
             elements.insert(field.name.clone(), field.clone());
         }
 
+        let size = self.compute_struct_size(&data.fields);
+
         let struct_data = StructData {
             name: data.name.clone(),
             generic_type: data.generic_type.clone(),
             elements,
-            byte_size: data.size,
+            size,
         };
 
         self.structs.insert(data.name.clone(), struct_data);
+    }
+
+    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> usize {
+        let mut offset = 0;
+        let mut max_align = 1;
+
+        for field in fields {
+            let align = self.field_alignment(&field.ty);
+            let size = self.type_size(&field.ty);
+
+            offset = (offset + align - 1) & !(align - 1);
+            offset += size;
+
+            if align > max_align {
+                max_align = align;
+            }
+        }
+
+        (offset + max_align - 1) & !(max_align - 1)
     }
 
     pub fn type_size(&self, ty: &Type) -> usize {
@@ -558,7 +578,7 @@ impl Gen {
                 self.structs
                     .get(name)
                     .expect(&format!("Unknown struct: {}", name))
-                    .byte_size
+                    .size
             }
             Type::Enum(name, _) => self.enum_get_size(name),
             Type::GenericType(name) => {

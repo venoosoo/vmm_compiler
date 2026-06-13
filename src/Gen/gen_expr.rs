@@ -538,7 +538,7 @@ impl Gen {
         match &self.ensure_monomorphized(&func_data.return_type) {
             Type::Struct(name) => {
                 let struct_data = self.structs.get(name).unwrap();
-                let pos = self.alloc(struct_data.byte_size);
+                let pos = self.alloc(struct_data.size);
 
                 self.emit_func_data(format!("    lea rdi, [rbp - {}]", pos));
                 self.emit_func_data(format!("    push rdi"));
@@ -692,13 +692,16 @@ impl Gen {
             .collect();
         let name = format!("{}__{}", struct_data.name, type_args.join("_"));
 
+        let fields: Vec<StructField> = new_elements.values().cloned().collect();
+        let size = self.compute_struct_size(&fields);
+
         // Register if not already monomorphized
         if !self.structs.contains_key(&name) {
             let new_data = StructData {
                 name: name.clone(),
                 generic_type: Vec::new(),
                 elements: new_elements,
-                byte_size: offset,
+                size,
             };
             self.structs.insert(name.clone(), new_data);
         }

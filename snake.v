@@ -115,13 +115,13 @@ fn read_key() -> int {
 
 fn check_collision(Vector<vec2*>* player) -> int {
     vec2* head = vec_get_element<vec2*>(player,0);
-    if head->x == 4294967295 {
+    if head->x == -1 {
         head->x = 9;
     }
     if head->x > 9 {
         head->x = 0;
     }
-    if head->y == 4294967295 {
+    if head->y == -1 {
         head->y = 19;
     }
     if head->y > 19 {

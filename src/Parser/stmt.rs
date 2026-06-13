@@ -75,6 +75,7 @@ impl<'a> Parser<'a> {
             ret_type,
             data: Box::new(self.type_to_stmt(StmtType::Block(Vec::new()))),
         }));
+        self.expect(TokenType::Semi);
         return Some(self.type_to_stmt(StmtType::ExternFn(data)));
     }
 

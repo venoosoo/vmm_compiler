@@ -11,12 +11,14 @@ use crate::{
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
     },
-    shared::{check_types, substitute_type, type_name},
+    shared::{aligned_size, check_types, substitute_type, type_name},
     tokenizer::TokenType,
 };
 
 pub mod sem_expr;
 mod sem_stmt;
+
+// TODO: add support for extern function
 
 impl<'a> TypeContext for Analyzer<'a> {
     fn resolve_call(
@@ -86,16 +88,43 @@ impl<'a> TypeContext for Analyzer<'a> {
                 field
             })
             .collect();
+
+        let size = self.compute_struct_size(&fields);
         self.structs.insert(
             mangled.clone(),
             StructData {
                 generic_type: Vec::new(),
                 name: mangled.clone(),
                 elements: fields.iter().map(|f| (f.name.clone(), f.clone())).collect(),
-                byte_size: offset, // total size
+                size, // total size
             },
         );
         return Type::Struct(mangled);
+    }
+
+    fn field_alignment(&self, ty: &Type) -> usize {
+        match ty {
+            Type::Struct(name) => {
+                let s = self.structs.get(name).unwrap();
+                s.elements
+                    .values()
+                    .map(|f| self.field_alignment(&f.ty))
+                    .max()
+                    .unwrap_or(1)
+            }
+            Type::Enum(name, _) => {
+                let e = self.enums.get(name).unwrap();
+                let variant_align = e
+                    .variants
+                    .values()
+                    .flat_map(|v| v.args.iter())
+                    .map(|f| self.field_alignment(&f.ty))
+                    .max()
+                    .unwrap_or(1);
+                8usize.max(variant_align)
+            }
+            _ => self.type_size(ty), // primitives: size == alignment
+        }
     }
 
     fn monomorphize_enum(&mut self, def: &EnumData, type_args: &Vec<Type>) -> Type {
@@ -200,6 +229,25 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> usize {
+        let mut offset = 0;
+        let mut max_align = 1;
+
+        for field in fields {
+            let align = self.field_alignment(&field.ty);
+            let size = self.type_size(&field.ty);
+
+            offset = (offset + align - 1) & !(align - 1);
+            offset += size;
+
+            if align > max_align {
+                max_align = align;
+            }
+        }
+
+        (offset + max_align - 1) & !(max_align - 1)
+    }
+
     // this is just copy from gen
     // TODO: make this a trait so and expand it for gen and analyzer
     pub fn type_size(&self, ty: &Type) -> usize {
@@ -217,7 +265,7 @@ impl<'a> Analyzer<'a> {
                 self.structs
                     .get(name)
                     .expect(&format!("Unknown struct: {}", name))
-                    .byte_size
+                    .size
             }
             Type::GenericInst(..) => todo!(),
             Type::GenericType(_) => todo!(),
@@ -280,10 +328,11 @@ impl<'a> Analyzer<'a> {
                         }
                         res
                     };
+                    let size = self.compute_struct_size(&data.fields);
                     let struct_data = StructData {
                         name: data.name.clone(),
                         generic_type: data.generic_type.clone(),
-                        byte_size: data.size,
+                        size,
                         elements: fields,
                     };
                     self.structs.insert(data.name.clone(), struct_data);

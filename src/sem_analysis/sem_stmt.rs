@@ -211,11 +211,13 @@ impl<'a> Analyzer<'a> {
                 elements.insert(field.name.clone(), field.clone());
             }
 
+            let size = self.compute_struct_size(&data.fields);
+
             let struct_data = StructData {
                 name: data.name.clone(),
                 generic_type: Vec::new(),
                 elements,
-                byte_size: data.size,
+                size,
             };
             self.structs.insert(data.name.clone(), struct_data);
         }

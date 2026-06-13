@@ -1,8 +1,5 @@
 use crate::{
-    Ir::{
-        sem_analysis::Error,
-        stmt::{LValue, Type},
-    },
+    Ir::stmt::{LValue, Type},
     tokenizer::TokenType,
 };
 
@@ -211,4 +208,8 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
         return l_name == r_name;
     }
     false
+}
+
+pub fn aligned_size(total_size: usize, largest_align: usize) -> usize {
+    (total_size + largest_align - 1) & !(largest_align - 1)
 }
