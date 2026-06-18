@@ -52,17 +52,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let mut file = File::create("parser_result.txt").expect("Failed to create parser_result.txt");
 
     //write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
-    let mut analyzer = Analyzer::new(&res);
-    analyzer.check_code();
-    if analyzer.had_error.get() {
-        std::process::exit(1);
-    } else {
-        let mut generator = crate::Ir::r#gen::Gen::new(res);
-        let asm = generator.gen_asm()?;
-        let mut file = File::create("main.asm")?;
-        let _res = file.write(asm.as_bytes())?;
-        println!("compiled successfully");
-    }
+    // let mut analyzer = Analyzer::new(&res);
+    // analyzer.check_code();
+    // if analyzer.had_error.get() {
+    //     std::process::exit(1);
+    // } else {
+    let mut generator = crate::Ir::r#gen::Gen::new(res);
+    let asm = generator.gen_asm()?;
+    let mut file = File::create("main.asm")?;
+    let _res = file.write(asm.as_bytes())?;
+    println!("compiled successfully");
+    // }
 
     Ok(())
 }

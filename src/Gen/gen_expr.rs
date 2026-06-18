@@ -515,6 +515,142 @@ impl Gen {
             .collect()
     }
 
+    fn push_arg(&mut self, pos: usize, ty: &Type, rval: &str) {
+        let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+        let arg: Option<String> = {
+            if pos < 6 {
+                Some(self.reg_for_size(arg_regs[pos], ty).unwrap())
+            } else {
+                self.alloc_type(ty);
+                self.emit_func_data(format!("    push {}", rval));
+                None
+            }
+        };
+        match arg {
+            Option::Some(data) => {
+                self.emit_func_data(format!("    mov {}, {}", data, rval));
+            }
+            _ => {}
+        }
+    }
+
+    fn gen_args(
+        &mut self,
+        args: &Vec<Expr>,
+        func_data: &FuncData,
+        generics: &Vec<Type>,
+        new_args: &Vec<Declaration>,
+        is_rvo: bool,
+    ) {
+        let mut arg_index = {
+            let mut count = 0;
+            dbg!(&func_data.args);
+            for i in func_data.args.iter() {
+                match &i.ty {
+                    Type::Struct(name) => {
+                        let struct_data = self.structs.get(name).unwrap();
+                        if struct_data.size <= 8 { count += 1 }
+                        else if struct_data.size <= 16 { count += 2 }
+                    }
+                    Type::Enum(name, _) => {
+                        let enum_data = self.enums.get(name).unwrap();
+                        if enum_data.size <= 8 { count += 1 }
+                        else if enum_data.size <= 16 { count += 2 }
+                    }
+                    _ => {
+                        count += 1;
+                    }
+                }
+            }
+            if is_rvo { count += 1; count } else { count } 
+        };
+        
+        dbg!(arg_index);
+        for (index,arg) in args.iter().enumerate().rev() {
+            let arg_type = func_data.args[index].ty.clone();
+            match arg_type {
+                Type::Enum(ref name, _) => {
+                    self.eval_expr(arg, &arg_type);
+                    let enum_data = self.enums.get(name).unwrap();
+                    if enum_data.size <= 8 {
+                        self.emit_func_data(format!("    mov rax, [rax]"));
+                        arg_index -= 1;
+                        self.push_arg(arg_index, &arg_type, "rax");
+                    } else if enum_data.size <= 16 && arg_index < 6 && arg_index >= 1 {
+                        self.emit_func_data(format!("    mov r10, rax"));
+                        self.emit_func_data(format!("    mov rax, [r10 + 8]"));
+                        arg_index -= 1;
+                        self.push_arg(arg_index, &arg_type, "rax");
+                        self.emit_func_data(format!("    mov rax, [r10]"));
+                        arg_index -= 1;
+                        self.push_arg(arg_index, &arg_type, "rax");
+                    } else {
+                        let chunks = (enum_data.size + 7) / 8;
+                        let remainder = enum_data.size % 8;
+                        let full = if remainder > 0 { chunks - 1 } else { chunks };
+                        if remainder > 0 {
+                            self.emit_func_data(format!("    xor r10, r10"));
+                            self.emit_func_data(format!("    sub rsp, 16"));
+                            match remainder {
+                                4 => self.emit_func_data(format!("    mov r10d, [rax + {}]", (chunks - 1) * 8)),
+                                2 => self.emit_func_data(format!("    mov r10w, [rax + {}]", (chunks - 1) * 8)),
+                                1 => self.emit_func_data(format!("    mov r10b, [rax + {}]", (chunks - 1) * 8)),
+                                _ => {}
+                            }
+                            self.emit_func_data(format!("    mov [rsp], r10"));
+                        }
+                        for i in (0..full).rev() {
+                            self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
+                        }
+                    }
+                }
+                Type::Struct(ref name) => {
+                    self.eval_expr(arg, &arg_type);
+                    let struct_data = self.structs.get(name).unwrap();
+                    if struct_data.size <= 8 {
+                        self.emit_func_data(format!("    mov rax, [rax]"));
+                        arg_index -= 1;
+                        self.push_arg(arg_index, &arg_type, "rax");
+                    } else if struct_data.size <= 16 && arg_index < 6 && arg_index >= 1 {
+                        self.emit_func_data(format!("    mov r10, rax"));
+                        self.emit_func_data(format!("    mov rax, [r10 + 8]"));
+                        arg_index -= 1;
+                        self.push_arg(arg_index, &arg_type, "rax");
+                        self.emit_func_data(format!("    mov rax, [r10]"));
+                        arg_index -= 1;
+                        self.push_arg(arg_index, &arg_type, "rax");
+                    } else {
+                        let chunks = (struct_data.size + 7) / 8;
+                        let remainder = struct_data.size % 8;
+                        let full = if remainder > 0 { chunks - 1 } else { chunks };
+
+                        if remainder > 0 {
+                            self.emit_func_data(format!("    xor r10, r10"));
+                            self.emit_func_data(format!("    sub rsp, 16"));
+                            match remainder {
+                                4 => self.emit_func_data(format!("    mov r10d, [rax + {}]", (chunks - 1) * 8)),
+                                2 => self.emit_func_data(format!("    mov r10w, [rax + {}]", (chunks - 1) * 8)),
+                                1 => self.emit_func_data(format!("    mov r10b, [rax + {}]", (chunks - 1) * 8)),
+                                _ => {}
+                            }
+                            self.emit_func_data(format!("    mov [rsp], r10"));
+                        }
+
+                        for i in (0..full).rev() {
+                            self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
+                        }
+                    }
+                }
+                _ => {
+                    self.eval_expr(&arg, &arg_type);
+                    let rval = self.reg_for_size("rax", &arg_type).unwrap();
+                    arg_index -= 1;
+                    self.push_arg(arg_index, &arg_type, &rval);
+                }
+            }
+        }
+    }
+
     fn gen_call(
         &mut self,
         name: &String,
@@ -535,13 +671,15 @@ impl Gen {
                 .insert(generic.clone(), generics[index].clone());
         }
 
+        
+        let new_args = self.convert_generic_args(&func_data.args, generics, &self.generics);
+        
         match &self.ensure_monomorphized(&func_data.return_type) {
             Type::Struct(name) => {
                 let struct_data = self.structs.get(name).unwrap();
                 let pos = self.alloc(struct_data.size);
 
                 self.emit_func_data(format!("    lea rdi, [rbp - {}]", pos));
-                self.emit_func_data(format!("    push rdi"));
                 is_rvo = true;
             }
             Type::Enum(name, None) => {
@@ -549,19 +687,13 @@ impl Gen {
                 let pos = self.alloc(enum_data.size);
 
                 self.emit_func_data(format!("    lea rdi, [rbp - {}]", pos));
-                self.emit_func_data(format!("    push rdi"));
                 is_rvo = true;
             }
             _ => {}
         }
 
-        let new_args = self.convert_generic_args(&func_data.args, generics, &self.generics);
-        for (index, arg) in args.iter().enumerate() {
-            let arg_type = func_data.args[index].ty.clone();
-            self.eval_expr(arg, &arg_type);
-            self.emit_func_data("    push rax".to_string());
-        }
-
+        self.gen_args(&args, func_data, generics, &new_args, is_rvo);
+        
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(&name).unwrap().clone();
             name = self.transform_generic_name(&name, generics);
@@ -593,30 +725,7 @@ impl Gen {
                 };
             }
         }
-        // pop into arg registers in reverse order
-        for (index, _) in args.iter().enumerate().rev() {
-            let mut arg_type = new_args[index].ty.clone();
-            match &arg_type {
-                Type::GenericInst(name, grg) => {
-                    let mangled = self.transform_generic_name(name, generics);
-                    if self.structs.get(&mangled).is_some() {
-                        arg_type = Type::Struct(mangled);
-                    } else if self.enums.get(&mangled).is_some() {
-                        arg_type = Type::Enum(mangled, None);
-                    }
-                }
-                _ => {}
-            }
-            let index = if is_rvo { index + 1 } else { index };
-            let arg_reg = arg_pos(index, &arg_type);
-            self.emit_func_data(format!("    pop {}", to_base_reg(&arg_reg)));
-            // then size it down if needed
-            self.reg_for_size(&to_base_reg(&arg_reg), &arg_type)
-                .unwrap();
-        }
-        if is_rvo {
-            self.emit_func_data(format!("    pop rdi"));
-        }
+
         if self.functions.get(&name).unwrap().len() > 1 {
             self.emit_func_data(format!("    call {}___{}", name, overload_pos));
         } else {
