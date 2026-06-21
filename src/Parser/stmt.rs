@@ -244,10 +244,14 @@ impl<'a> Parser<'a> {
 
     pub fn is_type(&self, token: &Token) -> bool {
         match token.token {
-            TokenType::IntType => true,
-            TokenType::CharType => true,
-            TokenType::LongType => true,
-            TokenType::ShortType => true,
+            TokenType::I8
+            | TokenType::I16
+            | TokenType::I32
+            | TokenType::I64
+            | TokenType::U8
+            | TokenType::U16
+            | TokenType::U32
+            | TokenType::U64 => true,
             TokenType::Void => true,
             TokenType::Var => {
                 if let Some(name) = &token.value {
@@ -343,8 +347,8 @@ impl<'a> Parser<'a> {
             self.consume();
             let initializer = self.parse_expr();
             if let (Type::Array(inner, 0), ExprType::String { str: s }) = (&ty, &initializer.ty) {
-                if **inner == Type::Primitive(TokenType::CharType) {
-                    ty = Type::Array(Box::new(Type::Primitive(TokenType::CharType)), s.len() + 1);
+                if **inner == Type::Primitive(TokenType::U8) {
+                    ty = Type::Array(Box::new(Type::Primitive(TokenType::U8)), s.len() + 1);
                 }
             }
             expr = Some(initializer);
@@ -411,7 +415,6 @@ impl<'a> Parser<'a> {
 
         while self.peek(0).token != TokenType::CloseScope {
             let base_token = self.consume();
-
             let mut ty = if self.is_type(&base_token) && base_token.token != TokenType::Var {
                 Type::Primitive(base_token.token)
             } else if let Some(res) = self.get_custom_type(&base_token.value.clone().unwrap()) {

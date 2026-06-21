@@ -121,7 +121,7 @@ impl<'a> Analyzer<'a> {
         if_block: &Box<Stmt>,
         else_block: &Option<Box<Stmt>>,
     ) {
-        let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::LongType));
+        let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::I64));
         self.check_stmt(if_block);
         if let Some(else_data) = &else_block {
             self.check_stmt(else_data);
@@ -129,7 +129,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_while(&mut self, condition: &Expr, body: &Box<Stmt>) {
-        let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::LongType));
+        let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::I64));
         self.check_stmt(body);
     }
 
@@ -147,7 +147,7 @@ impl<'a> Analyzer<'a> {
             self.check_stmt(init_data);
         }
         if let Some(condition_data) = condition {
-            self.check_expr(condition_data, &Type::Primitive(TokenType::LongType));
+            self.check_expr(condition_data, &Type::Primitive(TokenType::I64));
         }
         if let Some(update_data) = update {
             self.check_stmt(update_data);
@@ -200,6 +200,21 @@ impl<'a> Analyzer<'a> {
 
         // restore outer scopes
         self.scopes = saved_scopes;
+    }
+
+    pub fn check_extern_fn(&mut self, data: &Box<Stmt>) {
+        match &data.ty {
+            StmtType::InitFunc {
+                name,
+                generic_types,
+                args,
+                ret_type,
+                data,
+            } => {
+                self.check_init_func((name, args, ret_type, data, generic_types));
+            }
+            _ => unreachable!(),
+        }
     }
 
     pub fn check_struct_init(&mut self, data: &StructDef) {
@@ -291,7 +306,7 @@ impl<'a> Analyzer<'a> {
             StmtType::Declaration(data) => self.check_declaration(data),
             StmtType::Assignment { target, value } => self.check_assignment(target, value),
             StmtType::ExprStmt(expr) => {
-                self.check_expr(expr, &Type::Primitive(TokenType::LongType));
+                self.check_expr(expr, &Type::Primitive(TokenType::I64));
             }
             StmtType::If {
                 condition,
@@ -328,7 +343,7 @@ impl<'a> Analyzer<'a> {
                     panic!("global decl must be a declaration");
                 }
             }
-            StmtType::ExternFn(_) => {}
+            StmtType::ExternFn(stmt) => self.check_extern_fn(stmt),
             StmtType::GenericInitFunc {
                 name,
                 generic_types,

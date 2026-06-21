@@ -2,10 +2,14 @@ use std::fmt;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
-    IntType,
-    CharType,
-    ShortType,
-    LongType,
+    I32,
+    I8,
+    I16,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
     Var,
     CharValue,
     Num,
@@ -149,10 +153,14 @@ impl Tokenizer {
                     self.m_buf.push(v);
                 }
                 match self.m_buf.as_str() {
-                    "int" => self.push_token(TokenType::IntType, None),
-                    "short" => self.push_token(TokenType::ShortType, None),
-                    "long" => self.push_token(TokenType::LongType, None),
-                    "char" => self.push_token(TokenType::CharType, None),
+                    "i32" => self.push_token(TokenType::I32, None),
+                    "i16" => self.push_token(TokenType::I16, None),
+                    "i64" => self.push_token(TokenType::I64, None),
+                    "i8" => self.push_token(TokenType::I8, None),
+                    "u32" => self.push_token(TokenType::U32, None),
+                    "u16" => self.push_token(TokenType::U16, None),
+                    "u64" => self.push_token(TokenType::U64, None),
+                    "u8" => self.push_token(TokenType::U8, None),
                     "if" => self.push_token(TokenType::If, None),
                     "else" => self.push_token(TokenType::Else, None),
                     "and" => self.push_token(TokenType::And, None),

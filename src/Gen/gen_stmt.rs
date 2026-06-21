@@ -38,7 +38,7 @@ impl Gen {
                     ));
                 }
                 Type::Array(ref ty, size) => match **ty {
-                    Type::Primitive(TokenType::CharType) => {
+                    Type::Primitive(TokenType::U8) => {
                         let size_word = self.get_word(&data_ty);
                         let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
                         self.emit_func_data(format!(
@@ -229,7 +229,7 @@ impl Gen {
     pub fn gen_if(&mut self, data: (&Expr, &Box<Stmt>, &Option<Box<Stmt>>)) {
         let (condition, if_block, else_block) = data;
 
-        self.eval_expr(condition, &Type::Primitive(TokenType::LongType));
+        self.eval_expr(condition, &Type::Primitive(TokenType::I64));
         self.emit_func_data(format!("    cmp rax, 0"));
 
         let id = self.get_id();
@@ -253,7 +253,7 @@ impl Gen {
         let (condition, body) = data;
         let id = self.get_id();
         self.emit_func_data(format!("while_{}:", id));
-        self.eval_expr(condition, &Type::Primitive(TokenType::LongType));
+        self.eval_expr(condition, &Type::Primitive(TokenType::I64));
         self.emit_func_data(format!("    cmp rax, 0"));
         self.emit_func_data(format!("    je end_while_{}", id));
         self.gen_stmt(&*body);
@@ -280,7 +280,7 @@ impl Gen {
         self.emit_func_data(format!("for_start_{}:", id));
 
         if let Some(cond_expr) = condition {
-            self.eval_expr(cond_expr, &Type::Primitive(TokenType::LongType));
+            self.eval_expr(cond_expr, &Type::Primitive(TokenType::I64));
             self.emit_func_data(format!("    cmp rax, 0"));
             self.emit_func_data(format!("    je for_end_{}", id));
         }
@@ -566,10 +566,10 @@ impl Gen {
     pub fn type_size(&self, ty: &Type) -> usize {
         match ty {
             Type::Primitive(token) => match token {
-                TokenType::CharType => 1,
-                TokenType::ShortType => 2,
-                TokenType::IntType => 4,
-                TokenType::LongType => 8,
+                TokenType::I8 | TokenType::U8 => 1,
+                TokenType::I16 | TokenType::U16 => 2,
+                TokenType::I32 | TokenType::U32 => 4,
+                TokenType::I64 | TokenType::U64 => 8,
                 _ => self::panic!("Unsupported primitive type: {:?}", token),
             },
             Type::Pointer(_) => 8,
@@ -863,7 +863,7 @@ impl Gen {
             StmtType::Declaration(v) => self.gen_declaration(v),
             StmtType::Assignment { target, value } => self.gen_assignment(target, value),
             StmtType::ExprStmt(expr) => {
-                self.eval_expr(expr, &Type::Primitive(TokenType::LongType));
+                self.eval_expr(expr, &Type::Primitive(TokenType::I64));
             }
             StmtType::If {
                 condition,

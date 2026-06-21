@@ -11,7 +11,7 @@ use crate::{
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
     },
-    shared::{aligned_size, check_types, substitute_type, type_name},
+    shared::{check_types, substitute_type, type_name},
     tokenizer::TokenType,
 };
 
@@ -253,10 +253,10 @@ impl<'a> Analyzer<'a> {
     pub fn type_size(&self, ty: &Type) -> usize {
         match ty {
             Type::Primitive(token) => match token {
-                TokenType::CharType => 1,
-                TokenType::ShortType => 2,
-                TokenType::IntType => 4,
-                TokenType::LongType => 8,
+                TokenType::I8 | TokenType::U8 => 1,
+                TokenType::I16 | TokenType::U16 => 2,
+                TokenType::I32 | TokenType::U32 => 4,
+                TokenType::I64 | TokenType::U64 => 8,
                 _ => panic!("Unsupported primitive type: {:?}", token),
             },
             Type::Pointer(_) => 8,
@@ -279,80 +279,82 @@ impl<'a> Analyzer<'a> {
         self.had_error.set(true);
     }
 
-    pub fn check_inits(&mut self) {
-        for i in self.stmts.iter() {
-            self.current_file = i.file.clone();
-            self.line = i.line;
-            match &i.ty {
-                StmtType::GenericInitFunc {
-                    name,
-                    generic_types,
-                    args,
-                    ret_type,
-                    data,
-                } => {
-                    let func_data = FuncData {
-                        args: args.clone(),
-                        generic: generic_types.clone(),
-                        return_type: ret_type.clone(),
-                    };
-                    self.functions
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(func_data);
-                    self.generic_func.insert(name.clone(), i.clone());
-                }
-
-                StmtType::InitFunc {
-                    name,
-                    args,
-                    ret_type,
-                    data,
-                    generic_types,
-                } => {
-                    let func_data = FuncData {
-                        args: args.clone(),
-                        generic: Vec::new(),
-                        return_type: ret_type.clone(),
-                    };
-                    self.functions
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(func_data);
-                }
-                StmtType::InitStruct(data) => {
-                    let fields = {
-                        let mut res = IndexMap::new();
-                        for i in data.fields.iter() {
-                            res.insert(i.name.clone(), i.clone());
-                        }
-                        res
-                    };
-                    let size = self.compute_struct_size(&data.fields);
-                    let struct_data = StructData {
-                        name: data.name.clone(),
-                        generic_type: data.generic_type.clone(),
-                        size,
-                        elements: fields,
-                    };
-                    self.structs.insert(data.name.clone(), struct_data);
-                }
-                StmtType::InitEnum {
-                    name,
-                    variants,
-                    generic_types,
-                } => {
-                    // TODO: add size checking
-                    let enum_data = EnumData {
-                        name: name.clone(),
-                        generic_type: generic_types.clone(),
-                        variants: variants.clone(),
-                        size: 0,
-                    };
-                    self.enums.insert(name.clone(), enum_data);
-                }
-                _ => {}
+    pub fn check_init(&mut self, stmt: &Stmt) {
+        self.current_file = stmt.file.clone();
+        self.line = stmt.line;
+        match &stmt.ty {
+            StmtType::GenericInitFunc {
+                name,
+                generic_types,
+                args,
+                ret_type,
+                data,
+            } => {
+                let func_data = FuncData {
+                    args: args.clone(),
+                    generic: generic_types.clone(),
+                    return_type: ret_type.clone(),
+                };
+                self.functions
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(func_data);
+                self.generic_func.insert(name.clone(), stmt.clone());
             }
+            StmtType::InitFunc {
+                name,
+                args,
+                ret_type,
+                ..
+            } => {
+                let func_data = FuncData {
+                    args: args.clone(),
+                    generic: Vec::new(),
+                    return_type: ret_type.clone(),
+                };
+                self.functions
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(func_data);
+            }
+            StmtType::ExternFn(data) => {
+                self.check_init(data);
+            }
+            StmtType::InitStruct(data) => {
+                let fields = data
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.clone()))
+                    .collect::<IndexMap<_, _>>();
+                let size = self.compute_struct_size(&data.fields);
+                let struct_data = StructData {
+                    name: data.name.clone(),
+                    generic_type: data.generic_type.clone(),
+                    size,
+                    elements: fields,
+                };
+                self.structs.insert(data.name.clone(), struct_data);
+            }
+            StmtType::InitEnum {
+                name,
+                variants,
+                generic_types,
+            } => {
+                let enum_data = EnumData {
+                    name: name.clone(),
+                    generic_type: generic_types.clone(),
+                    variants: variants.clone(),
+                    size: 0,
+                };
+                self.enums.insert(name.clone(), enum_data);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn check_inits(&mut self) {
+        for stmt in self.stmts.clone().iter() {
+            self.check_init(stmt);
         }
     }
 

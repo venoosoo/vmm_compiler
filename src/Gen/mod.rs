@@ -207,11 +207,11 @@ impl Expr {
     /// Returns the Type of this expression
     pub fn get_type(&self, helper: &impl Lookup) -> Type {
         match &self.ty {
-            ExprType::Number(_) => Type::Primitive(TokenType::LongType),
+            ExprType::Number(_) => Type::Primitive(TokenType::I64),
             ExprType::Float(_) => todo!(),
             ExprType::Variable(var_name) => helper
                 .look_var(var_name)
-                .unwrap_or(Type::Primitive(TokenType::LongType)),
+                .unwrap_or(Type::Primitive(TokenType::I64)),
             ExprType::Binary { op, left, right } => helper.look_binary(op, left, right),
             ExprType::Unary { op, expr } => helper.look_unary(op, expr),
             ExprType::Call {
@@ -227,12 +227,9 @@ impl Expr {
             ExprType::Deref(expr) => helper.look_deref(expr),
             ExprType::Index { base, index } => helper.look_index(base, index),
             ExprType::ArrayInit { elements } => helper.look_array_init(elements),
-            ExprType::SizeOf { ty } => Type::Primitive(TokenType::LongType),
+            ExprType::SizeOf { ty } => Type::Primitive(TokenType::I64),
             ExprType::String { str } => {
-                return Type::Array(
-                    Box::new(Type::Primitive(TokenType::CharType)),
-                    str.len() + 1,
-                );
+                return Type::Array(Box::new(Type::Primitive(TokenType::U8)), str.len() + 1);
             }
             ExprType::GetEnum {
                 base,
@@ -248,7 +245,7 @@ impl Gen {
     pub fn new(stmts: Vec<Stmt>) -> Gen {
         Gen {
             stmts,
-            current_return_type: Type::Primitive(TokenType::IntType),
+            current_return_type: Type::Primitive(TokenType::I32),
             main_code: Vec::new(),
             data_code: Vec::new(),
             scopes: vec![HashMap::new()],
@@ -273,10 +270,10 @@ impl Gen {
         let base = to_base_reg(base);
         let size = match ty {
             Type::Primitive(token) => match token {
-                TokenType::CharType => 1,
-                TokenType::ShortType => 2,
-                TokenType::IntType => 4,
-                TokenType::LongType => 8,
+                TokenType::I8 | TokenType::U8 => 1,
+                TokenType::I16 | TokenType::U16 => 2,
+                TokenType::I32 | TokenType::U32 => 4,
+                TokenType::I64 | TokenType::U64 => 8,
                 _ => return None,
             },
             Type::GenericType(name) => {
@@ -324,10 +321,10 @@ impl Gen {
     pub fn get_word(&self, ty: &Type) -> String {
         match ty {
             Type::Primitive(token) => match token {
-                TokenType::CharType => "BYTE".to_string(),
-                TokenType::ShortType => "WORD".to_string(),
-                TokenType::IntType => "DWORD".to_string(),
-                TokenType::LongType => "QWORD".to_string(),
+                TokenType::I8 | TokenType::U8 => "BYTE".to_string(),
+                TokenType::I16 | TokenType::U16 => "WORD".to_string(),
+                TokenType::I32 | TokenType::U32 => "DWORD".to_string(),
+                TokenType::I64 | TokenType::U64 => "QWORD".to_string(),
                 _ => panic!("Unsupported primitive type: {:?}", token),
             },
             Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
@@ -410,8 +407,8 @@ impl Gen {
         self.emit("    mov rdi, [rsp]".to_string());
         self.emit("    lea rsi, [rsp+8]".to_string());
         self.emit("    call main".to_string());
+        self.emit("    mov rdi, rax".to_string());
         self.emit("    mov rax, 60".to_string());
-        self.emit("    xor rdi, rdi".to_string());
         self.emit("    syscall".to_string());
         self.emit_all(self.main_code.clone());
         self.emit("__bounds_fail__:".to_string());

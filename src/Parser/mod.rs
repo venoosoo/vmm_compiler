@@ -112,10 +112,10 @@ impl<'a> Parser<'a> {
 
     fn size_of(&self, ty: &Type) -> usize {
         match ty {
-            Type::Primitive(TokenType::IntType) => 4,
-            Type::Primitive(TokenType::CharType) => 1,
-            Type::Primitive(TokenType::ShortType) => 2,
-            Type::Primitive(TokenType::LongType) => 8,
+            Type::Primitive(TokenType::I32) | Type::Primitive(TokenType::U32) => 4,
+            Type::Primitive(TokenType::I8) | Type::Primitive(TokenType::U8) => 1,
+            Type::Primitive(TokenType::I16) | Type::Primitive(TokenType::U16) => 2,
+            Type::Primitive(TokenType::I64) | Type::Primitive(TokenType::U64) => 8,
 
             Type::Pointer(_) => 8, // assume 64-bit
 

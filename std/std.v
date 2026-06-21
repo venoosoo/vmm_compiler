@@ -1,6 +1,135 @@
-fn print_num(long n) {
-    long rem;
-    char c;
+
+
+fn exit(i32 code) {
+    asm {
+        "mov rax, 60"
+        "mov rdi, (code)"
+        "syscall"
+    }
+}
+
+fn syscall(i64 a_rax, i64 a_rdi, i64 a_rsi, i64 a_rdx, i64 a_r10, i64 a_r8) -> i64* {
+    asm {
+        "mov rax, [rbp - 8]"
+        "mov rdi, [rbp - 16]"
+        "mov rsi, [rbp - 24]"
+        "mov rdx, [rbp - 32]"
+        "mov r10, [rbp - 40]"
+        "mov r8,  [rbp - 48]"
+        "mov r9, 0"
+        "syscall"
+    }
+    asm {
+        "mov [rbp - 56], rax"
+    }
+    // litle bit of magic to get the syscall result
+    i64* result;
+    return result;
+}
+
+global i64* malloc_heap_start;
+global i64* malloc_heap_current;
+global i64 malloc_heap_remaining;
+
+fn malloc(i64 size) -> void* {
+    if malloc_heap_start as i64 == 0 {
+        // Syscall 9: mmap
+        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1) as i64*;
+        malloc_heap_current = malloc_heap_start;
+        malloc_heap_remaining = 4096;
+    }
+    if malloc_heap_remaining < size {
+        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1) as i64*;
+        malloc_heap_current = malloc_heap_start;
+        malloc_heap_remaining = 4096;
+    }
+    void* ptr = malloc_heap_current as void*;
+    malloc_heap_current = (malloc_heap_current as i64) + size as i64*;
+    malloc_heap_remaining = malloc_heap_remaining - size;
+    return ptr;
+}
+
+fn free(i64* ptr, i64 size) {
+    syscall(11, ptr as i64, size, 0, 0, 0);
+}
+
+fn memcpy(void* dst, void* src, i64 size) -> void {
+    asm {
+        "mov rcx, rdx"
+        "rep movsb"
+    }
+}
+
+
+fn strlen(u8* str) -> i64 {
+    i64 i = 0;
+    while str[i] != 0 {
+        i = i + 1;
+    }
+    return i;
+}
+
+
+enum Option<T> {
+    Some{
+        T data;
+    }
+    None,
+}
+
+fn Some<T>(T data) -> Option<T> {
+    return Option::Some(data: data);
+}
+
+fn unwrap<T>(Option<T>* data) -> T {
+    match *data {
+        Option::Some(data2) => {
+            return data2;
+        }
+        Option::None => {
+            print("unwrap at none value");
+            exit(1);
+        }
+    }
+    exit(1);
+}
+
+
+fn print_newline() {
+    asm {
+        "sub rsp, 1"
+        "mov byte [rsp], 10"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}
+
+fn print_char(u8 t) {
+    asm {
+        "movsx rax, BYTE [rbp - 1]"
+        "sub rsp, 1"
+        "mov [rsp], al"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}
+
+fn println_char(u8 t) {
+    print_char(t);
+    print_newline();
+}
+
+fn print_num(i64 n) {
+    i64 rem;
+    i8 c;
     if n < 0 {
         asm {
             "sub rsp, 1"
@@ -15,11 +144,11 @@ fn print_num(long n) {
         n = -n;
     }
     if n >= 10 {
-        long temp = n / 10;
+        i64 temp = n / 10;
         print_num(temp);
     }
     rem = n % 10;
-    c = rem + '0';
+    c = (rem as i8) + ('0' as i8);
     asm {
         "mov rax, 1"
         "mov rdi, 1"
@@ -29,162 +158,55 @@ fn print_num(long n) {
     }
 }
 
-fn print(long number) {
-    print_num(number);
-}
-
-fn println(long number) {
-    print(number);
+fn print_num_u(u64 n) {
+    u64 rem;
+    i8 c;
+    if n >= 10 {
+        u64 temp = n / 10;
+        print_num_u(temp);
+    }
+    rem = n % 10;
+    c = (rem as i8) + ('0' as i8);
     asm {
-        "sub rsp, 1"
-        "mov byte [rsp], 10"
         "mov rax, 1"
         "mov rdi, 1"
-        "mov rsi, rsp"
+        "lea rsi, (c)"
         "mov rdx, 1"
         "syscall"
-        "add rsp, 1"
     }
 }
 
-
-fn println(char* str) {
-    print(str);
-    asm {
-        "sub rsp, 1"
-        "mov byte [rsp], 10"
-        "mov rax, 1"
-        "mov rdi, 1"
-        "mov rsi, rsp"
-        "mov rdx, 1"
-        "syscall"
-        "add rsp, 1"
-    }
-}
-
-fn print(char* str) {
-    int length = 0;
+fn print(u8* str) {
+    i32 length = 0;
     while str[length] != 0 {
-        print_char(str[length])
+        print_char(str[length]);
         length = length + 1;
     }
 }
 
-fn print(char str) {
-    print_char(str);
-}
+fn print(i64 number) { print_num(number); }
+fn print(i32 number) { print(number as i64); }
+fn print(i16 number) { print(number as i64); }
+fn print(i8 number)  { print(number as i64); }
 
-fn println(char str) {
+fn print(u64 number) { print_num_u(number); }
+fn print(u32 number) { print(number as u64); }
+fn print(u16 number) { print(number as u64); }
+fn print(u8 number)  { print(number as u64); }
+
+
+
+fn println(u8* str) {
     print(str);
+    print_newline();
 }
 
-fn exit(int code) {
-    asm {
-        "mov rax, 60"
-        "mov rdi, (code)"
-        "syscall"
-    }
-}
+fn println(i64 number) { print(number); print_newline(); }
+fn println(i32 number) { println(number as i64); }
+fn println(i16 number) { println(number as i64); }
+fn println(i8 number)  { println(number as i64); }
 
-
-
-
-global long* malloc_heap_start;
-global long* malloc_heap_current;
-global long malloc_heap_remaining;
-
-fn malloc(long size) -> void* {
-    if malloc_heap_start as long == 0 {
-        malloc_heap_start = syscall(9,0,4096,3,34,-1);
-        malloc_heap_current = malloc_heap_start;
-        malloc_heap_remaining = 4096;
-    }
-    if malloc_heap_remaining < size {
-        malloc_heap_start = syscall(9,0,4096,3,34,-1);
-        malloc_heap_current = malloc_heap_start;
-        malloc_heap_remaining = 4096;
-    }
-    void* ptr = malloc_heap_current;
-    malloc_heap_current = malloc_heap_current + size;
-    malloc_heap_remaining = malloc_heap_remaining - size;
-    return ptr 
-}
-
-fn free(long* ptr, long size) {
-    syscall(11, ptr as long, size, 0, 0, 0);
-}
-
-fn memcpy(void* dst, void* src, long size) -> void {
-    asm {
-        "mov rcx, rdx"
-        "rep movsb"
-    }
-}
-
-
-fn syscall(long a_rax, long a_rdi, long a_rsi, long a_rdx, long a_r10, long a_r8) -> long* {
-    asm {
-        "mov rax, [rbp - 8]"
-        "mov rdi, [rbp - 16]"
-        "mov rsi, [rbp - 24]"
-        "mov rdx, [rbp - 32]"
-        "mov r10, [rbp - 40]"
-        "mov r8,  [rbp - 48]"
-        "mov r9, 0"
-        "syscall"
-    }
-    asm {
-        "mov [rbp - 56], rax"
-    }
-    long* result;
-    return result;
-}
-
-fn strlen(char* str) -> long {
-    long i = 0;
-    while str[i] != 0 {
-        i = i + 1;
-    }
-    return i;
-}
-
-fn print_char(char t) {
-    asm {
-        "movsx rax, BYTE [rbp - 1]"
-        "sub rsp, 1"
-        "mov [rsp], al"
-        "mov rax, 1"
-        "mov rdi, 1"
-        "mov rsi, rsp"
-        "mov rdx, 1"
-        "syscall"
-        "add rsp, 1"
-    }
-}
-
-
-enum Option<T> {
-    Some{
-        T data;
-    }
-    None,
-}
-
-
-fn Some<T>(T data) -> Option<T> {
-    return Option::Some(data: data);
-}
-
-
-fn unwrap<T>(Option<T>* data) -> T {
-    match *data {
-        Option::Some(data2) => {
-            return data2
-        }
-        Option::None => {
-            print("unwrap at none value");
-            exit(1);
-        }
-    }
-    exit(1);
-}
+fn println(u64 number) { print(number); print_newline(); }
+fn println(u32 number) { println(number as u64); }
+fn println(u16 number) { println(number as u64); }
+fn println(u8 number)  { println(number as u64); }

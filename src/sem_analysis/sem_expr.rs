@@ -3,7 +3,7 @@ use std::env::Args;
 use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
 use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::Declaration;
-use crate::shared::{coerce_numeric, is_arithmetic, is_integer, is_numeric};
+use crate::shared::{coerce_numeric, is_arithmetic, is_integer, is_numeric, same_signedness};
 use crate::{
     Ir::{
         expr::{BinOp, Expr, UnaryOp},
@@ -27,7 +27,7 @@ impl<'a> Lookup for Analyzer<'a> {
         match op {
             UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => expr.get_type(self),
-            UnaryOp::Not => Type::Primitive(TokenType::CharType), // boolean
+            UnaryOp::Not => Type::Primitive(TokenType::U8), // boolean
             UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
@@ -100,7 +100,7 @@ impl<'a> Analyzer<'a> {
     fn check_num(&mut self, num: &i64, expected_ty: &Type) -> Type {
         match expected_ty {
             Type::Primitive(_) => expected_ty.clone(),
-            _ => Type::Primitive(TokenType::IntType),
+            _ => Type::Primitive(TokenType::I32),
         }
     }
     fn check_var(&mut self, var: &String) -> Type {
@@ -110,7 +110,7 @@ impl<'a> Analyzer<'a> {
         } else {
             self.print_error(self.type_to_error(SemanticError::UndeclaredVariable(var.clone())));
             // satisfy return type it wouldnt be compiled because of error anyway
-            Type::Primitive(TokenType::LongType)
+            Type::Primitive(TokenType::I64)
         }
     }
 
@@ -121,14 +121,22 @@ impl<'a> Analyzer<'a> {
         right: &Box<Expr>,
         expected_ty: &Type,
     ) -> Type {
-        let l_type = self.check_expr(left, expected_ty);
-        let r_type: Type = self.check_expr(right, expected_ty);
+        let mut l_type = self.check_expr(left, expected_ty);
+        let mut r_type: Type = self.check_expr(right, &l_type);
+
+        if matches!(left.ty, ExprType::Number(_)) {
+            l_type = r_type.clone();
+        }
+        if matches!(right.ty, ExprType::Number(_)) {
+            r_type = l_type.clone();
+        }
+
         let res = self.check_binary_types(op, l_type, r_type);
         match res {
             Ok(ty) => ty,
             Err(err) => {
                 self.print_error(err);
-                Type::Primitive(TokenType::LongType)
+                Type::Primitive(TokenType::I64)
             }
         }
     }
@@ -146,13 +154,24 @@ impl<'a> Analyzer<'a> {
                 op: op.clone(),
                 ty: expr_type.clone(),
             }));
-            return Type::Primitive(TokenType::LongType);
+            return Type::Primitive(TokenType::I64);
         }
 
         expr_type
     }
 
     pub fn check_binary_types(&mut self, op: &BinOp, l: Type, r: Type) -> Result<Type, Error> {
+        // shared signedness error
+        macro_rules! sign_err {
+            () => {
+                return Err(self.type_to_error(SemanticError::InvalidBinary {
+                    op: op.clone(),
+                    left: l.clone(),
+                    right: r.clone(),
+                }))
+            };
+        }
+
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
                 if matches!(&l, Type::Pointer(_)) && is_integer(&r) {
@@ -168,6 +187,9 @@ impl<'a> Analyzer<'a> {
                         right: r,
                     }));
                 }
+                if !same_signedness(&l, &r) {
+                    sign_err!();
+                }
                 Ok(coerce_numeric(&l, &r))
             }
 
@@ -179,19 +201,24 @@ impl<'a> Analyzer<'a> {
                         right: r,
                     }));
                 }
+                if !same_signedness(&l, &r) {
+                    sign_err!();
+                }
                 Ok(coerce_numeric(&l, &r))
             }
 
             BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                let compatible = (is_numeric(&l) && is_numeric(&r));
-                if !compatible {
+                if !is_numeric(&l) || !is_numeric(&r) {
                     return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
                         right: r,
                     }));
                 }
-                Ok(Type::Primitive(TokenType::IntType))
+                if !same_signedness(&l, &r) {
+                    sign_err!();
+                }
+                Ok(Type::Primitive(TokenType::I32))
             }
 
             BinOp::Eq | BinOp::Neq => {
@@ -205,7 +232,10 @@ impl<'a> Analyzer<'a> {
                         right: r,
                     }));
                 }
-                Ok(Type::Primitive(TokenType::IntType))
+                if is_numeric(&l) && is_numeric(&r) && !same_signedness(&l, &r) {
+                    sign_err!();
+                }
+                Ok(Type::Primitive(TokenType::I32))
             }
 
             BinOp::And | BinOp::Or => {
@@ -216,7 +246,10 @@ impl<'a> Analyzer<'a> {
                         right: r,
                     }));
                 }
-                Ok(Type::Primitive(TokenType::IntType))
+                if !same_signedness(&l, &r) {
+                    sign_err!();
+                }
+                Ok(Type::Primitive(TokenType::I32))
             }
 
             BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
@@ -226,6 +259,9 @@ impl<'a> Analyzer<'a> {
                         left: l,
                         right: r,
                     }));
+                }
+                if !same_signedness(&l, &r) {
+                    sign_err!();
                 }
                 Ok(coerce_numeric(&l, &r))
             }
@@ -238,7 +274,11 @@ impl<'a> Analyzer<'a> {
                         right: r,
                     }));
                 }
-                Ok(l) // result type is always the left operand's type
+                // shift amount can be any integer width but must match signedness
+                if !same_signedness(&l, &r) {
+                    sign_err!();
+                }
+                Ok(l)
             }
         }
     }
@@ -336,7 +376,7 @@ impl<'a> Analyzer<'a> {
         let (func_data, func_index) = {
             let data = self.resolve_call(name, args, generics);
             if data.is_none() {
-                return Type::Primitive(TokenType::LongType);
+                return Type::Primitive(TokenType::I64);
             } else {
                 data.unwrap()
             }
@@ -389,7 +429,8 @@ impl<'a> Analyzer<'a> {
         let struct_data = self
             .structs
             .get(struct_name)
-            .expect(&format!("no struct with name: {}", struct_name));
+            .expect(&format!("no struct with name: {}", struct_name))
+            .clone();
         if fields.len() != struct_data.elements.len() {
             self.print_error(self.type_to_error(SemanticError::StructCountMismatch {
                 struct_name: struct_name.clone(),
@@ -400,11 +441,16 @@ impl<'a> Analyzer<'a> {
         for (arg_name, arg) in fields.iter() {
             let res = struct_data.elements.get(arg_name);
             if let Some(struct_arg) = res {
-                if !check_types(&struct_arg.ty, &arg.get_type(self)) {
+                let arg_type = if matches!(arg.ty, ExprType::Number(_)) {
+                    self.check_expr(arg, &struct_arg.ty)
+                } else {
+                    arg.get_type(self)
+                };
+                if !check_types(&struct_arg.ty, &arg_type) {
                     self.print_error(self.type_to_error(SemanticError::StructTypeMismatch {
                         struct_name: struct_name.clone(),
                         expected: struct_arg.ty.clone(),
-                        got: arg.get_type(self),
+                        got: arg_type,
                     }));
                 }
             } else {
@@ -414,8 +460,7 @@ impl<'a> Analyzer<'a> {
                 }));
             }
         }
-
-        return Type::Struct(struct_name.to_string());
+        Type::Struct(struct_name.to_string())
     }
 
     fn check_struct_member(&mut self, base: &Box<Expr>, name: &String, expected_ty: &Type) -> Type {
@@ -508,7 +553,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn check_size_of(&mut self, expr: &Stmt) -> Type {
-        Type::Primitive(TokenType::LongType)
+        Type::Primitive(TokenType::I64)
     }
 
     fn check_gen_enum(
@@ -561,10 +606,7 @@ impl<'a> Analyzer<'a> {
             ExprType::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
             ExprType::SizeOf { ty } => self.check_size_of(ty),
             ExprType::String { str } => {
-                return Type::Array(
-                    Box::new(Type::Primitive(TokenType::CharType)),
-                    str.len() + 1,
-                );
+                return Type::Array(Box::new(Type::Primitive(TokenType::U8)), str.len() + 1);
             }
             ExprType::GetEnum {
                 base,

@@ -6,7 +6,7 @@ use crate::Ir::expr::{self, BinOp, EnumExprField, Expr, ExprType, Lookup, UnaryO
 use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
-use crate::shared::{arg_pos, coerce_numeric, is_numeric};
+use crate::shared::{arg_pos, coerce_numeric, is_numeric, is_unsigned};
 
 use super::*;
 
@@ -27,13 +27,14 @@ impl Lookup for Gen {
         match op {
             UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => expr.get_type(self),
-            UnaryOp::Not => Type::Primitive(TokenType::CharType), // boolean
+            UnaryOp::Not => Type::Primitive(TokenType::U8), // boolean
             UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
     fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
         let lty = left.get_type(self);
         let rty = right.get_type(self);
+
         coerce_numeric(&lty, &rty)
     }
     fn look_struct_init(&self, struct_name: &String) -> Type {
@@ -156,6 +157,7 @@ impl Gen {
         right_reg: &str,
         expected_type: &Type,
     ) {
+        let is_unsigned = is_unsigned(expected_type);
         match op {
             BinOp::BitAnd => {
                 self.emit_func_data(format!("    and {}, {}", left_reg, right_reg));
@@ -168,12 +170,22 @@ impl Gen {
             }
             BinOp::ShiftLeft => {
                 // shift amount must be in cl
-                self.emit(format!("    mov rcx, {}", right_reg));
-                self.emit(format!("    shl {}, cl", left_reg));
+                if is_unsigned {
+                    self.emit(format!("    mov rcx, {}", right_reg));
+                    self.emit(format!("    shl {}, cl", left_reg));
+                } else {
+                    self.emit(format!("    mov rcx, {}", right_reg));
+                    self.emit(format!("    sal {}, cl", left_reg));
+                }
             }
             BinOp::ShiftRight => {
-                self.emit(format!("    mov rcx, {}", right_reg));
-                self.emit(format!("    shr {}, cl", left_reg));
+                if is_unsigned {
+                    self.emit(format!("    mov rcx, {}", right_reg));
+                    self.emit(format!("    shr {}, cl", left_reg));
+                } else {
+                    self.emit(format!("    mov rcx, {}", right_reg));
+                    self.emit(format!("    sar {}, cl", left_reg));
+                }
             }
             BinOp::Add => {
                 self.emit_func_data(format!("    add {}, {}", left_reg, right_reg));
@@ -185,37 +197,87 @@ impl Gen {
                 self.emit_func_data(format!("    imul {}, {}", left_reg, right_reg));
             }
             BinOp::Div => {
-                if self.type_size(expected_type) == 8 {
-                    self.emit_func_data("    cqo".to_string());
+                let divisor_reg = self.reg_for_size("r10", expected_type).unwrap();
+                
+                self.emit_func_data(format!("    mov {}, {}", divisor_reg, right_reg));
+                self.emit_func_data("    push rdx".to_string());
+                
+                if is_unsigned {
+                    let rdx_reg = self.reg_for_size("rdx", expected_type).unwrap();
+                    self.emit_func_data(format!("    xor {}, {}",rdx_reg,rdx_reg));
+                    self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
-                    self.emit_func_data("    cdq".to_string());
+                    // SIGNED PATH
+                    if self.type_size(expected_type) == 8 {
+                        self.emit_func_data("    cqo".to_string());
+                    } else if self.type_size(expected_type) == 4 {
+                        self.emit_func_data("    cdq".to_string());
+                    } else {
+                        self.emit_func_data("    cwd".to_string()); 
+                    }
+                    self.emit_func_data(format!("    idiv {}", divisor_reg));
                 }
-                self.emit_func_data(format!("    idiv {}", right_reg));
-                // result already in rax
             }
             BinOp::Mod => {
-                if self.type_size(expected_type) == 8 {
-                    self.emit_func_data("    cqo".to_string());
+                let divisor_reg = self.reg_for_size("r10", expected_type).unwrap();
+                
+                self.emit_func_data(format!("    mov {}, {}", divisor_reg, right_reg));
+                self.emit_func_data("    push rdx".to_string());
+                
+                if is_unsigned {
+                    let rdx_reg = self.reg_for_size("rdx", expected_type).unwrap();
+                    self.emit_func_data(format!("    xor {}, {}",rdx_reg,rdx_reg));
+                    self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
-                    self.emit_func_data("    cdq".to_string());
+                    // SIGNED PATH
+                    if self.type_size(expected_type) == 8 {
+                        self.emit_func_data("    cqo".to_string());
+                    } else if self.type_size(expected_type) == 4 {
+                        self.emit_func_data("    cdq".to_string());
+                    } else {
+                        self.emit_func_data("    cwd".to_string()); 
+                    }
+                    self.emit_func_data(format!("    idiv {}", divisor_reg));
                 }
-                self.emit_func_data(format!("    idiv {}", right_reg));
-                // remainder in rdx, move to rax
-                self.emit_func_data(format!(
-                    "    mov {}, {}",
-                    left_reg,
-                    self.reg_for_size("rdx", expected_type).unwrap()
-                ));
+
+                let remainder_reg = self.reg_for_size("rdx", expected_type).unwrap();
+                self.emit_func_data(format!("    mov {}, {}", left_reg, remainder_reg));
+                
+                self.emit_func_data("    pop rdx".to_string());
             }
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
                 self.emit_func_data(format!("    cmp {}, {}", left_reg, right_reg));
                 let set_instr = match op {
                     BinOp::Eq => "sete",
                     BinOp::Neq => "setne",
-                    BinOp::Lt => "setl",
-                    BinOp::Lte => "setle",
-                    BinOp::Gt => "setg",
-                    BinOp::Gte => "setge",
+                    BinOp::Lt => {
+                        if is_unsigned {
+                            "setb"
+                        } else {
+                            "setl"
+                        }
+                    }
+                    BinOp::Lte => {
+                        if is_unsigned {
+                            "setbe"
+                        } else {
+                            "setle"
+                        }
+                    }
+                    BinOp::Gt => {
+                        if is_unsigned {
+                            "seta"
+                        } else {
+                            "setg"
+                        }
+                    }
+                    BinOp::Gte => {
+                        if is_unsigned {
+                            "setae"
+                        } else {
+                            "setge"
+                        }
+                    }
                     _ => unreachable!(),
                 };
                 self.emit_func_data(format!("    {} al", set_instr));
@@ -226,10 +288,10 @@ impl Gen {
             }
             BinOp::Or => {
                 let left_byte = self
-                    .reg_for_size(left_reg, &Type::Primitive(TokenType::CharType))
+                    .reg_for_size(left_reg, &Type::Primitive(TokenType::U8))
                     .unwrap();
                 let right_byte = self
-                    .reg_for_size(right_reg, &Type::Primitive(TokenType::CharType))
+                    .reg_for_size(right_reg, &Type::Primitive(TokenType::U8))
                     .unwrap();
                 self.emit_func_data(format!("    cmp {}, 0", left_reg));
                 self.emit_func_data(format!("    setne {}", left_byte));
@@ -258,31 +320,19 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn var_return(&mut self, var_data: &VarData, expected_type: &Type) {
+    fn var_return(&mut self, var_data: &VarData) { // Note: expected_type is gone!
         match &var_data.var_type {
             Type::Primitive(_) => {
-                let actual_size = self.type_size(&var_data.var_type);
-                let expected_size = self.type_size(expected_type);
-                if expected_size > actual_size {
-                    let src_word = self.get_word(&var_data.var_type);
-                    self.emit_func_data(format!(
-                        "    movsx rax, {} [rbp - {}]",
-                        src_word, var_data.stack_pos
-                    ));
-                } else {
-                    let sized_rax = self.reg_for_size("rax", &var_data.var_type).unwrap();
-                    self.emit_func_data(format!(
-                        "    mov {}, {} [rbp - {}]",
-                        sized_rax,
-                        self.get_word(&var_data.var_type),
-                        var_data.stack_pos
-                    ));
-                }
+                // Just load exactly what the variable is, no implicit resizing!
+                let sized_rax = self.reg_for_size("rax", &var_data.var_type).unwrap();
+                self.emit_func_data(format!(
+                    "    mov {}, {} [rbp - {}]",
+                    sized_rax,
+                    self.get_word(&var_data.var_type),
+                    var_data.stack_pos
+                ));
             }
-            Type::Pointer(_) => {
-                self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
-            }
-            Type::Enum(ty, _) => {
+            Type::Pointer(_) | Type::Enum(_, _) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
             _ => {
@@ -308,7 +358,7 @@ impl Gen {
             return "rax".to_string();
         }
 
-        self.var_return(&var_data, expected_type);
+        self.var_return(&var_data);
 
         "rax".to_string()
     }
@@ -541,36 +591,47 @@ impl Gen {
         generics: &Vec<Type>,
         new_args: &Vec<Declaration>,
         is_rvo: bool,
-    ) {
+    ) -> usize {
         let mut arg_index = {
             let mut count = 0;
-            dbg!(&func_data.args);
             for i in func_data.args.iter() {
                 match &i.ty {
                     Type::Struct(name) => {
                         let struct_data = self.structs.get(name).unwrap();
-                        if struct_data.size <= 8 { count += 1 }
-                        else if struct_data.size <= 16 { count += 2 }
+                        if struct_data.size <= 8 {
+                            count += 1
+                        } else if struct_data.size <= 16 {
+                            count += 2
+                        }
                     }
                     Type::Enum(name, _) => {
                         let enum_data = self.enums.get(name).unwrap();
-                        if enum_data.size <= 8 { count += 1 }
-                        else if enum_data.size <= 16 { count += 2 }
+                        if enum_data.size <= 8 {
+                            count += 1
+                        } else if enum_data.size <= 16 {
+                            count += 2
+                        }
                     }
                     _ => {
                         count += 1;
                     }
                 }
             }
-            if is_rvo { count += 1; count } else { count } 
+            if is_rvo {
+                count += 1;
+                count
+            } else {
+                count
+            }
         };
-        
-        dbg!(arg_index);
-        for (index,arg) in args.iter().enumerate().rev() {
+
+        let mut space_taken = 0;
+
+        for (index, arg) in args.iter().enumerate().rev() {
             let arg_type = func_data.args[index].ty.clone();
+            self.eval_expr(&arg, &arg_type);
             match arg_type {
                 Type::Enum(ref name, _) => {
-                    self.eval_expr(arg, &arg_type);
                     let enum_data = self.enums.get(name).unwrap();
                     if enum_data.size <= 8 {
                         self.emit_func_data(format!("    mov rax, [rax]"));
@@ -591,10 +652,20 @@ impl Gen {
                         if remainder > 0 {
                             self.emit_func_data(format!("    xor r10, r10"));
                             self.emit_func_data(format!("    sub rsp, 16"));
+                            space_taken += 16;
                             match remainder {
-                                4 => self.emit_func_data(format!("    mov r10d, [rax + {}]", (chunks - 1) * 8)),
-                                2 => self.emit_func_data(format!("    mov r10w, [rax + {}]", (chunks - 1) * 8)),
-                                1 => self.emit_func_data(format!("    mov r10b, [rax + {}]", (chunks - 1) * 8)),
+                                4 => self.emit_func_data(format!(
+                                    "    mov r10d, [rax + {}]",
+                                    (chunks - 1) * 8
+                                )),
+                                2 => self.emit_func_data(format!(
+                                    "    mov r10w, [rax + {}]",
+                                    (chunks - 1) * 8
+                                )),
+                                1 => self.emit_func_data(format!(
+                                    "    mov r10b, [rax + {}]",
+                                    (chunks - 1) * 8
+                                )),
                                 _ => {}
                             }
                             self.emit_func_data(format!("    mov [rsp], r10"));
@@ -602,10 +673,10 @@ impl Gen {
                         for i in (0..full).rev() {
                             self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
                         }
+                        space_taken += full * 8
                     }
                 }
                 Type::Struct(ref name) => {
-                    self.eval_expr(arg, &arg_type);
                     let struct_data = self.structs.get(name).unwrap();
                     if struct_data.size <= 8 {
                         self.emit_func_data(format!("    mov rax, [rax]"));
@@ -627,10 +698,20 @@ impl Gen {
                         if remainder > 0 {
                             self.emit_func_data(format!("    xor r10, r10"));
                             self.emit_func_data(format!("    sub rsp, 16"));
+                            space_taken += 16;
                             match remainder {
-                                4 => self.emit_func_data(format!("    mov r10d, [rax + {}]", (chunks - 1) * 8)),
-                                2 => self.emit_func_data(format!("    mov r10w, [rax + {}]", (chunks - 1) * 8)),
-                                1 => self.emit_func_data(format!("    mov r10b, [rax + {}]", (chunks - 1) * 8)),
+                                4 => self.emit_func_data(format!(
+                                    "    mov r10d, [rax + {}]",
+                                    (chunks - 1) * 8
+                                )),
+                                2 => self.emit_func_data(format!(
+                                    "    mov r10w, [rax + {}]",
+                                    (chunks - 1) * 8
+                                )),
+                                1 => self.emit_func_data(format!(
+                                    "    mov r10b, [rax + {}]",
+                                    (chunks - 1) * 8
+                                )),
                                 _ => {}
                             }
                             self.emit_func_data(format!("    mov [rsp], r10"));
@@ -639,16 +720,21 @@ impl Gen {
                         for i in (0..full).rev() {
                             self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
                         }
+                        if full % 2 == 1 {
+                            self.emit_func_data(format!("    sub rsp, 8"));
+                            space_taken += 8;
+                        }
+                        space_taken += full * 8;
                     }
                 }
                 _ => {
-                    self.eval_expr(&arg, &arg_type);
                     let rval = self.reg_for_size("rax", &arg_type).unwrap();
                     arg_index -= 1;
                     self.push_arg(arg_index, &arg_type, &rval);
                 }
             }
         }
+        return space_taken;
     }
 
     fn gen_call(
@@ -671,9 +757,8 @@ impl Gen {
                 .insert(generic.clone(), generics[index].clone());
         }
 
-        
         let new_args = self.convert_generic_args(&func_data.args, generics, &self.generics);
-        
+
         match &self.ensure_monomorphized(&func_data.return_type) {
             Type::Struct(name) => {
                 let struct_data = self.structs.get(name).unwrap();
@@ -692,8 +777,8 @@ impl Gen {
             _ => {}
         }
 
-        self.gen_args(&args, func_data, generics, &new_args, is_rvo);
-        
+        let space_taken = self.gen_args(&args, func_data, generics, &new_args, is_rvo);
+
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(&name).unwrap().clone();
             name = self.transform_generic_name(&name, generics);
@@ -730,6 +815,9 @@ impl Gen {
             self.emit_func_data(format!("    call {}___{}", name, overload_pos));
         } else {
             self.emit_func_data(format!("    call {}", name));
+        }
+        if space_taken > 0 {
+            self.emit_func_data(format!("    add rsp, {}",space_taken));
         }
         self.stack_pos = stack_pos_save;
         return "rax".to_string();
@@ -854,6 +942,36 @@ impl Gen {
         "rax".to_string()
     }
 
+    fn emit_typed_load(&mut self, mem_operand: &str, expected_type: &Type) {
+        let size_word = self.get_word(expected_type);
+        let sized_rax = self.reg_for_size("rax", expected_type).unwrap();
+
+        match expected_type {
+            Type::Primitive(TokenType::I8) | Type::Primitive(TokenType::I16) => {
+                self.emit_func_data(format!("    movsx rax, {} {}", size_word, mem_operand));
+            }
+
+            Type::Primitive(TokenType::I32) => {
+                self.emit_func_data(format!("    movsxd rax, {} {}", size_word, mem_operand));
+            }
+
+            Type::Primitive(TokenType::U8) | Type::Primitive(TokenType::U16) => {
+                self.emit_func_data(format!("    movzx rax, {} {}", size_word, mem_operand));
+            }
+
+            Type::Primitive(TokenType::U32) => {
+                self.emit_func_data(format!("    mov eax, {} {}", size_word, mem_operand));
+            }
+
+            _ => {
+                self.emit_func_data(format!(
+                    "    mov {}, {} {}",
+                    sized_rax, size_word, mem_operand
+                ));
+            }
+        }
+    }
+
     fn gen_expr_struct_member(&mut self, base: &Box<Expr>, name: &String) -> String {
         let base_type = base.get_type(self);
         let base_type = self.resolve_generic_inst(&base_type);
@@ -871,32 +989,32 @@ impl Gen {
             .get(name)
             .unwrap()
             .clone();
-        let size_word = self.get_word(&field.ty);
 
         match &base.ty {
             ExprType::Deref(inner) => {
                 // -> operator: eval inner to get pointer value, add offset, read
                 self.eval_expr(inner, &Type::Pointer(Box::new(base_type.clone())));
                 self.emit_func_data(format!("    add rax, {}", field.offset));
-                let reg = self.reg_for_size("rax", &field.ty).unwrap();
-                self.emit_func_data(format!("    mov {}, {} [rax]", reg, size_word));
+
+                // Safely load the field from [rax]
+                self.emit_typed_load("[rax]", &field.ty);
             }
             ExprType::Variable(var_name) => {
                 // . operator: compile-time offset
                 let var = self.lookup_var(var_name);
-                let reg = self.reg_for_size("rax", &field.ty).unwrap();
                 let field_addr = var.stack_pos - field.offset;
-                self.emit_func_data(format!(
-                    "    mov {}, {} [rbp - {}]",
-                    reg, size_word, field_addr
-                ));
+
+                // Safely load the field directly from the stack!
+                let mem_op = format!("[rbp - {}]", field_addr);
+                self.emit_typed_load(&mem_op, &field.ty);
             }
             _ => {
                 // chained a.b.c — runtime fallback
                 self.eval_expr(base, &base_type);
                 self.emit_func_data(format!("    add rax, {}", field.offset));
-                let reg = self.reg_for_size("rax", &field.ty).unwrap();
-                self.emit_func_data(format!("    mov {}, {} [rax]", reg, size_word));
+
+                // Safely load the field from [rax]
+                self.emit_typed_load("[rax]", &field.ty);
             }
         }
         "rax".to_string()
@@ -904,19 +1022,7 @@ impl Gen {
 
     fn gen_expr_deref(&mut self, expr: &Box<Expr>, expected_type: &Type) -> String {
         self.eval_expr(expr, expected_type);
-        let size_word = self.get_word(expected_type);
-        let sized_rax = self.reg_for_size("rax", expected_type).unwrap();
-
-        match expected_type {
-            Type::Primitive(TokenType::IntType)
-            | Type::Primitive(TokenType::ShortType)
-            | Type::Primitive(TokenType::CharType) => {
-                self.emit_func_data(format!("    movsx rax, {} [rax]", size_word));
-            }
-            _ => {
-                self.emit_func_data(format!("    mov {}, {} [rax]", sized_rax, size_word));
-            }
-        }
+        self.emit_typed_load("[rax]", expected_type);
         "rax".to_string()
     }
 
@@ -947,7 +1053,7 @@ impl Gen {
                 self.push_result();
 
                 // eval index, scale it
-                self.eval_expr(index, &Type::Primitive(TokenType::LongType));
+                self.eval_expr(index, &Type::Primitive(TokenType::I32));
                 self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
 
                 // pop base, add scaled index
@@ -975,7 +1081,7 @@ impl Gen {
         let arr_ty = &base.get_type(self);
         self.eval_expr(base, arr_ty);
         self.push_result();
-        let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::LongType));
+        let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
         //runtime checking
         match arr_ty {
             Type::Array(ty, size) => {
@@ -991,17 +1097,7 @@ impl Gen {
         self.emit_func_data(format!("    imul rax, rax, {}", elem_size,));
         self.pop_into("rbx");
         self.emit_func_data(format!("    add rax, rbx"));
-        let size_word = self.get_word(&expected_type);
-        match &expected_type {
-            Type::Primitive(TokenType::CharType)
-            | Type::Primitive(TokenType::ShortType)
-            | Type::Primitive(TokenType::IntType) => {
-                self.emit_func_data(format!("    movsx rax, {} [rax]", size_word));
-            }
-            _ => {
-                self.emit_func_data(format!("    mov rax, {} [rax]", size_word));
-            }
-        }
+        self.emit_typed_load("[rax]", expected_type);
         "rax".to_string()
     }
 
@@ -1048,13 +1144,36 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn gen_cast(&mut self, expr: &Box<Expr>, ty: &Type) -> String {
-        self.eval_expr(expr, ty);
-        let sized = self.reg_for_size("rax", ty).unwrap();
-        if sized != "rax" {
-            self.emit_func_data(format!("    movsx rax, {}", sized));
+    fn gen_cast(&mut self, expr: &Box<Expr>, target_ty: &Type) -> String {
+        let src_ty = expr.get_type(self);
+        
+        self.eval_expr(expr, &src_ty); 
+
+        let src_size = self.type_size(&src_ty);
+        let target_size = self.type_size(target_ty);
+
+        if src_size < target_size {
+            let src_reg = self.reg_for_size("rax", &src_ty).unwrap();
+            let target_reg = self.reg_for_size("rax", target_ty).unwrap();
+            
+            let is_unsigned = is_unsigned(&src_ty);
+
+            if is_unsigned {
+                if src_size == 4 && target_size == 8 {
+                    self.emit_func_data("    mov eax, eax".to_string());
+                } else {
+                    self.emit_func_data(format!("    movzx {}, {}", target_reg, src_reg));
+                }
+            } else {
+                if src_size == 4 && target_size == 8 {
+                    self.emit_func_data("    movsxd rax, eax".to_string());
+                } else {
+                    self.emit_func_data(format!("    movsx {}, {}", target_reg, src_reg));
+                }
+            }
         }
-        "rax".to_string()
+
+        self.reg_for_size("rax", target_ty).unwrap()
     }
 
     pub fn resolve_generic_inst(&self, ty: &Type) -> Type {

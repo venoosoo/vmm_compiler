@@ -35,10 +35,10 @@ pub fn align16(n: usize) -> usize {
 pub fn type_name(ty: &Type) -> String {
     match ty {
         Type::Primitive(token) => match token {
-            TokenType::IntType => "int".to_string(),
-            TokenType::LongType => "long".to_string(),
-            TokenType::CharType => "char".to_string(),
-            TokenType::ShortType => "short".to_string(),
+            TokenType::I32 => "i32".to_string(),
+            TokenType::I64 => "i64".to_string(),
+            TokenType::I8 => "i8".to_string(),
+            TokenType::I16 => "i16".to_string(),
             TokenType::Void => "void".to_string(),
             _ => format!("{:?}", token),
         },
@@ -74,10 +74,10 @@ pub fn to_base_reg(reg: &str) -> &str {
 pub fn arg_pos(pos: usize, ty: &Type) -> String {
     let size = match ty {
         Type::Primitive(token) => match token {
-            TokenType::CharType => 1,
-            TokenType::ShortType => 2,
-            TokenType::IntType => 4,
-            TokenType::LongType => 8,
+            TokenType::I8 => 1,
+            TokenType::I16 => 2,
+            TokenType::I32 => 4,
+            TokenType::I64 => 8,
             _ => panic!("unsupported primitive type in arg_pos: {:?}", token),
         },
         Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => {
@@ -133,18 +133,6 @@ pub fn lvalue_root(lvalue: &LValue) -> String {
     }
 }
 
-pub fn numeric_rank(ty: &Type) -> Option<u8> {
-    match ty {
-        //Type::Primitive(TokenType::Bool)  => Some(0),
-        Type::Primitive(TokenType::CharType) => Some(1),
-        Type::Primitive(TokenType::ShortType) => Some(2),
-        Type::Primitive(TokenType::IntType) => Some(3),
-        Type::Primitive(TokenType::LongType) => Some(4),
-        //Type::Primitive(TokenType::Float) => Some(4),
-        _ => None,
-    }
-}
-
 pub fn is_numeric(ty: &Type) -> bool {
     numeric_rank(ty).is_some()
 }
@@ -152,9 +140,14 @@ pub fn is_numeric(ty: &Type) -> bool {
 pub fn is_arithmetic(ty: &Type) -> bool {
     matches!(
         ty,
-        Type::Primitive(TokenType::CharType)
-            | Type::Primitive(TokenType::IntType)
-            | Type::Primitive(TokenType::LongType) //Type::Primitive(TokenType::Float)
+        Type::Primitive(TokenType::I8)
+            | Type::Primitive(TokenType::I16)
+            | Type::Primitive(TokenType::I32)
+            | Type::Primitive(TokenType::I64)
+            | Type::Primitive(TokenType::U8)
+            | Type::Primitive(TokenType::U16)
+            | Type::Primitive(TokenType::U32)
+            | Type::Primitive(TokenType::U64)
     )
 }
 
@@ -162,40 +155,80 @@ pub fn is_integer(ty: &Type) -> bool {
     matches!(
         ty,
         //Type::Primitive(TokenType::Bool)  |
-        Type::Primitive(TokenType::CharType)
-            | Type::Primitive(TokenType::IntType)
-            | Type::Primitive(TokenType::LongType)
+        Type::Primitive(TokenType::I8)
+            | Type::Primitive(TokenType::I16)
+            | Type::Primitive(TokenType::I32)
+            | Type::Primitive(TokenType::I64)
+            | Type::Primitive(TokenType::U8)
+            | Type::Primitive(TokenType::U16)
+            | Type::Primitive(TokenType::U32)
+            | Type::Primitive(TokenType::U64)
     )
 }
 
 pub fn coerce_numeric(a: &Type, b: &Type) -> Type {
-    if numeric_rank(a) >= numeric_rank(b) {
+    let a_info = numeric_rank(a).unwrap_or((0, true));
+    let b_info = numeric_rank(b).unwrap_or((0, true));
+
+    let (a_rank, a_is_signed) = a_info;
+    let (b_rank, b_is_signed) = b_info;
+
+    if a_rank > b_rank {
+        // A is larger (e.g., i64 vs i32), so A wins
         a.clone()
-    } else {
+    } else if b_rank > a_rank {
+        // B is larger, so B wins
         b.clone()
+    } else {
+        // They are the exact same size (e.g., u32 vs i32). 
+        // In C-style promotion, Unsigned (false) always beats Signed (true).
+        if !a_is_signed {
+            a.clone() // A is unsigned, A wins
+        } else if !b_is_signed {
+            b.clone() // B is unsigned, B wins
+        } else {
+            a.clone() // Both are signed or both are unsigned, doesn't matter
+        }
+    }
+}
+
+pub fn numeric_rank(ty: &Type) -> Option<(u8, bool)> {
+    // (rank, is_signed)
+    match ty {
+        Type::Primitive(TokenType::I8) => Some((1, true)),
+        Type::Primitive(TokenType::I16) => Some((2, true)),
+        Type::Primitive(TokenType::I32) => Some((3, true)),
+        Type::Primitive(TokenType::I64) => Some((4, true)),
+        Type::Primitive(TokenType::U8) => Some((1, false)),
+        Type::Primitive(TokenType::U16) => Some((2, false)),
+        Type::Primitive(TokenType::U32) => Some((3, false)),
+        Type::Primitive(TokenType::U64) => Some((4, false)),
+        _ => None,
     }
 }
 
 pub fn check_types(left: &Type, right: &Type) -> bool {
+    // 1. Strict equality (This handles i32 == i32 automatically)
     if left == right {
         return true;
     }
+    
+    // 2. Generics bypass
     if matches!(left, Type::GenericType(_)) || matches!(right, Type::GenericType(_)) {
         return true;
     }
-    // only allow numeric coercion, no ptr<->long
-    if numeric_rank(left).is_some() && numeric_rank(right).is_some() {
-        return true;
-    }
-    // char array compatible with char*
+    
+
+    // 3. char array compatible with char* (u8[] <-> u8*)
     if let Type::Array(elem, _) = left {
-        if **elem == Type::Primitive(TokenType::CharType)
-            && *right == Type::Pointer(Box::new(Type::Primitive(TokenType::CharType)))
+        if **elem == Type::Primitive(TokenType::U8)
+            && *right == Type::Pointer(Box::new(Type::Primitive(TokenType::U8)))
         {
             return true;
         }
     }
-    // void* compatible with any pointer
+    
+    // 4. void* compatible with any pointer
     let is_void_ptr = |t: &Type| *t == Type::Pointer(Box::new(Type::Primitive(TokenType::Void)));
     if is_void_ptr(left) && matches!(right, Type::Pointer(_)) {
         return true;
@@ -203,13 +236,28 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     if is_void_ptr(right) && matches!(left, Type::Pointer(_)) {
         return true;
     }
-    // GenericInst compatible with same base type
-    if let (Type::GenericType(l_name), Type::GenericType(r_name)) = (left, right) {
-        return l_name == r_name;
-    }
+    
     false
 }
 
 pub fn aligned_size(total_size: usize, largest_align: usize) -> usize {
     (total_size + largest_align - 1) & !(largest_align - 1)
+}
+
+pub fn is_unsigned(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Primitive(TokenType::U8)
+            | Type::Primitive(TokenType::U16)
+            | Type::Primitive(TokenType::U32)
+            | Type::Primitive(TokenType::U64)
+    )
+}
+
+pub fn same_signedness(l: &Type, r: &Type) -> bool {
+    // if either isn't numeric at all, let the existing checks handle it
+    match (numeric_rank(l), numeric_rank(r)) {
+        (Some((_, l_signed)), Some((_, r_signed))) => l_signed == r_signed,
+        _ => true,
+    }
 }
