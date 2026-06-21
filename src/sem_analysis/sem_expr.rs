@@ -3,7 +3,7 @@ use std::env::Args;
 use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
 use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::Declaration;
-use crate::shared::{coerce_numeric, is_arithmetic, is_integer, is_numeric, same_signedness};
+use crate::shared::{coerce_numeric, is_number, is_numeric, same_signedness};
 use crate::{
     Ir::{
         expr::{BinOp, Expr, UnaryOp},
@@ -145,7 +145,7 @@ impl<'a> Analyzer<'a> {
         let expr_type = self.check_expr(expr, expected_ty);
         let valid = match op {
             UnaryOp::BitNot => todo!(),
-            UnaryOp::Neg => is_arithmetic(&expr_type),
+            UnaryOp::Neg => is_number(&expr_type),
             UnaryOp::Not => is_numeric(&expr_type),
             UnaryOp::GetAddr => true, // fix later
         };
@@ -174,13 +174,13 @@ impl<'a> Analyzer<'a> {
 
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
-                if matches!(&l, Type::Pointer(_)) && is_integer(&r) {
+                if matches!(&l, Type::Pointer(_)) && is_number(&r) {
                     return Ok(l);
                 }
-                if matches!(&r, Type::Pointer(_)) && is_integer(&l) {
+                if matches!(&r, Type::Pointer(_)) && is_number(&l) {
                     return Ok(r);
                 }
-                if !is_arithmetic(&l) || !is_arithmetic(&r) {
+                if !is_number(&l) || !is_number(&r) {
                     return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
@@ -194,7 +194,7 @@ impl<'a> Analyzer<'a> {
             }
 
             BinOp::Mod => {
-                if !is_integer(&l) || !is_integer(&r) {
+                if !is_number(&l) || !is_number(&r) {
                     return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
@@ -253,7 +253,7 @@ impl<'a> Analyzer<'a> {
             }
 
             BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
-                if !is_integer(&l) || !is_integer(&r) {
+                if !is_number(&l) || !is_number(&r) {
                     return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
@@ -267,7 +267,7 @@ impl<'a> Analyzer<'a> {
             }
 
             BinOp::ShiftLeft | BinOp::ShiftRight => {
-                if !is_integer(&l) || !is_integer(&r) {
+                if !is_number(&l) || !is_number(&r) {
                     return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,

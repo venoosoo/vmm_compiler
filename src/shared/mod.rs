@@ -137,21 +137,8 @@ pub fn is_numeric(ty: &Type) -> bool {
     numeric_rank(ty).is_some()
 }
 
-pub fn is_arithmetic(ty: &Type) -> bool {
-    matches!(
-        ty,
-        Type::Primitive(TokenType::I8)
-            | Type::Primitive(TokenType::I16)
-            | Type::Primitive(TokenType::I32)
-            | Type::Primitive(TokenType::I64)
-            | Type::Primitive(TokenType::U8)
-            | Type::Primitive(TokenType::U16)
-            | Type::Primitive(TokenType::U32)
-            | Type::Primitive(TokenType::U64)
-    )
-}
 
-pub fn is_integer(ty: &Type) -> bool {
+pub fn is_number(ty: &Type) -> bool {
     matches!(
         ty,
         //Type::Primitive(TokenType::Bool)  |

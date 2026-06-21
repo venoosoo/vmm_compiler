@@ -5,20 +5,19 @@ use indexmap::IndexMap;
 use crate::{
     Ir::{
         Stmt,
-        expr::Expr,
+        expr::{Expr, ExprType},
         r#gen::{FuncData, StructData},
         sem_analysis::*,
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
     },
-    shared::{check_types, substitute_type, type_name},
+    shared::{check_types,is_number, substitute_type, type_name},
     tokenizer::TokenType,
 };
 
 pub mod sem_expr;
 mod sem_stmt;
 
-// TODO: add support for extern function
 
 impl<'a> TypeContext for Analyzer<'a> {
     fn resolve_call(
@@ -34,10 +33,12 @@ impl<'a> TypeContext for Analyzer<'a> {
             }
             return Some((vec_func_data[0].clone(), 0));
         }
+        
         let vec_func_data = self.get_function(name);
         if vec_func_data.len() < 1 {
             return None;
         }
+        
         let (overload_pos, func_data) = vec_func_data
             .iter()
             .enumerate()
@@ -50,10 +51,21 @@ impl<'a> TypeContext for Analyzer<'a> {
                     let param_ty = &func.args[i].ty.clone();
                     let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let param_ty = self.ensure_monomorphized(param_ty);
-                    check_types(&expr_ty, &param_ty)
+                    
+                    let arg_matches = match &expr.ty {
+                        ExprType::Number(_) => {
+                            is_number(&param_ty)
+                        }
+                        _ => {
+                            check_types(&expr_ty, &param_ty)
+                        }
+                    };
+
+                    arg_matches
                 })
             })
-            .expect(&format!("no matching overload for function '{}'", name,));
+            .expect(&format!("no matching overload for function '{}'", name));
+            
         Some((func_data.clone(), overload_pos))
     }
 

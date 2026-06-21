@@ -10,7 +10,7 @@ use crate::Ir::sem_analysis::Analyzer;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{EnumData, LValue, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
-use crate::shared::{aligned_size, check_types, substitute_type, to_base_reg, type_name};
+use crate::shared::{aligned_size, check_types, is_number, substitute_type, to_base_reg, type_name};
 use crate::tokenizer::TokenType;
 
 mod gen_expr;
@@ -42,7 +42,18 @@ impl TypeContext for Gen {
                     let param_ty = &func.args[i].ty.clone();
                     let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let param_ty = self.ensure_monomorphized(param_ty);
-                    check_types(&expr_ty, &param_ty)
+
+                    let arg_matches = match &expr.ty {
+                        ExprType::Number(_) => {
+                            is_number(&param_ty)
+                        }
+                        _ => {
+                            check_types(&expr_ty, &param_ty)
+                        }
+                    };
+
+                    arg_matches
+
                 })
             })
             .expect(&format!("no matching overload for function '{}'", name,));
