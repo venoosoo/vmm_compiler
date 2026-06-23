@@ -68,7 +68,7 @@ if_1:
 ## Pipeline
 
 ```
-.v source file
+.vmm source file
     │
     ▼
  Tokenizer        — lexes keywords, operators, literals, identifiers
