@@ -1,6 +1,6 @@
-# vcompiler
+# v-- compiler
 
-A compiler for a custom C-like language, written from scratch in Rust. Compiles `.v` source files directly to x86-64 NASM assembly, which can be assembled and linked into a native Linux executable.
+A compiler for a custom C-like language, written from scratch in Rust. Compiles `.vmm` source files directly to x86-64 NASM assembly, which can be assembled and linked into a native Linux executable.
 
 > **Status:** Work in progress. Core pipeline is functional — see [what's working](#whats-working) below.
 
@@ -8,7 +8,7 @@ A compiler for a custom C-like language, written from scratch in Rust. Compiles 
 
 ## What it does
 
-Takes `.v` source code like this:
+Takes `.vmm` source code like this:
 
 ```c
 fn print_num(long n) {
@@ -119,7 +119,7 @@ Semantic Analysis — type checking, scope resolution, function signatures
 
 ## Standard library
 
-The standard library lives in `std/` and is imported with `import "std/std.v"`.
+The standard library lives in `std/` and is imported with `import "std/std.vmm"`.
 
 ```c
 // Printing
@@ -229,8 +229,8 @@ asm {
 }
 
 // Imports
-import "std/std.v"
-import "std/vector.v"
+import "std/std.vmm"
+import "std/vector.vmm"
 ```
 
 ---
@@ -243,8 +243,8 @@ import "std/vector.v"
 # Build the compiler
 cargo build --release
 
-# Compile a .v file
-./target/release/vcompiler --file your_program.v
+# Compile a .vmm file
+./target/release/vcompiler --file your_program.vmm
 
 # Assemble and link the output
 nasm -f elf64 main.asm -o main.o
@@ -283,8 +283,8 @@ src/
     └── gen_stmt.rs          — statement codegen, lvalue resolution
 
 std/
-├── std.v                    — print, malloc, memcpy, syscall, strlen, exit...
-└── vector.v                 — generic Vector with push/pop/get
+├── std.vmm                  — print, malloc, memcpy, syscall, strlen, exit...
+└── vector.vmm               — generic Vector with push/pop/get
 ```
 
 ---

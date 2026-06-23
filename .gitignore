@@ -2,14 +2,13 @@
 todo.txt
 main.asm
 main.o
-print_num.v
 run.sh
-test.v
+test.vmm
 copy.asm
 main
 .vscode
 parser_result.txt
 errors.txt
 errors.txt
-test2.v
-main.v
+test2.vmm
+main.vmm

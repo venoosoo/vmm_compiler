@@ -21,7 +21,7 @@ mod tokenizer;
 #[derive(CliParser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    #[arg(short, long, required = true, help = "provide file main.v")]
+    #[arg(short, long, required = true, help = "provide file main.vmm")]
     file: String,
 }
 
