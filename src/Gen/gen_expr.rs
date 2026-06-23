@@ -198,13 +198,13 @@ impl Gen {
             }
             BinOp::Div => {
                 let divisor_reg = self.reg_for_size("r10", expected_type).unwrap();
-                
+
                 self.emit_func_data(format!("    mov {}, {}", divisor_reg, right_reg));
                 self.emit_func_data("    push rdx".to_string());
-                
+
                 if is_unsigned {
                     let rdx_reg = self.reg_for_size("rdx", expected_type).unwrap();
-                    self.emit_func_data(format!("    xor {}, {}",rdx_reg,rdx_reg));
+                    self.emit_func_data(format!("    xor {}, {}", rdx_reg, rdx_reg));
                     self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
                     // SIGNED PATH
@@ -213,20 +213,20 @@ impl Gen {
                     } else if self.type_size(expected_type) == 4 {
                         self.emit_func_data("    cdq".to_string());
                     } else {
-                        self.emit_func_data("    cwd".to_string()); 
+                        self.emit_func_data("    cwd".to_string());
                     }
                     self.emit_func_data(format!("    idiv {}", divisor_reg));
                 }
             }
             BinOp::Mod => {
                 let divisor_reg = self.reg_for_size("r10", expected_type).unwrap();
-                
+
                 self.emit_func_data(format!("    mov {}, {}", divisor_reg, right_reg));
                 self.emit_func_data("    push rdx".to_string());
-                
+
                 if is_unsigned {
                     let rdx_reg = self.reg_for_size("rdx", expected_type).unwrap();
-                    self.emit_func_data(format!("    xor {}, {}",rdx_reg,rdx_reg));
+                    self.emit_func_data(format!("    xor {}, {}", rdx_reg, rdx_reg));
                     self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
                     // SIGNED PATH
@@ -235,14 +235,14 @@ impl Gen {
                     } else if self.type_size(expected_type) == 4 {
                         self.emit_func_data("    cdq".to_string());
                     } else {
-                        self.emit_func_data("    cwd".to_string()); 
+                        self.emit_func_data("    cwd".to_string());
                     }
                     self.emit_func_data(format!("    idiv {}", divisor_reg));
                 }
 
                 let remainder_reg = self.reg_for_size("rdx", expected_type).unwrap();
                 self.emit_func_data(format!("    mov {}, {}", left_reg, remainder_reg));
-                
+
                 self.emit_func_data("    pop rdx".to_string());
             }
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
@@ -320,7 +320,8 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn var_return(&mut self, var_data: &VarData) { // Note: expected_type is gone!
+    fn var_return(&mut self, var_data: &VarData) {
+        // Note: expected_type is gone!
         match &var_data.var_type {
             Type::Primitive(_) => {
                 // Just load exactly what the variable is, no implicit resizing!
@@ -817,7 +818,7 @@ impl Gen {
             self.emit_func_data(format!("    call {}", name));
         }
         if space_taken > 0 {
-            self.emit_func_data(format!("    add rsp, {}",space_taken));
+            self.emit_func_data(format!("    add rsp, {}", space_taken));
         }
         self.stack_pos = stack_pos_save;
         return "rax".to_string();
@@ -1146,16 +1147,15 @@ impl Gen {
 
     fn gen_cast(&mut self, expr: &Box<Expr>, target_ty: &Type) -> String {
         let src_ty = expr.get_type(self);
-        
-        self.eval_expr(expr, &src_ty); 
+
+        self.eval_expr(expr, &src_ty);
 
         let src_size = self.type_size(&src_ty);
         let target_size = self.type_size(target_ty);
-
         if src_size < target_size {
             let src_reg = self.reg_for_size("rax", &src_ty).unwrap();
             let target_reg = self.reg_for_size("rax", target_ty).unwrap();
-            
+
             let is_unsigned = is_unsigned(&src_ty);
 
             if is_unsigned {
@@ -1168,7 +1168,9 @@ impl Gen {
                 if src_size == 4 && target_size == 8 {
                     self.emit_func_data("    movsxd rax, eax".to_string());
                 } else {
-                    self.emit_func_data(format!("    movsx {}, {}", target_reg, src_reg));
+                    if !matches!(src_ty, Type::Array(_, _)) && !matches!(src_ty, Type::Pointer(_)) {
+                        self.emit_func_data(format!("    movsx {}, {}", target_reg, src_reg));
+                    }
                 }
             }
         }

@@ -153,7 +153,7 @@ fn change_player_pos(Vector<vec2*>* player, i32* key, i32 previous_key) {
     else if *key == 4 and previous_key == 3 { *key = previous_key; }
 
     if player->length > 1 {
-        for (i32 i = player->length - 1; i > 0; i = i - 1) {
+        for (i64 i = player->length - 1; i > 0; i = i - 1) {
             vec2* pos = vec_get_element<vec2*>(player, i);
             vec2* next_pos = vec_get_element<vec2*>(player, i - 1);
             pos->x = next_pos->x;
@@ -237,10 +237,10 @@ fn render_screen(GameData* game_data, Vector<vec2*>* vec, vec2* apple_pos) {
         println("");
     }
     print("score: ");
-    print_num(game_data->score);
+    print(game_data->score);
     print("                        ");
     print("time: ");
-    print_num(game_data->time);
+    print(game_data->time);
     println("");
 }
 
@@ -284,7 +284,7 @@ fn main() {
         if key != 0 {
             last_pressed = key
         }
-        if now - last_tick > (interval - (game_data.score * 2)) as i64 {
+        if now - last_tick > (interval - (game_data.score * 2)) {
             game_data.time = get_elapsed_ms() / 1000;
             last_tick = now;
 

@@ -80,7 +80,9 @@ impl<'a> Lookup for Analyzer<'a> {
         field.ty.clone()
     }
     fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Type {
-        todo!()
+        // TODO: do this properly
+        let func_data = self.functions.get(name).unwrap();
+        func_data[0].return_type.clone()
     }
 
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -579,6 +581,18 @@ impl<'a> Analyzer<'a> {
         Type::Enum(base.clone(), None)
     }
 
+    fn check_cast(&mut self, expr: &Expr, ty: &Type) -> Type {
+        if expr.get_type(self) == *ty {
+            self.print_error(self.type_to_error(SemanticError::CastError {
+                before: expr.get_type(self),
+                after: ty.clone(),
+            }));
+            ty.clone()
+        } else {
+            ty.clone()
+        }
+    }
+
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
         match &expr.ty {
             ExprType::Number(num) => self.check_num(num, expected_ty),
@@ -613,7 +627,7 @@ impl<'a> Analyzer<'a> {
                 value,
                 variant,
             } => self.check_gen_enum(base, value, variant),
-            ExprType::Cast { expr, ty } => ty.clone(),
+            ExprType::Cast { expr, ty } => self.check_cast(expr, ty),
         }
     }
 }

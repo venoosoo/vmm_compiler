@@ -91,6 +91,10 @@ pub enum SemanticError {
         left: Type,
         right: Type,
     },
+    CastError {
+        before: Type,
+        after: Type,
+    },
     MatchExprUnsuported(Type),
     DerefNonPointer(Type),
     CircularStruct(String),

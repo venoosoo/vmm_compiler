@@ -17,7 +17,6 @@ pub fn substitute_type(ty: &Type, params: &Vec<String>, args: &Vec<Type>) -> Typ
             Type::Array(Box::new(substitute_type(inner, params, args)), *size)
         }
         Type::GenericInst(name, inner_args) => {
-            // substitute inside nested generics e.g. Option<Vec<T>>
             let new_args = inner_args
                 .iter()
                 .map(|a| substitute_type(a, params, args))
@@ -67,7 +66,7 @@ pub fn to_base_reg(reg: &str) -> &str {
         "edx" | "dx" | "dl" => "rdx",
         "esi" | "si" | "sil" => "rsi",
         "edi" | "di" | "dil" => "rdi",
-        _ => reg, // already 64-bit or r8-r15
+        _ => reg,
     }
 }
 
@@ -137,11 +136,9 @@ pub fn is_numeric(ty: &Type) -> bool {
     numeric_rank(ty).is_some()
 }
 
-
 pub fn is_number(ty: &Type) -> bool {
     matches!(
         ty,
-        //Type::Primitive(TokenType::Bool)  |
         Type::Primitive(TokenType::I8)
             | Type::Primitive(TokenType::I16)
             | Type::Primitive(TokenType::I32)
@@ -161,20 +158,16 @@ pub fn coerce_numeric(a: &Type, b: &Type) -> Type {
     let (b_rank, b_is_signed) = b_info;
 
     if a_rank > b_rank {
-        // A is larger (e.g., i64 vs i32), so A wins
         a.clone()
     } else if b_rank > a_rank {
-        // B is larger, so B wins
         b.clone()
     } else {
-        // They are the exact same size (e.g., u32 vs i32). 
-        // In C-style promotion, Unsigned (false) always beats Signed (true).
         if !a_is_signed {
-            a.clone() // A is unsigned, A wins
+            a.clone()
         } else if !b_is_signed {
-            b.clone() // B is unsigned, B wins
+            b.clone()
         } else {
-            a.clone() // Both are signed or both are unsigned, doesn't matter
+            a.clone()
         }
     }
 }
@@ -199,12 +192,11 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     if left == right {
         return true;
     }
-    
+
     // 2. Generics bypass
     if matches!(left, Type::GenericType(_)) || matches!(right, Type::GenericType(_)) {
         return true;
     }
-    
 
     // 3. char array compatible with char* (u8[] <-> u8*)
     if let Type::Array(elem, _) = left {
@@ -214,7 +206,7 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
             return true;
         }
     }
-    
+
     // 4. void* compatible with any pointer
     let is_void_ptr = |t: &Type| *t == Type::Pointer(Box::new(Type::Primitive(TokenType::Void)));
     if is_void_ptr(left) && matches!(right, Type::Pointer(_)) {
@@ -223,7 +215,7 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     if is_void_ptr(right) && matches!(left, Type::Pointer(_)) {
         return true;
     }
-    
+
     false
 }
 
@@ -242,7 +234,6 @@ pub fn is_unsigned(ty: &Type) -> bool {
 }
 
 pub fn same_signedness(l: &Type, r: &Type) -> bool {
-    // if either isn't numeric at all, let the existing checks handle it
     match (numeric_rank(l), numeric_rank(r)) {
         (Some((_, l_signed)), Some((_, r_signed))) => l_signed == r_signed,
         _ => true,

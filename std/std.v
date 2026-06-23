@@ -34,12 +34,12 @@ global i64 malloc_heap_remaining;
 fn malloc(i64 size) -> void* {
     if malloc_heap_start as i64 == 0 {
         // Syscall 9: mmap
-        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1) as i64*;
+        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1);
         malloc_heap_current = malloc_heap_start;
         malloc_heap_remaining = 4096;
     }
     if malloc_heap_remaining < size {
-        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1) as i64*;
+        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1);
         malloc_heap_current = malloc_heap_start;
         malloc_heap_remaining = 4096;
     }
@@ -92,6 +92,46 @@ fn unwrap<T>(Option<T>* data) -> T {
         }
     }
     exit(1);
+}
+
+fn atoi(u8* str) -> i64 {
+    i64 result = 0;
+    i64 i = 0;
+    i64 is_negative = 0;
+
+    while str[i] == 32 {
+        i = i + 1;
+    }
+
+    if str[i] == '-' {
+        is_negative = 1;
+        i = i + 1;
+    }
+
+    while str[i] != 0 {
+        u8 c = str[i];
+        
+        if c < 48 {
+            if is_negative == 1 { return -result; }
+            return result;
+        }
+        if c > 57 {
+            if is_negative == 1 { return -result; }
+            return result;
+        }
+
+        i64 digit = (c as i64) - 48;
+        
+        result = (result * 10) + digit;
+        
+        i = i + 1;
+    }
+
+    if is_negative == 1 {
+        return -result;
+    }
+
+    return result;
 }
 
 
