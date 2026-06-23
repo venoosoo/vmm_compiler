@@ -150,38 +150,41 @@ fn vec_get_element(Vector* vec, int pos) -> void*
 ## Language syntax
 
 ```c
+// Imports
+import "std/std.vmm"
+import "std/vector.vmm"
+
 // Functions
-fn add(int a, int b) -> int {
+fn add(i32 a, i32 b) -> i32 {
     return a + b;
 }
 
 // Variables and types
-int x = 42;
-char c = 'A';
-long big = 1000000;
+i32 x = 42;
+u8 c = 'A';          // characters are just bytes!
+i64 big = 1000000;
 void* ptr;
 
 // Pointers
-int* p = &x;
-int val = *p;
+i32* p = &x;
+i32 val = *p;
 
 // Arrays
-int arr[10];
+i32 arr[10];
 arr[0] = 1;
 
-// String literals (size inferred automatically)
-char[] name = "hello";
-char greeting[8] = "jackpot";
+// String literals (size inferred automatically, essentially u8*)
+u8[] name = "hello";
+u8 greeting[8] = "jackpot";
 
 // Structs
 struct Point {
-    int x;
-    int y;
+    i32 x;
+    i32 y;
 }
-Point p = Point { x: 1, y: 2 };   // stack allocated, use .
+Point p = Point { x: 1, y: 2 };    // stack allocated, use .
 Point* hp = malloc(sizeof(Point)); // heap allocated, use ->
 hp->x = 10;
-
 
 // Control flow
 if x > 10 {
@@ -194,7 +197,7 @@ while x > 0 {
     x = x - 1;
 }
 
-for (int i = 0; i < 10; i = i + 1) {
+for (i32 i = 0; i < 10; i = i + 1) {
     // ...
 }
 
@@ -208,7 +211,7 @@ enum Colors {
 
 Colors white = Colors::white;
 
-// matches
+// Matches
 match white {
     Colors::white => {
         // ...
@@ -219,7 +222,7 @@ match white {
 }
 
 // Globals
-global int counter;
+global i64 counter;
 
 // Inline assembly (variables substituted via (varname))
 asm {
@@ -227,10 +230,6 @@ asm {
     "mov rdx, 1"
     "syscall"
 }
-
-// Imports
-import "std/std.vmm"
-import "std/vector.vmm"
 ```
 
 ---
