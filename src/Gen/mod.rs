@@ -253,7 +253,7 @@ impl Gen {
     pub fn new(stmts: Vec<Stmt>) -> Gen {
         Gen {
             stmts,
-            current_return_type: Type::Primitive(TokenType::I32),
+            current_return_type: Type::Primitive(TokenType::Void),
             main_code: Vec::new(),
             data_code: Vec::new(),
             scopes: vec![HashMap::new()],
@@ -415,6 +415,9 @@ impl Gen {
         self.emit("    mov rdi, [rsp]".to_string());
         self.emit("    lea rsi, [rsp+8]".to_string());
         self.emit("    call main".to_string());
+        if self.current_return_type == Type::Primitive(TokenType::Void) {
+            self.emit(format!("    mov rax, 0"));
+        }
         self.emit("    mov rdi, rax".to_string());
         self.emit("    mov rax, 60".to_string());
         self.emit("    syscall".to_string());

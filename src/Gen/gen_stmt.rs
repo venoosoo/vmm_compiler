@@ -427,29 +427,122 @@ impl Gen {
         }
     }
 
+    fn get_arg(
+        &mut self,
+        pos: usize,
+        ty: &Type,
+        local_pos: usize,
+        stack_arg_pos: Option<usize>,
+        is_rvo: bool,
+    ) {
+        let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+        if pos > 6 {
+            let size = self.type_size(ty);
+            let stack_pos =
+                stack_arg_pos.expect("the stack arg hasnt been provided the stack_arg_pos");
+            let chunks = (size + 7) / 8;
+            let remainder = size % 8;
+            let full = if remainder > 0 { chunks - 1 } else { chunks };
+
+            for i in 0..full {
+                self.emit_func_data(format!("    mov rax, [rbp + {}]", stack_pos + i * 8));
+                self.emit_func_data(format!("    mov [rbp - {}], rax", local_pos - i * 8));
+            }
+
+            if remainder == 0 {
+                return;
+            }
+
+            let src = stack_pos + full * 8;
+            let dst = local_pos - full * 8;
+            match remainder {
+                4 => {
+                    self.emit_func_data(format!("    mov eax, [rbp + {}]", src));
+                    self.emit_func_data(format!("    mov DWORD [rbp - {}], eax", dst));
+                }
+                2 => {
+                    self.emit_func_data(format!("    mov ax, [rbp + {}]", src));
+                    self.emit_func_data(format!("    mov WORD [rbp - {}], ax", dst));
+                }
+                1 => {
+                    self.emit_func_data(format!("    mov al, [rbp + {}]", src));
+                    self.emit_func_data(format!("    mov BYTE [rbp - {}], al", dst));
+                }
+                _ => {
+                    for b in 0..remainder {
+                        self.emit_func_data(format!("    mov al, [rbp + {}]", src + b));
+                        self.emit_func_data(format!("    mov BYTE [rbp - {}], al", dst - b));
+                    }
+                }
+            }
+        } else {
+            self.emit_func_data(format!(
+                "    mov [rbp - {}], {}",
+                local_pos,
+                arg_regs[pos - 1]
+            ));
+        }
+    }
+
     pub fn compile_args(&mut self, args: &Vec<Declaration>, ret_type: &Type) {
-        let mut offset = false;
+        let mut is_rvo = false;
         match &self.ensure_monomorphized(ret_type) {
-            Type::Enum(name, _) => offset = true,
-            Type::Struct(name) => offset = true,
+            Type::Enum(name, _) => is_rvo = true,
+            Type::Struct(name) => is_rvo = true,
             _ => {}
         }
-        let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
-        if offset {
+        let mut arg_index = self.arg_count(is_rvo, args);
+        if is_rvo {
             let arg_ty = Type::Primitive(TokenType::I64); // the ptr is 64 bits too so thats fine
             let reg = self.reg_for_size("rdi", &arg_ty).unwrap();
             self.alloc(8);
             self.emit_func_data(format!("    mov [rbp - 8], {}", reg));
         }
-        for (i, decl) in args.iter().enumerate() {
-            let i = if offset { i + 1 } else { i };
-            if i >= arg_regs.len() {
-                self::panic!("too many args, stack args not supported yet");
-            }
+        let mut stack_arg_pos = 16;
+        for (index, decl) in args.iter().enumerate().rev() {
             let arg_ty = self.ensure_monomorphized(&decl.ty);
             let pos = self.alloc_type(&arg_ty);
-            let reg = self.reg_for_size(arg_regs[i], &arg_ty).unwrap();
-            self.emit_func_data(format!("    mov [rbp - {}], {}", pos, reg));
+            match arg_ty {
+                Type::Enum(ref name, _) => {
+                    let size = self.enums.get(name).unwrap().size;
+                    if size <= 8 {
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        arg_index -= 1;
+                    } else if size <= 16 && arg_index < 6 {
+                        self.get_arg(arg_index, &arg_ty, pos - 8, None,is_rvo);
+                        arg_index -= 1;
+                        self.get_arg(arg_index, &arg_ty, pos, None,is_rvo);
+                        arg_index -= 1
+                    } else {
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        stack_arg_pos += self.type_size(&arg_ty);
+                    }
+                }
+                Type::Struct(ref name) => {
+                    let size = self.structs.get(name).unwrap().size;
+                    if size <= 8 {
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        arg_index -= 1;
+                    } else if size <= 16 && arg_index < 6 {
+                        self.get_arg(arg_index, &arg_ty, pos - 8, None,is_rvo);
+                        arg_index -= 1;
+                        self.get_arg(arg_index, &arg_ty, pos, None,is_rvo);
+                        arg_index -= 1
+                    } else {
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        stack_arg_pos += self.type_size(&arg_ty);
+                    }
+                }
+                _ => {
+                    self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                    if arg_index > 6 {
+                        stack_arg_pos += self.type_size(&arg_ty);
+                    } else {
+                        arg_index -= 1;
+                    }
+                }
+            }
+
             let map = self.scopes.last_mut().unwrap();
             map.insert(
                 decl.name.clone(),

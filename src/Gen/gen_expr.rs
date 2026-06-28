@@ -585,6 +585,39 @@ impl Gen {
         }
     }
 
+    pub fn arg_count(&self, is_rvo: bool, args: &Vec<Declaration>) -> usize {
+        let mut count = 0;
+        for i in args.iter() {
+            match &i.ty {
+                Type::Struct(name) => {
+                    let struct_data = self.structs.get(name).unwrap();
+                    if struct_data.size <= 8 {
+                        count += 1
+                    } else if struct_data.size <= 16 {
+                        count += 2
+                    }
+                }
+                Type::Enum(name, _) => {
+                    let enum_data = self.enums.get(name).unwrap();
+                    if enum_data.size <= 8 {
+                        count += 1
+                    } else if enum_data.size <= 16 {
+                        count += 2
+                    }
+                }
+                _ => {
+                    count += 1;
+                }
+            }
+        }
+        if is_rvo {
+            count += 1;
+            count
+        } else {
+            count
+        }
+    }
+
     fn gen_args(
         &mut self,
         args: &Vec<Expr>,
@@ -593,38 +626,7 @@ impl Gen {
         new_args: &Vec<Declaration>,
         is_rvo: bool,
     ) -> usize {
-        let mut arg_index = {
-            let mut count = 0;
-            for i in func_data.args.iter() {
-                match &i.ty {
-                    Type::Struct(name) => {
-                        let struct_data = self.structs.get(name).unwrap();
-                        if struct_data.size <= 8 {
-                            count += 1
-                        } else if struct_data.size <= 16 {
-                            count += 2
-                        }
-                    }
-                    Type::Enum(name, _) => {
-                        let enum_data = self.enums.get(name).unwrap();
-                        if enum_data.size <= 8 {
-                            count += 1
-                        } else if enum_data.size <= 16 {
-                            count += 2
-                        }
-                    }
-                    _ => {
-                        count += 1;
-                    }
-                }
-            }
-            if is_rvo {
-                count += 1;
-                count
-            } else {
-                count
-            }
-        };
+        let mut arg_index = self.arg_count(is_rvo, &func_data.args);
 
         let mut space_taken = 0;
 
@@ -667,7 +669,9 @@ impl Gen {
                                     "    mov r10b, [rax + {}]",
                                     (chunks - 1) * 8
                                 )),
-                                _ => {}
+                                _ => {
+                                    todo!()
+                                }
                             }
                             self.emit_func_data(format!("    mov [rsp], r10"));
                         }
