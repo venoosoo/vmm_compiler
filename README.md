@@ -1,8 +1,9 @@
 # v-- compiler
+A compiler for a custom systems programming language, written from scratch in Rust. Compiles `.vmm` source files directly to x86-64 NASM assembly, which can be assembled and linked into a native Linux executable.
 
-A compiler for a custom C-like language, written from scratch in Rust. Compiles `.vmm` source files directly to x86-64 NASM assembly, which can be assembled and linked into a native Linux executable.
+The language is procedural and C-style at its core — manual memory, pointers, structs — but borrows some of Rust's ergonomics: pattern matching on enums with payloads, Option types, and exhaustive match expressions(in future).
 
-> **Status:** Work in progress. Core pipeline is functional — see [what's working](#whats-working) below.
+> **Status(v0.1.0):** Work in progress. Core pipeline is functional — see [what's working](#whats-working) below.
 
 ---
 
@@ -120,30 +121,11 @@ Semantic Analysis — type checking, scope resolution, function signatures
 ## Standard library
 
 The standard library lives in `std/` and is imported with `import "std/std.vmm"`.
+it is work-in-progress, but has the esssentials like
 
-```c
-// Printing
-fn print(long number)                          // print integer + newline
-fn print_char(char t)                          // print single character
-fn print_str(char* str, long length)           // print string + newline
-fn strlen(char* str) -> long                   // string length
-
-// Memory
-fn malloc(long size) -> void*                  // heap allocate (mmap-backed)
-fn free(long* ptr, long size)                  // free heap memory
-fn memcpy(void* dst, void* src, long size)     // copy bytes
-
-// System
-fn syscall(long rax, long rdi, long rsi,
-           long rdx, long r10, long r8) -> void*
-fn exit(int code)
-
-// Vector (std/vector.v)
-fn create_vector(long element_size) -> Vector*
-fn vector_push(Vector* vec, void* element)
-fn vector_pop(Vector* vec) -> void*
-fn vec_get_element(Vector* vec, int pos) -> void*
-```
+- Memory managment: `malloc`, `free`, `memcpy`
+- System/IO: `exit`, `syscall`, `print`, `println`, `strlen`
+- Data Structures: `Vector`
 
 ---
 
