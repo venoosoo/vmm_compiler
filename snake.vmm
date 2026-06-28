@@ -1,5 +1,5 @@
-import "std/std.v"
-import "std/vector.v"
+import "std/std.vmm"
+import "std/vector.vmm"
 
 struct vec2 {
     i32 x;
@@ -250,7 +250,7 @@ fn clear_screen() {
     }
 }
 
-fn main() {
+fn main() -> i64 {
     init_timer();
     set_raw_mode();
     vec2 player_pos = vec2 {
@@ -299,4 +299,5 @@ fn main() {
             render_screen(&game_data, vec, &apple);
         }
     }
+    return 0;
 }

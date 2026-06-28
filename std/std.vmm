@@ -10,12 +10,12 @@ fn exit(i32 code) {
 
 fn syscall(i64 a_rax, i64 a_rdi, i64 a_rsi, i64 a_rdx, i64 a_r10, i64 a_r8) -> i64* {
     asm {
-        "mov rax, [rbp - 8]"
-        "mov rdi, [rbp - 16]"
-        "mov rsi, [rbp - 24]"
-        "mov rdx, [rbp - 32]"
-        "mov r10, [rbp - 40]"
-        "mov r8,  [rbp - 48]"
+        "mov rax, (a_rax)"
+        "mov rdi, (a_rdi)"
+        "mov rsi, (a_rsi)"
+        "mov rdx, (a_rdx)"
+        "mov r10, (a_r10)"
+        "mov r8,  (a_r8)"
         "mov r9, 0"
         "syscall"
     }

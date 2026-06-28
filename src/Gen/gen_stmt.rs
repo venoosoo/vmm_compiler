@@ -174,7 +174,7 @@ impl Gen {
                 let index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
                     Type::Array(ty, size) => {
-                        self.emit_func_data(format!("    imul {}, {}", index_reg, size));
+                        self.emit_func_data(format!("    imul {}, {}", index_reg, self.type_size(ty)));
                     }
                     Type::Pointer(_) => {
                         self.emit_func_data(format!(
@@ -479,7 +479,7 @@ impl Gen {
             self.emit_func_data(format!(
                 "    mov [rbp - {}], {}",
                 local_pos,
-                arg_regs[pos - 1]
+                self.reg_for_size(arg_regs[pos - 1], ty).unwrap()
             ));
         }
     }
