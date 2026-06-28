@@ -203,12 +203,15 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     }
 
     // 3. char array compatible with char* (u8[] <-> u8*)
-    if let Type::Array(elem, _) = left {
-        if **elem == Type::Primitive(TokenType::U8)
-            && *right == Type::Pointer(Box::new(Type::Primitive(TokenType::U8)))
-        {
-            return true;
+    match (left, right) {
+        (Type::Pointer(ptr_elem), Type::Array(arr_elem, _))
+        | (Type::Array(arr_elem, _), Type::Pointer(ptr_elem)) => {
+            // If the inner types match (e.g., both are u8), allow the assignment
+            if ptr_elem == arr_elem {
+                return true;
+            }
         }
+        _ => {}
     }
     // 4. Allow variants without data to cast to other data types
     // Example Option::None can cast to any Option__i64, Option__i32, etc...
