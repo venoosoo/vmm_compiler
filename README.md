@@ -228,8 +228,8 @@ cargo build --release
 ./target/release/vcompiler --file your_program.vmm
 
 # Assemble and link the output
-nasm -f elf64 main.asm -o main.o
-ld main.o -o main
+nasm -f elf64 your_program.asm -o your_program.o
+ld your_program.o -o your_program
 
 # Run
 ./main
