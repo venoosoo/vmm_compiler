@@ -1,4 +1,9 @@
-use std::{cell::Cell, collections::HashMap, env::var};
+use std::{
+    cell::Cell,
+    collections::HashMap,
+    env::var,
+    fmt::{self, write},
+};
 
 use indexmap::IndexMap;
 
@@ -17,6 +22,124 @@ use crate::{
 
 pub mod sem_expr;
 mod sem_stmt;
+
+impl fmt::Display for SemanticError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SemanticError::EmptyArray => write!(
+                f,
+                "Cannot initialize an empty array without a specific type."
+            ),
+            SemanticError::UndeclaredVariable(name) => {
+                write!(f, "Cannot find variable '{}' in this scope.", name)
+            }
+            SemanticError::UndeclaredFunction(name) => {
+                write!(f, "Cannot find function '{}' in this scope.", name)
+            }
+            SemanticError::UndeclaredStruct(name) => {
+                write!(f, "Cannot find struct '{}' in this scope.", name)
+            }
+            SemanticError::UndeclaredField(struct_name, field_name) => write!(
+                f,
+                "Struct '{}' has no field named '{}'.",
+                struct_name, field_name
+            ),
+            SemanticError::AlreadyDeclared(name) => {
+                write!(f, "The name '{}' is already defined in this scope.", name)
+            }
+            SemanticError::VoidVariable(name) => write!(
+                f,
+                "Variable '{}' cannot be declared with type 'void'.",
+                name
+            ),
+            SemanticError::ArrayTooLarge {
+                arr_name,
+                expected,
+                got,
+            } => write!(
+                f,
+                "Array '{}' expects {} elements, but got {}.",
+                arr_name, expected, got
+            ),
+            SemanticError::TypeMismatch { expected, got } => write!(
+                f,
+                "Type mismatch: expected {:?}, found {:?}.",
+                expected, got
+            ),
+            SemanticError::StructCountMismatch {
+                struct_name,
+                expected,
+                got,
+            } => write!(
+                f,
+                "Struct '{}' expects {} fields, but got {}.",
+                struct_name, expected, got
+            ),
+            SemanticError::StructTypeMismatch {
+                struct_name,
+                expected,
+                got,
+            } => write!(
+                f,
+                "Type mismatch in struct '{}' initialization: expected {:?}, found {:?}.",
+                struct_name, expected, got
+            ),
+            SemanticError::StructNameNotFound { struct_name, got } => write!(
+                f,
+                "Invalid field '{}' provided when initializing struct '{}'.",
+                got, struct_name
+            ),
+            SemanticError::ReturnTypeMismatch { expected, got } => write!(
+                f,
+                "Return type mismatch: expected {:?}, found {:?}.",
+                expected, got
+            ),
+            SemanticError::NotAPointer(ty) => write!(
+                f,
+                "Type {:?} cannot be dereferenced. It is not a pointer.",
+                ty
+            ),
+            SemanticError::NotIndexable(ty) => {
+                write!(f, "Type {:?} is not an array and cannot be indexed.", ty)
+            }
+            SemanticError::NotAStruct(ty) => write!(
+                f,
+                "Type {:?} is not a struct and has no fields to access.",
+                ty
+            ),
+            SemanticError::InvalidArrayIndex(ty) => write!(
+                f,
+                "Cannot index an array with type {:?}. Expected an integer.",
+                ty
+            ),
+            SemanticError::NonArrayIndex(ty) => write!(f, "Type {:?} cannot be indexed.", ty),
+            SemanticError::MatchTypeMismatch { expected, got } => write!(
+                f,
+                "Match arms have incompatible types: expected {:?}, found {:?}.",
+                expected, got
+            ),
+            SemanticError::InvalidUnary { op, ty } => {
+                write!(f, "Cannot apply unary operator {:?} to type {:?}.", op, ty)
+            }
+            SemanticError::InvalidBinary { op, left, right } => write!(
+                f,
+                "Cannot apply binary operator {:?} to types {:?} and {:?}.",
+                op, left, right
+            ),
+            SemanticError::CastError { before, after } => write!(
+                f,
+                "Invalid cast: cannot cast from type {:?} to {:?}.",
+                before, after
+            ),
+            SemanticError::MatchExprUnsuported(ty) => {
+                write!(f, "Cannot match on type {:?}. Not supported.", ty)
+            }
+            _ => {
+                write!(f, "{:?}", self)
+            }
+        }
+    }
+}
 
 impl<'a> TypeContext for Analyzer<'a> {
     fn resolve_call(
@@ -37,7 +160,6 @@ impl<'a> TypeContext for Analyzer<'a> {
         if vec_func_data.len() < 1 {
             return None;
         }
-
         let (overload_pos, func_data) = vec_func_data
             .iter()
             .enumerate()
@@ -50,7 +172,6 @@ impl<'a> TypeContext for Analyzer<'a> {
                     let param_ty = &func.args[i].ty.clone();
                     let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let param_ty = self.ensure_monomorphized(param_ty);
-
                     let arg_matches = match &expr.ty {
                         ExprType::Number(_) => is_number(&param_ty),
                         _ => check_types(&expr_ty, &param_ty),
@@ -282,7 +403,13 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn print_error(&self, err: Error) {
-        println!("{:?}", err);
+        eprintln!("\x1b[31;1merror\x1b[0m: \x1b[1m{}\x1b[0m", err.ty);
+
+        eprintln!(
+            "  \x1b[34;1m-->\x1b[0m {}:{}:{}",
+            err.file, err.line, err.col
+        );
+
         self.had_error.set(true);
     }
 

@@ -304,12 +304,12 @@ impl<'a> Parser<'a> {
                     let pre_ptr = self.parse_ptr();
                     let ty = self.get_type();
                     let post_ptr = self.parse_ptr();
-                    let mut ty = self.apply_ptr(ty, pre_ptr + post_ptr);
+                    let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
                     let expr_ty = ExprType::Cast {
                         expr: Box::new(expr),
                         ty,
                     };
-                    return Expr {
+                    expr = Expr {
                         ty: expr_ty,
                         file: self.current_file.clone(),
                         line: self.line,
@@ -342,7 +342,7 @@ impl<'a> Parser<'a> {
                         col: self.col,
                     });
                     let expr_ty = ExprType::StructMember { base, name: name };
-                    return Expr {
+                    expr = Expr {
                         ty: expr_ty,
                         file: self.current_file.clone(),
                         line: self.line,

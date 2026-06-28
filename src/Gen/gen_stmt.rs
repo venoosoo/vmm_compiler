@@ -174,10 +174,9 @@ impl Gen {
                 let index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
                     Type::Array(ty, size) => {
-                        self.emit_func_data(format!("    cmp {}, {}", index_reg, size));
-                        self.emit_func_data(format!("    jge __bounds_fail__"));
-                        self.emit_func_data(format!("    cmp {}, 0", index_reg));
-                        self.emit_func_data(format!("    jl __bounds_fail__"));
+                        self.emit_func_data(format!("    imul {}, {}", index_reg, size));
+                    }
+                    Type::Pointer(_) => {
                         self.emit_func_data(format!(
                             "    imul {}, {}",
                             index_reg,
@@ -192,7 +191,11 @@ impl Gen {
                         self.emit_func_data(format!("    mov rcx, {} ", reg));
                     }
                     Addr::Stack(pos) => {
-                        self.emit_func_data(format!("    lea rcx, [rbp - {}]", pos));
+                        if matches!(ty, Type::Pointer(_)) {
+                            self.emit_func_data(format!("    mov rcx, [rbp - {}]", pos));
+                        } else {
+                            self.emit_func_data(format!("    lea rcx, [rbp - {}]", pos));
+                        }
                     }
                 }
 
@@ -307,12 +310,23 @@ impl Gen {
                     variant,
                     value,
                 } => {
+                    let enum_data = self.enums.get(base).unwrap();
+                    self.alloc(enum_data.size);
                     self.gen_get_enum_addr(base, value, variant);
+                }
+                ExprType::StructInit {
+                    struct_name_ty,
+                    fields,
+                } => {
+                    let struct_data = self.structs.get(struct_name_ty).unwrap();
+                    self.alloc(struct_data.size);
+                    self.eval_expr(ret_expr, &ret_type);
                 }
                 _ => {
                     self.eval_expr(ret_expr, &ret_type);
                 }
             }
+            let test = &self.ensure_monomorphized(&ret_type);
             match &self.ensure_monomorphized(&ret_type) {
                 Type::Struct(name) => {
                     let struct_data = self.structs.get(name).unwrap().clone();
@@ -335,6 +349,8 @@ impl Gen {
                             self.emit_func_data("    mov rcx, rax".to_string()); // save enum base
                             // copy tag
                             self.emit_func_data(format!("    mov rdx, [rcx]"));
+                            // the hidden pointer will always be at [rbp - 8]
+                            self.emit_func_data(format!("    mov rdi, [rbp - 8]"));
                             self.emit_func_data(format!("    mov [rdi], rdx"));
                             // copy fields
                             for data in &field_data.args {
@@ -352,25 +368,23 @@ impl Gen {
                         ExprType::Variable(name) => {
                             let var = self.look_var(name).unwrap();
                             match &var {
-                                Type::Enum(name, variant) => {
+                                Type::Enum(name, _variant) => {
                                     let enum_data = self.enums.get(name).unwrap().clone();
-                                    let variant = variant.clone().unwrap();
-                                    let field_data =
-                                        enum_data.variants.get(&variant).unwrap().clone();
+                                    let total_size = enum_data.size; // max variant size incl. tag
+                                    self.emit_func_data(format!("    mov rdi, [rbp - 8]"));
                                     self.emit_func_data("    mov rcx, rax".to_string()); // save enum base
-                                    // copy tag
-                                    self.emit_func_data(format!("    mov rdx, [rcx]"));
-                                    self.emit_func_data(format!("    mov [rdi], rdx"));
-                                    // copy fields
-                                    for data in &field_data.args {
-                                        let reg = self.reg_for_size("rdx", &data.ty).unwrap();
+
+                                    // copy enum by total size in 8-byte chunks
+                                    let chunks = (total_size + 7) / 8;
+                                    for i in 0..chunks {
+                                        let offset = i * 8;
                                         self.emit_func_data(format!(
-                                            "    mov {}, [rcx + {}]",
-                                            reg, data.offset
+                                            "    mov rdx, [rcx + {}]",
+                                            offset
                                         ));
                                         self.emit_func_data(format!(
-                                            "    mov [rdi + {}], {}",
-                                            data.offset, reg
+                                            "    mov [rdi + {}], rdx",
+                                            offset
                                         ));
                                     }
                                 }
@@ -421,6 +435,12 @@ impl Gen {
             _ => {}
         }
         let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+        if offset {
+            let arg_ty = Type::Primitive(TokenType::I64); // the ptr is 64 bits too so thats fine
+            let reg = self.reg_for_size("rdi", &arg_ty).unwrap();
+            self.alloc(8);
+            self.emit_func_data(format!("    mov [rbp - 8], {}", reg));
+        }
         for (i, decl) in args.iter().enumerate() {
             let i = if offset { i + 1 } else { i };
             if i >= arg_regs.len() {
@@ -451,6 +471,7 @@ impl Gen {
                 Type::Struct(name) => name.clone(),
                 _ => self::panic!("pointer to non-struct"),
             },
+            Type::Struct(name) => name.clone(),
             _ => self::panic!("-> on non-pointer, use . instead"),
         };
 
@@ -689,7 +710,7 @@ impl Gen {
         }
     }
 
-    fn gen_match_field(&mut self, variant: &MatchField, var_name: &String, expr_ty: &Type) {
+    fn gen_match_field(&mut self, variant: &MatchField, base_pos: usize, expr_ty: &Type) {
         match &variant.left {
             MatchLeftValue::Enum { base, value, args } => {
                 if base == "_" || args.len() < 1 {
@@ -702,9 +723,6 @@ impl Gen {
                         _ => base,
                     }
                 };
-                let var_data = self.lookup_var(var_name);
-                let var_ty = &var_data.var_type.clone();
-                let var_pos = var_data.stack_pos;
                 let enum_data = self.enums.get(new_base).unwrap().clone();
                 let field_data = enum_data.variants.get(value).unwrap();
                 for (index, arg) in args.iter().enumerate() {
@@ -725,9 +743,9 @@ impl Gen {
                     self.gen_declaration(&decl);
                     let new_var_pos = self.stack_pos;
                     // the tag size
-                    let mut pos = var_pos - field.offset;
+                    let mut pos = base_pos - field.offset;
                     let reg = self.reg_for_size("rax", &field.ty).unwrap();
-                    self.gen_match_field_arg(var_ty, &field, &reg, &mut pos);
+                    self.gen_match_field_arg(expr_ty, &field, &reg, &mut pos);
                     self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));
                 }
                 self.gen_stmt(&variant.right);
@@ -771,7 +789,7 @@ impl Gen {
         &mut self,
         variant: &MatchField,
         id: usize,
-        expr_var_name: &String,
+        base_pos: usize,
         expr_ty: &Type,
     ) {
         match &variant.left {
@@ -799,7 +817,7 @@ impl Gen {
             }
         }
         self.scopes.push(HashMap::new());
-        self.gen_match_field(&variant, expr_var_name, expr_ty);
+        self.gen_match_field(&variant, base_pos, expr_ty);
         self.emit_func_data(format!("    jmp match_end_{id}"));
         self.scopes.pop();
     }
@@ -812,21 +830,20 @@ impl Gen {
         expr_ty: &Type,
     ) {
         match &expr.ty {
-            ExprType::Variable(var_name) => {
-                for var in variants {
-                    self.gen_match_asm_checking(var, id, &expr_ty);
-                }
-                self.emit_func_data(format!("    jmp match_end_{id}"));
-                for var in variants {
-                    self.gen_match_asm_func(var, id, &var_name, &expr_ty);
-                }
-                self.emit_func_data(format!("match_end_{}:", id));
+            ExprType::StructMember { .. } => {
+                self.emit_func_data(format!("    mov rax, [rax]"));
             }
-            ExprType::Deref(deref_expr) => {
-                self.resolve_match_expr(&deref_expr, variants, id, expr_ty);
-            }
-            _ => self::panic!("no supported match expr"),
+            // trust that the data is fine
+            _ => {}
         }
+        for var in variants {
+            self.gen_match_asm_checking(var, id, &expr_ty);
+        }
+        self.emit_func_data(format!("    jmp match_end_{id}"));
+        for var in variants {
+            self.gen_match_asm_func(var, id, self.stack_pos, &expr_ty);
+        }
+        self.emit_func_data(format!("match_end_{}:", id));
     }
 
     fn gen_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) {

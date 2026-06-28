@@ -751,8 +751,6 @@ impl Gen {
 
         let mut is_rvo = false; // return value optimization
 
-        let stack_pos_save = self.stack_pos;
-        self.stack_pos = 0;
         for (index, generic) in func_data.generic.iter().enumerate() {
             self.generics
                 .insert(generic.clone(), generics[index].clone());
@@ -761,22 +759,15 @@ impl Gen {
         let new_args = self.convert_generic_args(&func_data.args, generics, &self.generics);
 
         match &self.ensure_monomorphized(&func_data.return_type) {
-            Type::Struct(name) => {
-                let struct_data = self.structs.get(name).unwrap();
-                let pos = self.alloc(struct_data.size);
-
-                self.emit_func_data(format!("    lea rdi, [rbp - {}]", pos));
-                is_rvo = true;
-            }
-            Type::Enum(name, None) => {
-                let enum_data = self.enums.get(name).unwrap();
-                let pos = self.alloc(enum_data.size);
-
-                self.emit_func_data(format!("    lea rdi, [rbp - {}]", pos));
+            Type::Struct(_) | Type::Enum(_, _) => {
+                self.emit_func_data(format!("    lea rdi, [rbp - {}]", self.stack_pos));
                 is_rvo = true;
             }
             _ => {}
         }
+
+        let stack_pos_save = self.stack_pos;
+        self.stack_pos = 0;
 
         let space_taken = self.gen_args(&args, func_data, generics, &new_args, is_rvo);
 
@@ -922,16 +913,27 @@ impl Gen {
             struct_data = self.structs.get(&name).unwrap().clone();
         }
         let base_pos = self.stack_pos;
+        let mut offset = 0;
+        let mut stack_offset = 0;
         for (field_name, field_expr) in fields {
             let field = struct_data.elements.get(field_name).expect("Unknown field");
             let field_type = &field.ty;
+            match field_type {
+                Type::Struct(_) => {
+                    self.stack_pos -= offset;
+                    stack_offset += offset;
+                }
+                _ => {}
+            }
             self.eval_expr(field_expr, field_type);
             let sized_reg = self.reg_for_size("rax", field_type).unwrap();
             let size_word = self.get_word(field_type);
-            let field_pos = base_pos - field.offset;
+            let field_pos = base_pos - offset;
+            offset += self.type_size(field_type);
             // can break code
             match field_type {
                 Type::Array(..) => {}
+                Type::Struct(..) => {}
                 _ => {
                     self.emit_func_data(format!(
                         "    mov {} [rbp - {}], {}",
@@ -940,6 +942,7 @@ impl Gen {
                 }
             }
         }
+        self.stack_pos += stack_offset;
         "rax".to_string()
     }
 
@@ -973,15 +976,57 @@ impl Gen {
         }
     }
 
+    fn handle_struct_move(
+        &mut self,
+        expr: &Box<Expr>,
+        ty: &Type,
+        field_offset: usize,
+    ) -> Option<usize> {
+        match &expr.ty {
+            ExprType::Variable(var_name) => {
+                let var = self.lookup_var(var_name);
+                Some(var.stack_pos - field_offset)
+            }
+            ExprType::Deref(inner) => {
+                self.eval_expr(inner, &Type::Pointer(Box::new(ty.clone())));
+                // rax = pointer value = base address, caller adds field_offset
+                if field_offset != 0 {
+                    self.emit_func_data(format!("    add rax, {}", field_offset));
+                }
+                None
+            }
+            ExprType::StructMember { base, name } => {
+                let base_type = base.get_type(self);
+                let base_type = self.resolve_generic_inst(&base_type);
+                let struct_name = match &base_type {
+                    Type::Struct(n) => n.clone(),
+                    _ => self::panic!("member access on non-struct"),
+                };
+                let inner_field = self
+                    .structs
+                    .get(&struct_name)
+                    .unwrap()
+                    .elements
+                    .get(name)
+                    .unwrap()
+                    .clone();
+
+                match self.handle_struct_move(base, &base_type, inner_field.offset + field_offset) {
+                    Some(base_offset) => Some(base_offset),
+                    None => None,
+                }
+            }
+            _ => self::panic!("struct member access on a temporary is not supported"),
+        }
+    }
+
     fn gen_expr_struct_member(&mut self, base: &Box<Expr>, name: &String) -> String {
         let base_type = base.get_type(self);
         let base_type = self.resolve_generic_inst(&base_type);
-
         let struct_name = match &base_type {
             Type::Struct(n) => n.clone(),
             _ => self::panic!("member access on non-struct: {:?}", base_type),
         };
-
         let field = self
             .structs
             .get(&struct_name)
@@ -991,33 +1036,23 @@ impl Gen {
             .unwrap()
             .clone();
 
-        match &base.ty {
-            ExprType::Deref(inner) => {
-                // -> operator: eval inner to get pointer value, add offset, read
-                self.eval_expr(inner, &Type::Pointer(Box::new(base_type.clone())));
-                self.emit_func_data(format!("    add rax, {}", field.offset));
-
-                // Safely load the field from [rax]
-                self.emit_typed_load("[rax]", &field.ty);
-            }
-            ExprType::Variable(var_name) => {
-                // . operator: compile-time offset
-                let var = self.lookup_var(var_name);
-                let field_addr = var.stack_pos - field.offset;
-
-                // Safely load the field directly from the stack!
-                let mem_op = format!("[rbp - {}]", field_addr);
-                self.emit_typed_load(&mem_op, &field.ty);
-            }
-            _ => {
-                // chained a.b.c — runtime fallback
-                self.eval_expr(base, &base_type);
-                self.emit_func_data(format!("    add rax, {}", field.offset));
-
-                // Safely load the field from [rax]
-                self.emit_typed_load("[rax]", &field.ty);
-            }
+        match self.handle_struct_move(base, &base_type, field.offset) {
+            Some(static_offset) => match &field.ty {
+                Type::Struct(_) | Type::Enum(..) => {
+                    self.emit_func_data(format!("    lea rax, [rbp - {}]", static_offset));
+                }
+                _ => {
+                    self.emit_typed_load(&format!("[rbp - {}]", static_offset), &field.ty);
+                }
+            },
+            None => match &field.ty {
+                Type::Struct(_) | Type::Enum(..) => {}
+                _ => {
+                    self.emit_typed_load("[rax]", &field.ty);
+                }
+            },
         }
+
         "rax".to_string()
     }
 
@@ -1260,7 +1295,11 @@ impl Gen {
         // if we have value its creating an object
 
         if value.is_empty() {
-            self.emit_func_data(format!("    lea rax, {}", variant_data.tag));
+            self.emit_func_data(format!(
+                "    mov QWORD [rbp - {}], {}",
+                pos, variant_data.tag
+            ));
+            self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
             return "rax".to_string();
         }
 

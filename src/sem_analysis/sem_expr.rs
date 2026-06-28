@@ -144,12 +144,15 @@ impl<'a> Analyzer<'a> {
     }
 
     fn check_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>, expected_ty: &Type) -> Type {
-        let expr_type = self.check_expr(expr, expected_ty);
+        let mut expr_type = self.check_expr(expr, expected_ty);
         let valid = match op {
             UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => is_number(&expr_type),
             UnaryOp::Not => is_numeric(&expr_type),
-            UnaryOp::GetAddr => true, // fix later
+            UnaryOp::GetAddr => {
+                expr_type = Type::Pointer(Box::new(expr_type));
+                true
+            } // fix later
         };
         if !valid {
             self.print_error(self.type_to_error(SemanticError::InvalidUnary {

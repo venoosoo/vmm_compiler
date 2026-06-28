@@ -210,14 +210,59 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
             return true;
         }
     }
+    // 4. Allow variants without data to cast to other data types
+    // Example Option::None can cast to any Option__i64, Option__i32, etc...
+    if let (Type::Enum(l_name, _), Type::Enum(r_name, _)) = (left, right) {
+        // Check if the right side is the un-mangled base of the left side
+        // Example: left = "Option__i64", right = "Option"
+        let right_is_base = !r_name.contains("__");
+        let left_matches_base = l_name.starts_with(&format!("{}__", r_name));
 
-    // 4. void* compatible with any pointer
+        if right_is_base && left_matches_base {
+            return true;
+        }
+
+        // Vice-versa (just in case the arguments get flipped)
+        let left_is_base = !l_name.contains("__");
+        let right_matches_base = r_name.starts_with(&format!("{}__", l_name));
+
+        if left_is_base && right_matches_base {
+            return true;
+        }
+    }
+
+    // 5. void* compatible with any pointer
     let is_void_ptr = |t: &Type| *t == Type::Pointer(Box::new(Type::Primitive(TokenType::Void)));
     if is_void_ptr(left) && matches!(right, Type::Pointer(_)) {
         return true;
     }
     if is_void_ptr(right) && matches!(left, Type::Pointer(_)) {
         return true;
+    }
+
+    // 6. The variant should be deleted i think
+    if let (Type::Enum(l_name, _l_variant), Type::Enum(r_name, _r_variant)) = (left, right) {
+        // RULE A: Exact Base Match (Ignores the specific variant!)
+        // This fixes Enum("Status", None) vs Enum("Status", Some("Idle"))
+        if l_name == r_name {
+            return true;
+        }
+
+        // RULE B: Generic Variant Exception (e.g., Option vs Option__i64)
+        let right_is_base = !r_name.contains("__");
+        let left_matches_base = l_name.starts_with(&format!("{}__", r_name));
+
+        if right_is_base && left_matches_base {
+            return true;
+        }
+
+        // Vice-versa
+        let left_is_base = !l_name.contains("__");
+        let right_matches_base = r_name.starts_with(&format!("{}__", l_name));
+
+        if left_is_base && right_matches_base {
+            return true;
+        }
     }
 
     false

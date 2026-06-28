@@ -33,7 +33,6 @@ global i64 malloc_heap_remaining;
 
 fn malloc(i64 size) -> void* {
     if malloc_heap_start as i64 == 0 {
-        // Syscall 9: mmap
         malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1);
         malloc_heap_current = malloc_heap_start;
         malloc_heap_remaining = 4096;
@@ -77,8 +76,12 @@ enum Option<T> {
     None,
 }
 
-fn Some<T>(T data) -> Option<T> {
-    return Option::Some(data: data);
+fn Some<T>(T data22) -> Option<T> {
+    return Option::Some(data: data22);
+}
+
+fn None<T>() -> Option<T> {
+    return Option::None;
 }
 
 fn unwrap<T>(Option<T>* data) -> T {
@@ -91,6 +94,7 @@ fn unwrap<T>(Option<T>* data) -> T {
             exit(1);
         }
     }
+    println("unwrap got wrong data");
     exit(1);
 }
 
