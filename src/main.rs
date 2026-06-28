@@ -23,6 +23,19 @@ mod tokenizer;
 struct Cli {
     #[arg(short, long, required = true, help = "provide file main.vmm")]
     file: String,
+
+    #[arg(
+        short,
+        long,
+        help = "provide the output of file (by default the name of provided file "
+    )]
+    output: Option<String>,
+
+    #[arg(long, help = "print the lexer output")]
+    dump_tokens: bool,
+
+    #[arg(long, help = "print the parser (result in parser_result.txt)")]
+    dump_ast: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,7 +48,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tokenizer = tokenizer::Tokenizer::new(contents);
     tokenizer.tokenize();
 
-    // println!("{}", tokenizer);
+    if cli.dump_tokens {
+        println!("{}", tokenizer);
+    }
 
     let file_path = Path::new(&cli.file);
     let base_dir = file_path.parent().unwrap().to_path_buf();
@@ -48,10 +63,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         current_file,
     );
     let res = parser.parse();
-
-    //let mut file = File::create("parser_result.txt").expect("Failed to create parser_result.txt");
-
-    //write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
+    if cli.dump_ast {
+        let mut file =
+            File::create("parser_result.txt").expect("Failed to create parser_result.txt");
+        write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
+    }
     let mut analyzer = Analyzer::new(&res);
     analyzer.check_code();
     if analyzer.had_error.get() {
@@ -59,7 +75,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         let mut generator = crate::Ir::r#gen::Gen::new(res);
         let asm = generator.gen_asm()?;
-        let mut file = File::create("main.asm")?;
+        let res_name = match cli.output {
+            Some(name) => name,
+            None => format!("{}.asm", cli.file.trim_end_matches(".vmm")),
+        };
+        let mut file = File::create(format!("{}", res_name))?;
         let _res = file.write(asm.as_bytes())?;
         println!("compiled successfully");
     }

@@ -174,7 +174,11 @@ impl Gen {
                 let index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
                     Type::Array(ty, size) => {
-                        self.emit_func_data(format!("    imul {}, {}", index_reg, self.type_size(ty)));
+                        self.emit_func_data(format!(
+                            "    imul {}, {}",
+                            index_reg,
+                            self.type_size(ty)
+                        ));
                     }
                     Type::Pointer(_) => {
                         self.emit_func_data(format!(
@@ -506,35 +510,35 @@ impl Gen {
                 Type::Enum(ref name, _) => {
                     let size = self.enums.get(name).unwrap().size;
                     if size <= 8 {
-                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         arg_index -= 1;
                     } else if size <= 16 && arg_index < 6 {
-                        self.get_arg(arg_index, &arg_ty, pos - 8, None,is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos - 8, None, is_rvo);
                         arg_index -= 1;
-                        self.get_arg(arg_index, &arg_ty, pos, None,is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos, None, is_rvo);
                         arg_index -= 1
                     } else {
-                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         stack_arg_pos += self.type_size(&arg_ty);
                     }
                 }
                 Type::Struct(ref name) => {
                     let size = self.structs.get(name).unwrap().size;
                     if size <= 8 {
-                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         arg_index -= 1;
                     } else if size <= 16 && arg_index < 6 {
-                        self.get_arg(arg_index, &arg_ty, pos - 8, None,is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos - 8, None, is_rvo);
                         arg_index -= 1;
-                        self.get_arg(arg_index, &arg_ty, pos, None,is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos, None, is_rvo);
                         arg_index -= 1
                     } else {
-                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         stack_arg_pos += self.type_size(&arg_ty);
                     }
                 }
                 _ => {
-                    self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos),is_rvo);
+                    self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                     if arg_index > 6 {
                         stack_arg_pos += self.type_size(&arg_ty);
                     } else {
