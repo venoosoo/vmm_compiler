@@ -1,0 +1,91 @@
+import "std.vmm"
+
+
+struct String {
+    u8* data;
+    i64 length;
+    i64 capacity;
+}
+
+
+
+fn string_new() -> String* {
+
+    String* str = malloc(sizeof(String));
+    u8* str_data = malloc(16);
+    str->data = str_data;
+    str->length = 0;
+    str->capacity = 16;
+    return str;
+
+}
+
+fn string_from(u8* c_str) -> String* {
+    String* s = malloc(sizeof(String)) ;
+    
+    s->length = strlen(c_str);
+    s->capacity = s->length + 1;
+    
+    s->data = malloc(s->capacity) as u8*;
+    
+    memcpy(s->data as void*, c_str as void*, s->length + 1);
+    
+    return s;
+}
+
+fn string_free(String* s) {
+
+    free(s->data as void*, s->capacity);
+    free(s as void*, sizeof(String));
+
+}
+
+fn string_realloc(String* s) {
+    u8* str_data = malloc(s->capacity * 2);
+    memcpy(str_data as void*, s->data as void*, s->capacity);
+    free(s->data as void*, s->capacity);
+    s->data = str_data;
+    s->capacity = s->capacity * 2;
+}
+
+fn string_push(String* s, u8 c) {
+    i64 length = s->length;
+    while length + 1 > s->capacity {
+        string_realloc(s);
+    }
+    s->data[length] = c;
+    s->length = length + 1;
+
+}
+
+
+fn string_concat(String* dest, String* src) {
+    while dest->length + src->length > dest->capacity {
+        string_realloc(dest);
+    }
+    memcpy((dest->data + dest->length) as void*, src->data as void*, src->length + 1);
+    dest->length = dest->length + src->length;
+    
+}
+
+fn string_clear(String* s) {
+    s->length = 0;
+}
+
+
+fn print(String* str) {
+    for (i64 i = 0; i < str->length; i = i + 1) {
+        print_char(str->data[i]);
+    }
+}
+
+fn println(String* str) {
+    print(str);
+    print_newline();
+
+}
+
+
+fn to_c_string(String* str) -> u8* {
+    return str->data;
+}

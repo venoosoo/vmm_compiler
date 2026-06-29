@@ -52,11 +52,28 @@ fn free(i64* ptr, i64 size) {
     syscall(11, ptr as i64, size, 0, 0, 0);
 }
 
-fn memcpy(void* dst, void* src, i64 size) -> void {
-    asm {
-        "mov rcx, rdx"
-        "rep movsb"
+fn memcpy(void* dst, void* src, i64 size) -> void* {
+    i64 chunks = size / 8;
+    i64 remainder = size % 8;
+    
+    i64* d64 = dst as i64*;
+    i64* s64 = src as i64*;
+    
+    for (i64 i = 0; i < chunks; i = i + 1) {
+        d64[i] = s64[i];
     }
+    
+    if remainder > 0 {
+        u8* d8 = dst as u8*;
+        u8* s8 = src as u8*;
+        i64 offset = chunks * 8;
+        
+        for (i64 j = 0; j < remainder; j = j + 1) {
+            d8[offset + j] = s8[offset + j];
+        }
+    }
+    
+    return dst;
 }
 
 
@@ -221,7 +238,7 @@ fn print_num_u(u64 n) {
 }
 
 fn print(u8* str) {
-    i32 length = 0;
+    i64 length = 0;
     while str[length] != 0 {
         print_char(str[length]);
         length = length + 1;
@@ -254,3 +271,17 @@ fn println(u64 number) { print(number); print_newline(); }
 fn println(u32 number) { println(number as u64); }
 fn println(u16 number) { println(number as u64); }
 fn println(u8 number)  { println(number as u64); }
+
+
+
+fn print_arr<T>(T* arr, u64 size) {
+    print_char('[');
+    for (u64 i = 0; i < size; i = i + 1) {
+        print(arr[i]);
+        if i + 1 != size {
+            print_char(',');
+        }
+    }
+    print_char(']');
+    print_newline();
+}
