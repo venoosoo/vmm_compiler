@@ -12,7 +12,7 @@ The language is procedural and C-style at its core — manual memory, pointers, 
 Takes `.vmm` source code like this:
 
 ```c
-fn print_num(long n) {
+fn print_num(i64 n) {
     if n < 0 {
         asm {
             "sub rsp, 1"
@@ -30,7 +30,7 @@ fn print_num(long n) {
         long temp = n / 10;
         print_num(temp);
     }
-    char c = (n % 10) + '0';
+    u8 c = (n % 10) + '0';
     asm {
         "mov rax, 1"
         "mov rdi, 1"
@@ -93,7 +93,7 @@ Semantic Analysis — type checking, scope resolution, function signatures
 ---
 
 ## What's working
-- ✅ Primitive types: `int`, `char`, `short`, `long`, `void`
+- ✅ Primitive types: `i32`, `u8`, `i16`, `i64`, `void`
 - ✅ Pointers and dereferencing (`*`, `&`)
 - ✅ Arrays with bounds-checked index access
 - ✅ Structs with `.` (stack) and `->` (pointer) field access
