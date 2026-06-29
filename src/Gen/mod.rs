@@ -422,10 +422,6 @@ impl Gen {
         self.emit("    mov rax, 60".to_string());
         self.emit("    syscall".to_string());
         self.emit_all(self.main_code.clone());
-        self.emit("__bounds_fail__:".to_string());
-        self.emit("    mov rax, 60".to_string());
-        self.emit("    mov rdi, 1".to_string());
-        self.emit("    syscall".to_string());
         Ok(self.out.clone())
     }
 

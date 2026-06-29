@@ -771,6 +771,7 @@ impl Gen {
         }
 
         let stack_pos_save = self.stack_pos;
+        let saved_ret_type = self.current_return_type.clone();
         self.stack_pos = 0;
 
         let space_taken = self.gen_args(&args, func_data, generics, &new_args, is_rvo);
@@ -816,6 +817,7 @@ impl Gen {
             self.emit_func_data(format!("    add rsp, {}", space_taken));
         }
         self.stack_pos = stack_pos_save;
+        self.current_return_type = saved_ret_type;
         return "rax".to_string();
     }
 
@@ -1122,19 +1124,9 @@ impl Gen {
         self.eval_expr(base, arr_ty);
         self.push_result();
         let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
-        //runtime checking
-        match arr_ty {
-            Type::Array(ty, size) => {
-                self.emit_func_data(format!("    cmp {}, {}", index_reg, size));
-                self.emit_func_data(format!("    jge __bounds_fail__"));
-                self.emit_func_data(format!("    cmp {}, 0", index_reg));
-                self.emit_func_data(format!("    jl __bounds_fail__"));
-            }
-            _ => {}
-        }
 
         let elem_size = self.type_size(expected_type);
-        self.emit_func_data(format!("    imul rax, rax, {}", elem_size,));
+        self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
         self.pop_into("rbx");
         self.emit_func_data(format!("    add rax, rbx"));
         self.emit_typed_load("[rax]", expected_type);

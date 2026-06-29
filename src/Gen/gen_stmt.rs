@@ -170,21 +170,19 @@ impl Gen {
             }
             LValue::Index { base, index } => {
                 let (addr, ty) = self.calc_lvalue(base);
+                let inner_ty = match &ty {
+                    Type::Array(arr_ty, _) => *arr_ty.clone(),
+                    Type::Pointer(ptr_ty) => *ptr_ty.clone(),
+                    _ => self::panic!("Cannot index into a non-array/pointer type"),
+                };
                 self.emit_func_data(format!("    push rax")); // save expr
                 let index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
-                    Type::Array(ty, size) => {
+                    Type::Array(..) | Type::Pointer(_) => {
                         self.emit_func_data(format!(
                             "    imul {}, {}",
                             index_reg,
-                            self.type_size(ty)
-                        ));
-                    }
-                    Type::Pointer(_) => {
-                        self.emit_func_data(format!(
-                            "    imul {}, {}",
-                            index_reg,
-                            self.type_size(&ty)
+                            self.type_size(&inner_ty)
                         ));
                     }
                     _ => {}
@@ -192,7 +190,11 @@ impl Gen {
 
                 match addr {
                     Addr::Reg(reg) => {
-                        self.emit_func_data(format!("    mov rcx, {} ", reg));
+                        if matches!(ty, Type::Pointer(_)) {
+                            self.emit_func_data(format!("    mov rcx, QWORD [{}]", reg));
+                        } else {
+                            self.emit_func_data(format!("    mov rcx, {}", reg));
+                        }
                     }
                     Addr::Stack(pos) => {
                         if matches!(ty, Type::Pointer(_)) {
@@ -214,20 +216,18 @@ impl Gen {
     fn gen_assignment(&mut self, target: &LValue, value: &Expr) {
         let value_expr = value.get_type(self);
         let val_reg = self.eval_expr(value, &value_expr);
-        let (addr, ty) = self.calc_lvalue(target);
-        let sized_reg = self.reg_for_size("rax", &ty).unwrap();
+        let (addr, bad) = self.calc_lvalue(target);
+        let sized_reg = self.reg_for_size("rax", &value_expr).unwrap();
+        let size_word = self.get_word(&value_expr);
         match addr {
             Addr::Stack(pos) => {
-                let size_word = self.get_word(&ty);
                 self.emit_func_data(format!(
                     "    mov {} [rbp - {}], {}",
                     size_word, pos, sized_reg
                 ));
             }
             Addr::Reg(reg) => {
-                let size_word = self.get_word(&ty);
-
-                let sized_reg = self.reg_for_size(&val_reg, &ty).unwrap();
+                let sized_reg = self.reg_for_size(&val_reg, &value_expr).unwrap();
                 self.emit_func_data(format!("    mov {} [{}], {}", size_word, reg, sized_reg));
             }
         }
