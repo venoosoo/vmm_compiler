@@ -297,6 +297,7 @@ impl<'a> Parser<'a> {
     pub fn get_type(&mut self) -> Type {
         let token = self.consume();
         if token.token == TokenType::Var {
+            // hello again unwrap at  none value
             let name = self.types.get(&token.value.unwrap()).unwrap();
             if self.struct_table.get(name).is_some() {
                 return Type::Struct(name.to_string());

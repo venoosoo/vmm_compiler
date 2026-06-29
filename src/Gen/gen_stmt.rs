@@ -303,9 +303,22 @@ impl Gen {
         self.emit_func_data(format!("for_end_{}:", id));
     }
 
+    fn copy_chunks_to_hidden_ret(&mut self, total_size: usize) {
+        self.emit_func_data("    mov rdi, [rbp - 8]".to_string());
+        self.emit_func_data("    mov rcx, rax".to_string());
+
+        let chunks = (total_size + 7) / 8;
+        for i in 0..chunks {
+            let offset = i * 8;
+            self.emit_func_data(format!("    mov rdx, [rcx + {}]", offset));
+            self.emit_func_data(format!("    mov [rdi + {}], rdx", offset));
+        }
+    }
+
     fn gen_ret(&mut self, expr: &Option<Expr>) {
         if let Some(ret_expr) = expr {
             let ret_type = self.current_return_type.clone();
+            let ret_type = self.ensure_monomorphized(&ret_type);
             match &ret_expr.ty {
                 ExprType::Variable(name) => {
                     self.gen_expr_var_addr(name, &ret_type);
@@ -331,8 +344,7 @@ impl Gen {
                     self.eval_expr(ret_expr, &ret_type);
                 }
             }
-            let test = &self.ensure_monomorphized(&ret_type);
-            match &self.ensure_monomorphized(&ret_type) {
+            match &ret_type {
                 Type::Struct(name) => {
                     let struct_data = self.structs.get(name).unwrap().clone();
                     self.emit_func_data("    mov rcx, rax".to_string());
@@ -342,22 +354,21 @@ impl Gen {
                         self.emit_func_data(format!("    mov [rdi + {}], {}", data.offset, reg));
                     }
                 }
-                Type::Enum(name, variant) => {
+                Type::Enum(name, _) => {
+                    let enum_data = self.enums.get(name).unwrap().clone();
+
                     match &ret_expr.ty {
                         ExprType::GetEnum {
                             base,
                             variant,
                             value,
                         } => {
-                            let enum_data = self.enums.get(name).unwrap().clone();
                             let field_data = enum_data.variants.get(variant).unwrap().clone();
-                            self.emit_func_data("    mov rcx, rax".to_string()); // save enum base
-                            // copy tag
-                            self.emit_func_data(format!("    mov rdx, [rcx]"));
-                            // the hidden pointer will always be at [rbp - 8]
-                            self.emit_func_data(format!("    mov rdi, [rbp - 8]"));
-                            self.emit_func_data(format!("    mov [rdi], rdx"));
-                            // copy fields
+                            self.emit_func_data("    mov rcx, rax".to_string());
+                            self.emit_func_data("    mov rdx, [rcx]".to_string());
+                            self.emit_func_data("    mov rdi, [rbp - 8]".to_string());
+                            self.emit_func_data("    mov [rdi], rdx".to_string());
+
                             for data in &field_data.args {
                                 let reg = self.reg_for_size("rdx", &data.ty).unwrap();
                                 self.emit_func_data(format!(
@@ -370,33 +381,10 @@ impl Gen {
                                 ));
                             }
                         }
-                        ExprType::Variable(name) => {
-                            let var = self.look_var(name).unwrap();
-                            match &var {
-                                Type::Enum(name, _variant) => {
-                                    let enum_data = self.enums.get(name).unwrap().clone();
-                                    let total_size = enum_data.size; // max variant size incl. tag
-                                    self.emit_func_data(format!("    mov rdi, [rbp - 8]"));
-                                    self.emit_func_data("    mov rcx, rax".to_string()); // save enum base
 
-                                    // copy enum by total size in 8-byte chunks
-                                    let chunks = (total_size + 7) / 8;
-                                    for i in 0..chunks {
-                                        let offset = i * 8;
-                                        self.emit_func_data(format!(
-                                            "    mov rdx, [rcx + {}]",
-                                            offset
-                                        ));
-                                        self.emit_func_data(format!(
-                                            "    mov [rdi + {}], rdx",
-                                            offset
-                                        ));
-                                    }
-                                }
-                                _ => {}
-                            }
+                        _ => {
+                            self.copy_chunks_to_hidden_ret(enum_data.size);
                         }
-                        _ => {}
                     }
                 }
                 _ => {}
@@ -810,7 +798,7 @@ impl Gen {
                 self.emit_func_data(format!("    mov rax, [rax]"));
             }
             _ => {
-                self::panic!("match arg error: {:?}",var_ty);
+                self::panic!("match arg error: {:?}", var_ty);
             }
         }
     }

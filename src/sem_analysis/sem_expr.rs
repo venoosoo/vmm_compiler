@@ -397,13 +397,7 @@ impl<'a> Analyzer<'a> {
             let generic_data = self.generic_func.get(name).unwrap().clone();
             let name = self.transform_generic_name(name, generics);
             if self.functions.get(&name).is_none() {
-                let res_func_data = FuncData {
-                    args: new_args.clone(),
-                    generic: Vec::new(),
-                    // possible bug
-                    return_type: func_data.return_type.clone(),
-                };
-                self.functions.insert(name.clone(), vec![res_func_data]);
+                let mut return_ty = func_data.return_type.clone();
                 match generic_data.ty {
                     StmtType::GenericInitFunc {
                         generic_types,
@@ -413,18 +407,22 @@ impl<'a> Analyzer<'a> {
                         ..
                     } => {
                         let generic_data: HashMap<String, Type> = HashMap::new();
-                        let ret_type = substitute_type(&ret_type, &generic_types, generics);
-                        let ret_type = self.ensure_monomorphized(&ret_type);
-
-                        let saved_ret_type = self.current_ret_type.clone();
-                        // TODO: add normal support for return
-
-                        //self.check_init_func((&name, &new_args, &ret_type, &data, &generic_data));
-                        self.current_ret_type = saved_ret_type;
-                        return ret_type;
+                        return_ty = substitute_type(&ret_type, &generic_types, generics);
+                        return_ty = self.ensure_monomorphized(&return_ty);
                     }
                     _ => panic!("error"),
                 };
+                let res_func_data = FuncData {
+                    args: new_args.clone(),
+                    generic: Vec::new(),
+                    return_type: return_ty.clone(),
+                };
+                self.functions.insert(name.clone(), vec![res_func_data]);
+                return return_ty;
+            } else {
+                let data = self.functions.get(&name).unwrap();
+                // the generic function overload is not possible i think and why you need it anyway
+                return data[0].return_type.clone();
             }
         }
         return func_data.return_type;

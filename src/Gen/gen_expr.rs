@@ -758,12 +758,17 @@ impl Gen {
     ) -> String {
         let args = args.clone();
         let mut name = name.clone();
-
+        let mut generic_copy = generics.clone();
         let mut is_rvo = false; // return value optimization
+        let saved_generics = self.generics.clone();
 
         for (index, generic) in func_data.generic.iter().enumerate() {
-            self.generics
-                .insert(generic.clone(), generics[index].clone());
+            let mut ty = &generic_copy[index];
+            if matches!(ty, Type::GenericType(_)) {
+                ty = self.generics.get(generic).unwrap();
+                generic_copy[index] = ty.clone();
+            }
+            self.generics.insert(generic.clone(), ty.clone());
         }
 
         let new_args = self.convert_generic_args(&func_data.args, generics, &self.generics);
@@ -780,11 +785,11 @@ impl Gen {
         let saved_ret_type = self.current_return_type.clone();
         self.stack_pos = 0;
 
-        let space_taken = self.gen_args(&args, func_data, generics, &new_args, is_rvo);
+        let space_taken = self.gen_args(&args, func_data, &generic_copy, &new_args, is_rvo);
 
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(&name).unwrap().clone();
-            name = self.transform_generic_name(&name, generics);
+            name = self.transform_generic_name(&name, &generic_copy);
             if self.functions.get(&name).is_none() {
                 let res_func_data = FuncData {
                     args: new_args.clone(),
@@ -824,6 +829,7 @@ impl Gen {
         }
         self.stack_pos = stack_pos_save;
         self.current_return_type = saved_ret_type;
+        self.generics = saved_generics;
         return "rax".to_string();
     }
 

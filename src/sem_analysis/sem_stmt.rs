@@ -160,6 +160,7 @@ impl<'a> Analyzer<'a> {
         let mut expr_ty = Type::Primitive(TokenType::Void);
         if let Some(expr) = expr {
             expr_ty = self.check_expr(expr, &self.current_ret_type.clone());
+
             expr_ty = self.ensure_monomorphized(&expr_ty);
         }
         if !check_types(&self.current_ret_type, &expr_ty) {
@@ -252,39 +253,23 @@ impl<'a> Analyzer<'a> {
     fn check_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) {
         let expr_ty = expr.get_type(self);
         let expr_ty = self.ensure_monomorphized(&expr_ty);
+
         match expr_ty.clone() {
-            Type::Enum(enum_data, _) => {
+            Type::Enum(_, _) | Type::Primitive(_) => {
                 for var in variants {
                     let left_ty = self.get_match_left_value_type(&var.left);
 
                     if !check_types(&left_ty, &expr_ty) {
-                        match left_ty.clone() {
-                            Type::Enum(name, _) => {
-                                if name == "_" {
-                                    continue;
-                                }
+                        if let Type::Enum(name, _) = &left_ty {
+                            if name == "_" {
+                                continue;
                             }
-                            _ => {}
                         }
-                        self.print_error(self.type_to_error(SemanticError::MatchTypeMismatch {
-                            expected: expr_ty.clone(),
-                            got: left_ty.clone(),
-                        }));
-                    }
-                }
-            }
-            Type::Primitive(ty) => {
-                for var in variants {
-                    let left_ty = self.get_match_left_value_type(&var.left);
-                    if !check_types(&left_ty, &expr_ty) {
-                        match left_ty.clone() {
-                            Type::Enum(name, _) => {
-                                if name == "_" {
-                                    continue;
-                                }
-                            }
-                            _ => {}
+
+                        if is_number(&left_ty) && is_number(&expr_ty) {
+                            continue;
                         }
+
                         self.print_error(self.type_to_error(SemanticError::MatchTypeMismatch {
                             expected: expr_ty.clone(),
                             got: left_ty.clone(),
