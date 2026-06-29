@@ -35,7 +35,11 @@ impl Lookup for Gen {
         let lty = left.get_type(self);
         let rty = right.get_type(self);
 
-        coerce_numeric(&lty, &rty)
+        match (&left.ty, &right.ty) {
+            (ExprType::Number(_), _) => rty,
+            (_, ExprType::Number(_)) => lty,
+            _ => coerce_numeric(&lty, &rty),
+        }
     }
     fn look_struct_init(&self, struct_name: &String) -> Type {
         if let Some(_struct_data) = self.structs.get(struct_name) {
@@ -281,7 +285,9 @@ impl Gen {
                     _ => unreachable!(),
                 };
                 self.emit_func_data(format!("    {} al", set_instr));
-                self.emit_func_data(format!("    movzx {}, al", left_reg));
+                if left_reg != "al" {
+                    self.emit_func_data(format!("    movzx {}, al", left_reg));
+                }
             }
             BinOp::And => {
                 unreachable!()

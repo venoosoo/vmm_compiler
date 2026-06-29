@@ -118,7 +118,6 @@ fn read_key() -> i32 {
 
 fn check_collision(Vector<vec2*>* player) -> i32 {
     vec2* head = vec_get_element<vec2*>(player, 0);
-    println(head->x);
     if head->x == -1 {
         head->x = 9;
     }
@@ -223,16 +222,16 @@ fn render_screen(GameData* game_data, Vector<vec2*>* vec, vec2* apple_pos) {
             }
             if found == 1 {
                 if head->x == i and head->y == j {
-                    print_char('@' as u8);
+                    print_char('@');
                 } else {
-                    print_char('|' as u8);
+                    print_char('|');
                 }
             } else if apple_pos->x == i and apple_pos->y == j {
-                print_char('*' as u8);
+                print_char('*');
             } else {
-                print_char('.' as u8);
+                print_char('.');
             }
-            print_char(' ' as u8);
+            print_char(' ');
         }
         println("");
     }

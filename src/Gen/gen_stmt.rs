@@ -216,14 +216,15 @@ impl Gen {
     fn gen_assignment(&mut self, target: &LValue, value: &Expr) {
         let value_expr = value.get_type(self);
         let val_reg = self.eval_expr(value, &value_expr);
-        let (addr, bad) = self.calc_lvalue(target);
-        let sized_reg = self.reg_for_size("rax", &value_expr).unwrap();
+        let (addr, lval) = self.calc_lvalue(target);
         let size_word = self.get_word(&value_expr);
         match addr {
             Addr::Stack(pos) => {
+                let sized_reg = self.reg_for_size("rax", &lval).unwrap();
+                let sized_word = self.get_word(&lval);
                 self.emit_func_data(format!(
                     "    mov {} [rbp - {}], {}",
-                    size_word, pos, sized_reg
+                    sized_word, pos, sized_reg
                 ));
             }
             Addr::Reg(reg) => {
@@ -803,7 +804,14 @@ impl Gen {
                 self.emit_func_data(format!("    mov rax, [rax]"));
                 self.gen_match_field_arg(ty, field, reg, pos);
             }
-            _ => {}
+            Type::Enum(..) => {
+                self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
+                self.emit_func_data(format!("    add rax, {}", field.offset));
+                self.emit_func_data(format!("    mov rax, [rax]"));
+            }
+            _ => {
+                self::panic!("match arg error: {:?}",var_ty);
+            }
         }
     }
 
@@ -814,7 +822,7 @@ impl Gen {
                     self.gen_stmt(&variant.right);
                     return;
                 }
-                let new_base = {
+                let new_base: &String = {
                     match expr_ty {
                         Type::Enum(name, _) => name,
                         _ => base,
