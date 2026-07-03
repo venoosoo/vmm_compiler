@@ -830,7 +830,7 @@ impl Gen {
                     self.gen_declaration(&decl);
                     let new_var_pos = self.stack_pos;
                     // the tag size
-                    let pos = base_pos;
+                    let pos = base_pos - field.offset;
                     let reg = self.reg_for_size("rax", &field.ty).unwrap();
                     self.gen_match_field_arg(expr_ty, &field, &reg, pos);
                     self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));

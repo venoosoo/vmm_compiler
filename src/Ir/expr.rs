@@ -51,7 +51,7 @@ pub enum ExprType {
         elements: Vec<Expr>,
     },
     SizeOf {
-        ty: Box<Stmt>,
+        ty: Type,
     },
     String {
         str: String,

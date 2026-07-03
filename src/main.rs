@@ -81,7 +81,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let mut file = File::create(format!("{}", res_name))?;
         let _res = file.write(asm.as_bytes())?;
-        println!("compiled successfully");
     }
 
     Ok(())

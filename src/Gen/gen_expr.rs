@@ -1166,14 +1166,8 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn gen_size_of(&mut self, stmt: &Box<Stmt>) -> String {
-        let ty = {
-            match &stmt.ty {
-                StmtType::Declaration(decl) => decl.ty.clone(),
-                _ => self::panic!("bug"),
-            }
-        };
-        let ty = self.ensure_monomorphized(&ty);
+    fn gen_size_of(&mut self, stmt: &Type) -> String {
+        let ty = self.ensure_monomorphized(stmt);
         let size = self.type_size(&ty);
         self.emit_func_data(format!("    mov rax, {}", size));
         "rax".to_string()

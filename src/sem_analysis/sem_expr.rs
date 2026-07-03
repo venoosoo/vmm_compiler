@@ -555,7 +555,7 @@ impl<'a> Analyzer<'a> {
         Type::Array(Box::new(first_ty.clone()), elements.len())
     }
 
-    fn check_size_of(&mut self, expr: &Stmt) -> Type {
+    fn check_size_of(&mut self, expr: &Type) -> Type {
         Type::Primitive(TokenType::I64)
     }
 

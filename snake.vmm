@@ -281,7 +281,7 @@ fn main() -> i64 {
         i64 now = get_elapsed_ms();
         i32 key = read_key();
         if key != 0 {
-            last_pressed = key
+            last_pressed = key;
         }
         if now - last_tick > (interval - (game_data.score * 2)) {
             game_data.time = get_elapsed_ms() / 1000;

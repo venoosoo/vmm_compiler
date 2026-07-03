@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
         let args = self.parse_args();
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
-            self.consume();
+            self.expect(TokenType::Access);
             let pre_ptr = self.parse_ptr();
             let ty = self.get_type();
             let ty = self.parse_generic_types(ty);
@@ -114,7 +114,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_match(&mut self) -> Option<Stmt> {
-        self.consume();
+        self.expect(TokenType::Match);
         let expr = self.parse_expr();
         self.expect(TokenType::OpenScope);
         let mut variants: Vec<MatchField> = Vec::new();
@@ -125,7 +125,9 @@ impl<'a> Parser<'a> {
             let stmt = self.parse_stmt().expect("in match expected stmt");
             let res = MatchField { left, right: stmt };
             variants.push(res);
-            self.expect(TokenType::Coma);
+            if self.peek(0).token == TokenType::Coma {
+                self.expect(TokenType::Coma);
+            }
         }
         self.expect(TokenType::CloseScope);
         return Some(self.type_to_stmt(StmtType::Match { expr, variants }));
@@ -177,7 +179,7 @@ impl<'a> Parser<'a> {
     pub fn parse_generic(&mut self) -> Vec<String> {
         let mut generic = Vec::new();
         if self.peek(0).token == TokenType::Less {
-            self.consume();
+            self.expect(TokenType::Less);
             while self.peek(0).token != TokenType::More {
                 let generic_ty_name = {
                     let token = self.consume();
@@ -194,8 +196,8 @@ impl<'a> Parser<'a> {
                 self.generic.insert(generic_ty_name.clone());
                 generic.push(generic_ty_name);
             }
+            self.expect(TokenType::More);
         }
-        self.expect(TokenType::More);
         generic
     }
 
@@ -208,7 +210,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_enum(&mut self) -> Option<Stmt> {
-        self.consume();
+        self.expect(TokenType::Enum);
         let name = self.consume().value.unwrap();
         let generic = self.parse_generic();
         self.expect(TokenType::OpenScope);
@@ -216,12 +218,14 @@ impl<'a> Parser<'a> {
         let mut tag = 0;
         let mut max_size = 8; // the min would be the tag_size
         while self.peek(0).token != TokenType::CloseScope {
-            let res = self.parse_enum_field(tag);
+            let res: EnumVariant = self.parse_enum_field(tag);
             tag += 1;
             if res.size > max_size {
                 max_size = res.size
             };
-            self.expect(TokenType::Coma);
+            if self.peek(0).token == TokenType::Coma {
+                self.expect(TokenType::Coma);
+            }
             variants.insert(res.name.clone(), res);
         }
         self.expect(TokenType::CloseScope);
@@ -243,7 +247,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_global(&mut self) -> Option<Stmt> {
-        self.consume();
+        self.expect(TokenType::Global);
         let stmt = self.parse_declaration().unwrap();
         self.expect(TokenType::Semi);
         return Some(self.type_to_stmt(StmtType::GlobalDecl(Box::new(stmt))));
@@ -353,7 +357,7 @@ impl<'a> Parser<'a> {
         ty = self.parse_array(ty);
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
-            self.consume();
+            self.expect(TokenType::Eq);
             let initializer = self.parse_expr();
             if let (Type::Array(inner, 0), ExprType::String { str: s }) = (&ty, &initializer.ty) {
                 if **inner == Type::Primitive(TokenType::U8) {
@@ -370,7 +374,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_import(&mut self) {
-        self.consume();
+        self.expect(TokenType::Import);
 
         let saved = self.current_file.clone();
 
@@ -413,7 +417,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_struct_init(&mut self) -> Option<Stmt> {
-        self.consume(); // 'struct'
+        self.expect(TokenType::Struct); // 'struct'
 
         let struct_name = self.consume().value.unwrap();
         let generic = self.parse_generic();
@@ -533,7 +537,7 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek(0).token {
                 TokenType::Dot => {
-                    self.consume();
+                    self.expect(TokenType::Dot);
                     let field = self.consume().value.unwrap();
                     lvalue = LValue::Field {
                         base: Box::new(lvalue),
@@ -541,7 +545,7 @@ impl<'a> Parser<'a> {
                     };
                 }
                 TokenType::Access => {
-                    self.consume();
+                    self.expect(TokenType::Access);
                     let field = self.consume().value.unwrap();
                     lvalue = LValue::Field {
                         base: Box::new(LValue::Deref(Box::new(lvalue))),
@@ -550,7 +554,7 @@ impl<'a> Parser<'a> {
                 }
 
                 TokenType::OpenBracket => {
-                    self.consume();
+                    self.expect(TokenType::OpenBracket);
                     let index = self.parse_expr();
                     self.expect(TokenType::CloseBracket);
 
@@ -584,23 +588,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_scope(&mut self) -> Option<Stmt> {
-        self.consume();
+        self.expect(TokenType::OpenScope);
         let mut stmts: Vec<Stmt> = Vec::new();
         while self.peek(0).token != TokenType::CloseScope {
             let stmt = self.parse_stmt().unwrap();
             stmts.push(stmt);
         }
-        self.consume();
+        self.expect(TokenType::CloseScope);
         return Some(self.type_to_stmt(StmtType::Block(stmts)));
     }
 
     fn parse_if(&mut self) -> Option<Stmt> {
-        self.consume();
+        self.expect(TokenType::If);
         let condition = self.parse_expr();
         let if_block = Box::new(self.parse_stmt().unwrap()); // should be block
         let mut else_block: Option<Box<Stmt>> = None;
         if self.peek(0).token == TokenType::Else {
-            self.consume();
+            self.expect(TokenType::Else);
             let else_data = Box::new(self.parse_stmt().unwrap());
             else_block = Some(else_data);
         }
@@ -612,15 +616,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_while(&mut self) -> Option<Stmt> {
-        self.consume();
+        self.expect(TokenType::While);
         let condition = self.parse_expr();
         let body = Box::new(self.parse_stmt().unwrap());
         return Some(self.type_to_stmt(StmtType::While { condition, body }));
     }
 
     fn parse_for(&mut self) -> Option<Stmt> {
-        self.consume(); // the keyword itself
-        self.consume(); // (
+        self.expect(TokenType::For); // the keyword itself
+        self.expect(TokenType::OpenParen); // (
 
         let init = if self.is_type(&self.peek(0)) {
             Some(Box::new(self.parse_declaration().unwrap()))
@@ -641,7 +645,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        self.consume(); // )
+        self.expect(TokenType::CloseParen); // )
         let body = Box::new(self.parse_stmt().unwrap());
         return Some(self.type_to_stmt(StmtType::For {
             init,
@@ -652,21 +656,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_asm_stmt(&mut self) -> Option<Stmt> {
-        self.consume(); // the keyword itself
+        self.expect(TokenType::Asm); // the keyword itself
+        self.expect(TokenType::OpenScope);
         let mut asm_code: Vec<String> = Vec::new();
-        self.consume();
         while self.peek(0).token != TokenType::CloseScope {
             let str = self.consume();
             asm_code.push(str.value.unwrap());
         }
-        self.consume();
+        self.expect(TokenType::CloseScope);
         return Some(self.type_to_stmt(StmtType::AsmCode(asm_code)));
     }
 
     fn parse_ret(&mut self) -> Option<Stmt> {
-        self.consume(); // the keyword itself
+        self.expect(TokenType::Return); // the keyword itself
         let expr = if self.peek(0).token != TokenType::Semi {
-            Some(self.parse_expr())
+            let res = Some(self.parse_expr());
+            res
+            
         } else {
             None
         };
@@ -675,6 +681,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_stmt(&mut self) -> Option<Stmt> {
+        self.peek(0);
         let expr = self.parse_expr();
         self.expect(TokenType::Semi);
         Some(self.type_to_stmt(StmtType::ExprStmt(expr)))

@@ -36,13 +36,13 @@ fn vector_push<T>(Vector<T>* vec, T element) {
 }
 
 
-fn vector_pop<T>(Vector<T>* vec) -> *T {
+fn vector_pop<T>(Vector<T>* vec) -> T {
     if vec->length == 0 {
         exit(1);
     }
     vec->length = vec->length - 1;
-    long offset = vec->length * vec->element_size;
-    i32* element = vec->data + offset;
+    i64 offset = vec->length * vec->element_size;
+    T* element = vec->data + offset;
     return *element;
 }
 

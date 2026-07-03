@@ -150,12 +150,20 @@ impl<'a> Parser<'a> {
             TokenType::SizeOf => {
                 self.expect(TokenType::OpenParen);
 
-                // the stmt will be declaration with name ) and right type
+                // Use your unified type parsing logic!
+                let pre_ptr = self.parse_ptr();
+                let base_ty = self.get_type();
+                let mut ty = self.parse_generic_types(base_ty);
+                let post_ptr = self.parse_ptr();
+                
+                ty = self.apply_ptr(ty, pre_ptr + post_ptr);
+                ty = self.parse_array(ty);
 
-                let stmt = self.parse_stmt().unwrap();
+                self.expect(TokenType::CloseParen);
 
-                self.expect(TokenType::Semi);
-                let expr_ty = ExprType::SizeOf { ty: Box::new(stmt) };
+                // Store the actual Type instead of a Stmt
+                let expr_ty = ExprType::SizeOf { ty }; 
+                
                 return Expr {
                     ty: expr_ty,
                     file: self.current_file.clone(),
@@ -374,7 +382,9 @@ impl<'a> Parser<'a> {
                                     break;
                                 }
                                 args.push(self.parse_expr());
-                                self.expect(TokenType::Coma);
+                                if self.peek(0).token == TokenType::Coma {
+                                    self.expect(TokenType::Coma);
+                                }
                             }
                         }
                         self.expect(TokenType::CloseParen);
@@ -421,7 +431,7 @@ impl<'a> Parser<'a> {
                 }
 
                 TokenType::Colon => {
-                    self.consume();
+                    self.expect(TokenType::Colon);
                     self.expect(TokenType::Colon);
                     let value_name = self.consume().value.unwrap();
                     let mut variant_expr: Vec<EnumExprField> = Vec::new();
@@ -433,7 +443,6 @@ impl<'a> Parser<'a> {
                         }
                         self.expect(TokenType::CloseParen);
                     }
-                    self.expect(TokenType::Semi);
                     match &expr.ty {
                         ExprType::Variable(name) => {
                             let expr_ty = ExprType::GetEnum {
@@ -488,6 +497,10 @@ impl<'a> Parser<'a> {
 
     fn parse_binary(&mut self, min_prec: u8) -> Expr {
         let mut left = self.parse_unary();
+        if self.peek(0).token == TokenType::Semi {
+
+            return left;
+        }
         loop {
             let op = match Parser::is_bin_op(self.peek(0).token) {
                 Some(op) => op,
