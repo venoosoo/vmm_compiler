@@ -165,7 +165,7 @@ fn Err<T, E>(E data2) -> Result<T,E> {
 }
 
 fn unwrap_result<T,E>(Result<T,E> *res) -> T {
-    match *res {
+    match res {
         Result::Ok(data) => {
             return data;
         }
@@ -180,7 +180,7 @@ fn unwrap_result<T,E>(Result<T,E> *res) -> T {
 }
 
 fn unwrap<T>(Option<T>* data) -> T {
-    match *data {
+    match data {
         Option::Some(data2) => {
             return data2;
         }
@@ -423,5 +423,51 @@ fn num_to_errno(u64 number) -> Errno {
         36 => { return Errno::ENAMETOOLONG; }
         37 => { return Errno::ENOLCK; }
         38 => { return Errno::ENOSYS; }
+    }
+}
+
+
+
+fn errno_to_num(Errno err) -> u64 {
+    match err {
+        Errno::EPERM => { return 1; }
+        Errno::ENOENT => { return 2; }
+        Errno::ESRCH => { return 3; }
+        Errno::EINTR => { return 4; }
+        Errno::EIO => { return 5; }
+        Errno::ENXIO => { return 6; }
+        Errno::E2BIG => { return 7; }
+        Errno::ENOEXEC => { return 8; }
+        Errno::EBADF => { return 9; }
+        Errno::ECHILD => { return 10; }
+        Errno::EAGAIN => { return 11; }
+        Errno::ENOMEM => { return 12; }
+        Errno::EACCES => { return 13; }
+        Errno::EFAULT => { return 14; }
+        Errno::ENOTBLK => { return 15; }
+        Errno::EBUSY => { return 16; }
+        Errno::EEXIST => { return 17; }
+        Errno::EXDEV => { return 18; }
+        Errno::ENODEV => { return 19; }
+        Errno::ENOTDIR => { return 20; }
+        Errno::EISDIR => { return 21; }
+        Errno::EINVAL => { return 22; }
+        Errno::ENFILE => { return 23; }
+        Errno::EMFILE => { return 24; }
+        Errno::ENOTTY => { return 25; }
+        Errno::ETXTBSY => { return 26; }
+        Errno::EFBIG => { return 27; }
+        Errno::ENOSPC => { return 28; }
+        Errno::ESPIPE => { return 29; }
+        Errno::EROFS => { return 30; }
+        Errno::EMLINK => { return 31; }
+        Errno::EPIPE => { return 32; }
+        Errno::EDOM => { return 33; }
+        Errno::ERANGE => { return 34; }
+        Errno::EDEADLK => { return 35; }
+        Errno::ENAMETOOLONG => { return 36; }
+        Errno::ENOLCK => { return 37; }
+        Errno::ENOSYS => { return 38; }
+        _ => { return 0; }
     }
 }

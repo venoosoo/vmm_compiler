@@ -215,6 +215,7 @@ impl Gen {
 
     fn gen_assignment(&mut self, target: &LValue, value: &Expr) {
         let value_expr = value.get_type(self);
+
         let val_reg = self.eval_expr(value, &value_expr);
         let (addr, lval) = self.calc_lvalue(target);
         let size_word = self.get_word(&value_expr);
@@ -313,6 +314,7 @@ impl Gen {
             self.emit_func_data(format!("    mov rdx, [rcx + {}]", offset));
             self.emit_func_data(format!("    mov [rdi + {}], rdx", offset));
         }
+        self.emit_func_data("    mov rax, [rbp - 8]".to_string());
     }
 
     fn gen_ret(&mut self, expr: &Option<Expr>) {
@@ -764,10 +766,8 @@ impl Gen {
         var_ty: &Type,
         field: &StructField,
         reg: &String,
-        pos: &mut usize,
+        pos: usize,
     ) {
-        // the tag offset
-        *pos += 8;
         match var_ty {
             Type::Primitive(_) => match field.ty {
                 Type::Primitive(_) | Type::Array(..) => {
@@ -780,17 +780,16 @@ impl Gen {
                     self.emit_func_data(format!("    lea {reg}, [rbp - {pos}]"));
                 }
             },
-            Type::Pointer(ty) => {
-                self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
-                self.emit_func_data(format!("    add rax, {}", field.offset));
-                self.emit_func_data(format!("    mov rax, [rax]"));
-                self.gen_match_field_arg(ty, field, reg, pos);
-            }
             Type::Enum(..) => {
-                self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
+                self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
                 self.emit_func_data(format!("    add rax, {}", field.offset));
                 self.emit_func_data(format!("    mov rax, [rax]"));
             }
+            Type::Pointer(_) => {
+                self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
+                self.emit_func_data(format!("    add rax, {}", field.offset));
+                self.emit_func_data(format!("    mov rax, [rax]"));
+            },
             _ => {
                 self::panic!("match arg error: {:?}", var_ty);
             }
@@ -830,9 +829,9 @@ impl Gen {
                     self.gen_declaration(&decl);
                     let new_var_pos = self.stack_pos;
                     // the tag size
-                    let mut pos = base_pos - field.offset;
+                    let pos = base_pos;
                     let reg = self.reg_for_size("rax", &field.ty).unwrap();
-                    self.gen_match_field_arg(expr_ty, &field, &reg, &mut pos);
+                    self.gen_match_field_arg(expr_ty, &field, &reg, pos);
                     self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));
                 }
                 self.gen_stmt(&variant.right);
@@ -916,13 +915,7 @@ impl Gen {
         id: usize,
         expr_ty: &Type,
     ) {
-        match &expr.ty {
-            ExprType::StructMember { .. } => {
-                self.emit_func_data(format!("    mov rax, [rax]"));
-            }
-            // trust that the data is fine
-            _ => {}
-        }
+        //match expr_ty
         for var in variants {
             self.gen_match_asm_checking(var, id, &expr_ty);
         }
@@ -937,6 +930,15 @@ impl Gen {
         let id = self.get_id();
         self.eval_expr(expr, &expr.get_type(self));
         let expr_ty = expr.get_type(self);
+        match expr_ty {
+            Type::Enum(.. ) => {
+                self.emit_func_data(format!("    mov rax, [rax]"));
+            }
+            Type::Pointer( ..) => {
+                self.emit_func_data(format!("    mov rax, [rax]"))
+            }
+            _ => {},
+        }
         self.resolve_match_expr(expr, variants, id, &expr_ty);
     }
 

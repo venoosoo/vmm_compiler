@@ -138,46 +138,57 @@ impl TypeContext for Gen {
         );
 
         if self.enums.contains_key(&mangled) {
-            return Type::Enum(mangled.clone(), None); // already done
+            return Type::Enum(mangled.clone(), None);
         }
 
         let mut new_variants = HashMap::new();
         let mut max_size = TAG_SIZE;
+
         for (var_name, variant) in def.variants.iter() {
-            let new_args: Vec<StructField> = variant
-                .args
-                .iter()
-                .map(|arg| StructField {
+            let mut current_offset = TAG_SIZE;
+            let mut new_args = Vec::new();
+
+            for arg in variant.args.iter() {
+                let actual_ty = substitute_type(&arg.ty, &def.generic_type, type_args);
+
+                new_args.push(StructField {
                     name: arg.name.clone(),
-                    ty: substitute_type(&arg.ty, &def.generic_type, type_args),
-                    offset: arg.offset + TAG_SIZE,
-                })
-                .collect();
+                    ty: actual_ty.clone(),
+                    offset: current_offset,
+                });
+
+                current_offset += self.type_size(&actual_ty);
+            }
+
+            let variant_size = current_offset;
+
             new_variants.insert(
                 var_name.clone(),
                 EnumVariant {
                     name: variant.name.clone(),
                     tag: variant.tag,
                     args: new_args,
-                    size: variant.size,
+                    size: variant_size,
                 },
             );
-            if variant.size > max_size {
-                max_size = variant.size
+
+            if variant_size > max_size {
+                max_size = variant_size;
             }
         }
+
         self.enums.insert(
             mangled.clone(),
             EnumData {
                 name: mangled.clone(),
                 generic_type: Vec::new(),
                 variants: new_variants,
-                size: max_size + TAG_SIZE,
+                size: max_size,
             },
         );
+
         return Type::Enum(mangled, None);
     }
-
     fn ensure_monomorphized(&mut self, ty: &Type) -> Type {
         match ty {
             Type::GenericInst(name, type_args) => {
@@ -484,7 +495,7 @@ impl Gen {
                     variants,
                     generic_types,
                 } => {
-                    let mut max_size = TAG_SIZE;
+                    let mut max_size = 0;
                     for (_, data) in variants.iter() {
                         if max_size < data.size {
                             max_size = data.size
@@ -495,7 +506,7 @@ impl Gen {
                         name: name.clone(),
                         generic_type: generic_types.clone(),
                         variants: variants.clone(),
-                        size: max_size + TAG_SIZE,
+                        size: max_size + 8,
                     };
                     self.enums.insert(name.clone(), enum_data);
                 }

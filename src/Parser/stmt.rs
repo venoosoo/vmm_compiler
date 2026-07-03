@@ -134,16 +134,20 @@ impl<'a> Parser<'a> {
     fn parse_enum_field(&mut self, tag: usize) -> EnumVariant {
         let name = self.consume().value.unwrap();
         let mut args: Vec<StructField> = Vec::new();
+
         if self.peek(0).token == TokenType::Coma {
             return EnumVariant {
                 name,
                 args,
                 tag,
-                size: tag,
+                size: 0,
             };
         }
+
         self.expect(TokenType::OpenScope);
-        let mut offset = 0;
+
+        let mut offset = 8;
+
         while self.peek(0).token != TokenType::CloseScope {
             let ty = self.get_type();
             let index = self.parse_ptr();
@@ -151,19 +155,22 @@ impl<'a> Parser<'a> {
             let ty = self.parse_array(ty);
             let ty = self.apply_ptr(ty, index);
             self.expect(TokenType::Semi);
+
             args.push(StructField {
                 name,
                 offset,
                 ty: ty.clone(),
             });
+
             offset += self.size_of(&ty);
         }
         self.expect(TokenType::CloseScope);
+
         return EnumVariant {
             name,
             args,
             tag,
-            size: tag + offset,
+            size: offset,
         };
     }
 
@@ -298,6 +305,7 @@ impl<'a> Parser<'a> {
         let token = self.consume();
         if token.token == TokenType::Var {
             // hello again unwrap at  none value
+            //dbg!(&token);
             let name = self.types.get(&token.value.unwrap()).unwrap();
             if self.struct_table.get(name).is_some() {
                 return Type::Struct(name.to_string());
