@@ -338,11 +338,11 @@ impl<'a> Parser<'a> {
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
         let pre_ptr = self.parse_ptr();
         let ty = self.get_type();
-        let ty = self.parse_generic_types(ty);
+        let mut ty = self.parse_generic_types(ty);
         let post_ptr = self.parse_ptr();
         let var_name = self.consume();
-        let mut ty = self.parse_array(ty);
         ty = self.apply_ptr(ty, pre_ptr + post_ptr);
+        ty = self.parse_array(ty);
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
             self.consume();

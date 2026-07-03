@@ -267,7 +267,6 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
             return true;
         }
     }
-
     false
 }
 

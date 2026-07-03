@@ -1,0 +1,46 @@
+import "std.vmm"
+
+
+fn fork() -> Result<u64,Errno> {
+
+    u64 res = syscall(57,0,0,0,0,0) as u64;
+    return handle_error<u64>(res);
+
+}
+
+
+fn execve(u8* file_name, u8** args, u8** envp) -> Result<u64,Errno>  {
+
+
+    u64 res = syscall(59 ,file_name as i64, args as i64, envp as i64,0,0) as u64;
+    return handle_error<u64>(res);
+
+}
+
+
+fn wait4(u64 target_pid) -> Result<u64, Errno> {
+    i32 status = 0;
+    
+    u64 res = syscall(61, target_pid as i64, (&status) as i64, 0, 0, 0) as u64;
+    Result<u64, Errno> checked = handle_error<u64>(res);
+    
+    return Ok<u64, Errno>(status as u64);
+}
+
+
+fn run_cmd(u8* path, u8** args) -> i32 {
+    Result<u64, Errno> res = fork();
+    u64 pid = unwrap_result<u64, Errno>(&res);
+    
+    if pid == 0 {
+        u8* env[1]; 
+        env[0] = 0 as u8*;
+        execve(path, args, env);
+        
+        exit(1); 
+    } else {
+        Result<u64, Errno> wait_res = wait4(pid);
+        u64 status = unwrap_result<u64, Errno>(&wait_res);
+        return status as i32;
+    }
+}

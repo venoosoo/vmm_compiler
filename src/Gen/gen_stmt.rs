@@ -341,18 +341,14 @@ impl Gen {
                     self.eval_expr(ret_expr, &ret_type);
                 }
                 _ => {
+                    self.alloc_type(&ret_type);
                     self.eval_expr(ret_expr, &ret_type);
                 }
             }
             match &ret_type {
                 Type::Struct(name) => {
                     let struct_data = self.structs.get(name).unwrap().clone();
-                    self.emit_func_data("    mov rcx, rax".to_string());
-                    for (_, data) in struct_data.elements.iter() {
-                        let reg = self.reg_for_size("rdx", &data.ty).unwrap();
-                        self.emit_func_data(format!("    mov {}, [rcx + {}]", reg, data.offset));
-                        self.emit_func_data(format!("    mov [rdi + {}], {}", data.offset, reg));
-                    }
+                    self.copy_chunks_to_hidden_ret(struct_data.size);
                 }
                 Type::Enum(name, _) => {
                     let enum_data = self.enums.get(name).unwrap().clone();
@@ -363,24 +359,22 @@ impl Gen {
                             variant,
                             value,
                         } => {
-                            let field_data = enum_data.variants.get(variant).unwrap().clone();
-                            self.emit_func_data("    mov rcx, rax".to_string());
-                            self.emit_func_data("    mov rdx, [rcx]".to_string());
-                            self.emit_func_data("    mov rdi, [rbp - 8]".to_string());
-                            self.emit_func_data("    mov [rdi], rdx".to_string());
-
-                            for data in &field_data.args {
-                                let reg = self.reg_for_size("rdx", &data.ty).unwrap();
-                                self.emit_func_data(format!(
-                                    "    mov {}, [rcx + {}]",
-                                    reg, data.offset
-                                ));
-                                self.emit_func_data(format!(
-                                    "    mov [rdi + {}], {}",
-                                    data.offset, reg
-                                ));
-                            }
+                            self.copy_chunks_to_hidden_ret(enum_data.size);
                         }
+
+                        ExprType::Call { .. } => match &ret_type {
+                            Type::Enum(name, _) => {
+                                let size = self.enums.get(name).unwrap().size;
+                                self.alloc(size);
+                                self.copy_chunks_to_hidden_ret(size);
+                            }
+                            Type::Struct(name) => {
+                                let size = self.structs.get(name).unwrap().size;
+                                self.alloc(size);
+                                self.copy_chunks_to_hidden_ret(size);
+                            }
+                            _ => {}
+                        },
 
                         _ => {
                             self.copy_chunks_to_hidden_ret(enum_data.size);
