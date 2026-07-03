@@ -647,13 +647,14 @@ impl Gen {
         self.structs.insert(data.name.clone(), struct_data);
     }
 
-    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> usize {
+    pub fn compute_struct_size(&mut self, fields: &Vec<StructField>) -> usize {
         let mut offset = 0;
         let mut max_align = 1;
 
         for field in fields {
-            let align = self.field_alignment(&field.ty);
-            let size = self.type_size(&field.ty);
+            let ty = self.ensure_monomorphized(&field.ty);
+            let align = self.field_alignment(&ty);
+            let size = self.type_size(&ty);
 
             offset = (offset + align - 1) & !(align - 1);
             offset += size;
@@ -789,7 +790,7 @@ impl Gen {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
                 self.emit_func_data(format!("    add rax, {}", field.offset));
                 self.emit_func_data(format!("    mov rax, [rax]"));
-            },
+            }
             _ => {
                 self::panic!("match arg error: {:?}", var_ty);
             }
@@ -931,13 +932,11 @@ impl Gen {
         self.eval_expr(expr, &expr.get_type(self));
         let expr_ty = expr.get_type(self);
         match expr_ty {
-            Type::Enum(.. ) => {
+            Type::Enum(..) => {
                 self.emit_func_data(format!("    mov rax, [rax]"));
             }
-            Type::Pointer( ..) => {
-                self.emit_func_data(format!("    mov rax, [rax]"))
-            }
-            _ => {},
+            Type::Pointer(..) => self.emit_func_data(format!("    mov rax, [rax]")),
+            _ => {}
         }
         self.resolve_match_expr(expr, variants, id, &expr_ty);
     }

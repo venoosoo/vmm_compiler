@@ -1349,42 +1349,42 @@ impl Gen {
     ) -> String {
         let pos = self.alloc(TAG_SIZE);
         let mut base = base.clone();
-        
+
         let enum_data = self
             .enums
             .get(&base)
             .expect(&format!("no enum with name {}", base))
             .clone();
-            
+
         if enum_data.generic_type.len() > 0 {
             base = self.handle_generic_enum(&enum_data, value, variant);
         }
-        
+
         let variant_data = enum_data
             .variants
             .get(variant)
             .expect(&format!("in enum {} no field {}", base, variant));
 
         self.emit_func_data(format!("    mov rax, {}", variant_data.tag));
-        
+
         if !value.is_empty() {
             self.emit_func_data(format!("    mov [rbp - {}], rax", pos));
             for (index, var) in variant_data.args.clone().iter().enumerate() {
                 let res = &value[index];
                 let mut var_ty = var.ty.clone();
-                
+
                 match var.ty {
                     Type::GenericType(_) => {
                         var_ty = res.expr.get_type(self);
                     }
                     _ => {}
                 }
-                
+
                 self.eval_expr(&res.expr, &var_ty);
-                
+
                 let reg = self.reg_for_size("rax", &var_ty).unwrap();
                 let word = self.get_word(&var_ty);
-                
+
                 match &var_ty {
                     Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) => {
                         self.emit_func_data(format!(
@@ -1401,7 +1401,6 @@ impl Gen {
             }
             self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
         }
-
 
         return "rax".to_string();
     }

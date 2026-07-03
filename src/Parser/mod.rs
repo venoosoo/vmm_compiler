@@ -129,6 +129,7 @@ impl<'a> Parser<'a> {
             }
             Type::Enum(..) => 8,
             Type::GenericType(_) => 0,
+            Type::GenericInst(..) => 0,
             _ => {
                 println!("ty: {:?}", ty);
                 panic!("Unknown type size")

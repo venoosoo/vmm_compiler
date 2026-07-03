@@ -423,20 +423,14 @@ impl<'a> Parser<'a> {
         let mut offset: usize = 0;
 
         while self.peek(0).token != TokenType::CloseScope {
-            let base_token = self.consume();
-            let mut ty = if self.is_type(&base_token) && base_token.token != TokenType::Var {
-                Type::Primitive(base_token.token)
-            } else if let Some(res) = self.get_custom_type(&base_token.value.clone().unwrap()) {
-                res
-            } else {
-                panic!("Expected type in struct field");
-            };
-
-            let index = self.parse_ptr();
+            let pre_ptr = self.parse_ptr();
+            let base_ty = self.get_type();
+            let mut ty = self.parse_generic_types(base_ty);
+            let post_ptr = self.parse_ptr();
             let field_name = self.consume().value.unwrap();
 
+            ty = self.apply_ptr(ty, pre_ptr + post_ptr);
             ty = self.parse_array(ty);
-            ty = self.apply_ptr(ty, index);
 
             self.expect(TokenType::Semi);
 

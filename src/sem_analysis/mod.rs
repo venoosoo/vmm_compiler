@@ -357,13 +357,14 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> usize {
+    pub fn compute_struct_size(&mut self, fields: &Vec<StructField>) -> usize {
         let mut offset = 0;
         let mut max_align = 1;
 
         for field in fields {
-            let align = self.field_alignment(&field.ty);
-            let size = self.type_size(&field.ty);
+            let ty = self.ensure_monomorphized(&field.ty);
+            let align = self.field_alignment(&ty);
+            let size = self.type_size(&ty);
 
             offset = (offset + align - 1) & !(align - 1);
             offset += size;
@@ -395,7 +396,7 @@ impl<'a> Analyzer<'a> {
                     .expect(&format!("Unknown struct: {}", name))
                     .size
             }
-            Type::GenericInst(..) => todo!(),
+            Type::GenericInst(str, ty) => todo!(),
             Type::GenericType(_) => todo!(),
             Type::Enum(..) => 8,
             Type::Unknown => panic!("unkown type"),
@@ -460,6 +461,7 @@ impl<'a> Analyzer<'a> {
                     .iter()
                     .map(|f| (f.name.clone(), f.clone()))
                     .collect::<IndexMap<_, _>>();
+
                 let size = self.compute_struct_size(&data.fields);
                 let struct_data = StructData {
                     name: data.name.clone(),
