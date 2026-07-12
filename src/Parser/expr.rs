@@ -155,15 +155,15 @@ impl<'a> Parser<'a> {
                 let base_ty = self.get_type();
                 let mut ty = self.parse_generic_types(base_ty);
                 let post_ptr = self.parse_ptr();
-                
+
                 ty = self.apply_ptr(ty, pre_ptr + post_ptr);
                 ty = self.parse_array(ty);
 
                 self.expect(TokenType::CloseParen);
 
                 // Store the actual Type instead of a Stmt
-                let expr_ty = ExprType::SizeOf { ty }; 
-                
+                let expr_ty = ExprType::SizeOf { ty };
+
                 return Expr {
                     ty: expr_ty,
                     file: self.current_file.clone(),
@@ -199,7 +199,7 @@ impl<'a> Parser<'a> {
     fn expr_to_ident(&self, expr: Expr) -> String {
         match expr.ty {
             ExprType::Variable(var) => var,
-            _ => panic!("in expr_to_ident go wrong type of expr: {:?}", expr),
+            _ => panic!("in expr_to_ident got wrong type of expr: {:?}", expr),
         }
     }
 
@@ -498,7 +498,6 @@ impl<'a> Parser<'a> {
     fn parse_binary(&mut self, min_prec: u8) -> Expr {
         let mut left = self.parse_unary();
         if self.peek(0).token == TokenType::Semi {
-
             return left;
         }
         loop {

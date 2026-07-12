@@ -1,4 +1,5 @@
 use core::panic;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Write};
@@ -272,7 +273,7 @@ impl Gen {
             structs: HashMap::new(),
             functions: HashMap::new(),
             out: String::new(),
-            generics: HashMap::new(),
+            generics: RefCell::new(HashMap::new()),
             highest_stack_pos: 0,
             bss_code: Vec::new(),
             func_header: String::new(),
@@ -296,8 +297,12 @@ impl Gen {
                 _ => return None,
             },
             Type::GenericType(name) => {
-                let res = self.generics.get(name).unwrap();
-                return self.reg_for_size(base, res);
+                let res = {
+                    let map = self.generics.borrow();
+
+                    map.get(name).cloned().unwrap()
+                };
+                return self.reg_for_size(base, &res);
             }
 
             Type::Unknown | Type::GenericInst(..) => return None,
@@ -351,8 +356,11 @@ impl Gen {
             Type::Struct(struct_name) => "QWORD".to_string(),
             Type::Enum(..) => "QWORD".to_string(),
             Type::GenericType(name) => {
-                let res = self.generics.get(name).unwrap();
-                return self.get_word(res);
+                let res = {
+                    let map = self.generics.borrow();
+                    map.get(name).cloned().unwrap()
+                };
+                return self.get_word(&res);
             }
             Type::Unknown | Type::GenericInst(..) => panic!("unkown type"),
         }

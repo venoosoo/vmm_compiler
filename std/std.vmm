@@ -136,13 +136,6 @@ fn memcpy(void* dst, void* src, i64 size) -> void* {
 }
 
 
-fn strlen(u8* str) -> i64 {
-    i64 i = 0;
-    while str[i] != 0 {
-        i = i + 1;
-    }
-    return i;
-}
 
 
 

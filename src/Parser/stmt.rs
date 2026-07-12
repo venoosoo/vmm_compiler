@@ -417,7 +417,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_struct_init(&mut self) -> Option<Stmt> {
-        self.expect(TokenType::Struct); // 'struct'
+        self.expect(TokenType::Struct);
 
         let struct_name = self.consume().value.unwrap();
         let generic = self.parse_generic();
@@ -460,7 +460,6 @@ impl<'a> Parser<'a> {
             size: struct_size,
         };
 
-        // register struct in type table
         self.types.insert(struct_name.clone());
         self.struct_table.insert(struct_name.clone(), def.clone());
         Some(self.type_to_stmt(StmtType::InitStruct(def)))
@@ -672,7 +671,6 @@ impl<'a> Parser<'a> {
         let expr = if self.peek(0).token != TokenType::Semi {
             let res = Some(self.parse_expr());
             res
-            
         } else {
             None
         };

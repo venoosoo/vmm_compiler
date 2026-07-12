@@ -33,6 +33,58 @@ fn string_from(u8* c_str) -> String* {
     return s;
 }
 
+
+fn strcmp(String* left, String* right) -> u8 {
+    if left->length != right->length {
+        return 0; 
+    }
+
+    u64 i = 0;
+    u8* l_data = left->data;
+    u8* r_data = right->data;
+    u64 len = left->length as u64;
+
+    while i < len {
+        u8 l_char = l_data[i];
+        u8 r_char = r_data[i];
+        
+        if l_char != r_char {
+            return 0;
+        }
+        
+        i = i + 1;
+    }
+
+    return 1;
+}
+
+fn strlen(u8* str) -> i64 {
+    i64 i = 0;
+    while str[i] != 0 {
+        i = i + 1;
+    }
+    return i;
+}
+
+fn strcmp(u8* left, u8* right) -> u8 {
+    u64 i = 0;
+    
+    while left[i] != 0 {
+        
+        if (left[i]) != (right[i]) {
+            return 0;
+        }
+        
+        i = i + 1;
+    }
+    
+    if right[i] != 0 {
+        return 0;
+    }
+    
+    return 1;
+}
+
 fn string_free(String* s) {
 
     free(s->data as void*, s->capacity);

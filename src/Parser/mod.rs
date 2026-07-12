@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
 
     pub fn expect(&mut self, ty: TokenType) -> Option<bool> {
         if self.peek(0).token != ty {
-            panic!("expected {:?}, got {:?}",ty,self.peek(0));
+            panic!("expected {:?}, got {:?}", ty, self.peek(0));
         }
         self.consume();
         Some(true)

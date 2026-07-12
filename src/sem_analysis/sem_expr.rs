@@ -67,13 +67,14 @@ impl<'a> Lookup for Analyzer<'a> {
     }
     fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
         let base_ty = base.get_type(self);
+        let base_ty = self.resolve_generic_inst(&base_ty);
         let struct_name = match &base_ty {
             Type::Struct(n) => n.clone(),
             Type::Pointer(inner) => match inner.as_ref() {
                 Type::Struct(n) => n.clone(),
                 _ => panic!("pointer to non-struct"),
             },
-            _ => panic!("member access on non-struct"),
+            _ => panic!("member access on non-struct {:?}", base_ty),
         };
         let struct_data = self.structs.get(&struct_name).unwrap();
         let field = struct_data.elements.get(name).unwrap();
@@ -113,6 +114,23 @@ impl<'a> Analyzer<'a> {
             self.print_error(self.type_to_error(SemanticError::UndeclaredVariable(var.clone())));
             // satisfy return type it wouldnt be compiled because of error anyway
             Type::Primitive(TokenType::I64)
+        }
+    }
+
+    pub fn resolve_generic_inst(&self, ty: &Type) -> Type {
+        match ty {
+            Type::GenericInst(_, _) => {
+                let mangled = type_name(ty);
+                if self.structs.contains_key(&mangled) {
+                    Type::Struct(mangled)
+                } else if self.enums.contains_key(&mangled) {
+                    Type::Enum(mangled, None)
+                } else {
+                    panic!("GenericInst not yet monomorphized: {:?}", ty)
+                }
+            }
+            Type::Pointer(inner) => Type::Pointer(Box::new(self.resolve_generic_inst(inner))),
+            _ => ty.clone(),
         }
     }
 

@@ -169,6 +169,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                 }
                 args.iter().enumerate().all(|(i, expr)| {
                     let expr_ty = expr.get_type(self);
+
                     let param_ty = &func.args[i].ty.clone();
                     let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let param_ty = self.ensure_monomorphized(param_ty);

@@ -20,8 +20,12 @@ impl Gen {
 
     fn gen_declaration(&mut self, data: &Declaration) {
         let data_ty = self.ensure_monomorphized(&data.ty);
-        let mut data_ty = match data_ty {
-            Type::GenericType(name) => self.generics.get(&name).unwrap().clone(),
+        let data_ty = match data_ty {
+            Type::GenericType(name) => {
+                let map = self.generics.borrow();
+
+                map.get(&name).cloned().unwrap()
+            }
             _ => data_ty,
         };
         let stack_pos = self.alloc_type(&data_ty);
@@ -61,9 +65,6 @@ impl Gen {
                                 "    mov {} [rbp - {}], {}",
                                 size_word, stack_pos, sized_reg
                             ));
-                        }
-                        if let Type::Enum(_, enum_variant) = &mut data_ty {
-                            *enum_variant = Some(variant.clone());
                         }
                     }
                     _ => {}
@@ -686,8 +687,12 @@ impl Gen {
             }
             Type::Enum(name, _) => self.enum_get_size(name),
             Type::GenericType(name) => {
-                let ty = self.generics.get(name).unwrap();
-                self.type_size(ty)
+                let ty = {
+                    let map = self.generics.borrow();
+
+                    map.get(name).cloned().unwrap()
+                };
+                self.type_size(&ty)
             }
             Type::Unknown | Type::GenericInst(..) => {
                 println!("{:?}", ty);
@@ -830,7 +835,7 @@ impl Gen {
                     self.gen_declaration(&decl);
                     let new_var_pos = self.stack_pos;
                     // the tag size
-                    let pos = base_pos - field.offset;
+                    let pos = base_pos;
                     let reg = self.reg_for_size("rax", &field.ty).unwrap();
                     self.gen_match_field_arg(expr_ty, &field, &reg, pos);
                     self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));
@@ -911,7 +916,7 @@ impl Gen {
 
     fn resolve_match_expr(
         &mut self,
-        expr: &Expr,
+        base_pos: usize,
         variants: &Vec<MatchField>,
         id: usize,
         expr_ty: &Type,
@@ -922,14 +927,17 @@ impl Gen {
         }
         self.emit_func_data(format!("    jmp match_end_{id}"));
         for var in variants {
-            self.gen_match_asm_func(var, id, self.stack_pos, &expr_ty);
+            self.gen_match_asm_func(var, id, base_pos, &expr_ty);
         }
         self.emit_func_data(format!("match_end_{}:", id));
     }
 
     fn gen_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) {
         let id = self.get_id();
-        self.eval_expr(expr, &expr.get_type(self));
+        let expr_ty = &expr.get_type(self);
+        let reg = self.eval_expr(expr, expr_ty);
+        let pos = self.alloc(8);
+        self.emit_func_data(format!("    mov [rbp - {}], rax", pos));
         let expr_ty = expr.get_type(self);
         match expr_ty {
             Type::Enum(..) => {
@@ -938,7 +946,8 @@ impl Gen {
             Type::Pointer(..) => self.emit_func_data(format!("    mov rax, [rax]")),
             _ => {}
         }
-        self.resolve_match_expr(expr, variants, id, &expr_ty);
+        self.resolve_match_expr(pos, variants, id, &expr_ty);
+        self.stack_pos -= 8;
     }
 
     fn gen_extern(&mut self, function: &Box<Stmt>) {

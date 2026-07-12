@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use indexmap::IndexMap;
 
@@ -23,7 +23,7 @@ pub struct Gen {
     pub data_code: Vec<String>,
     pub highest_stack_pos: usize,
     pub generic_func: HashMap<String, Stmt>,
-    pub generics: HashMap<String, Type>,
+    pub generics: RefCell<HashMap<String, Type>>,
     pub scopes: Vec<HashMap<String, VarData>>,
     pub global_vars: HashMap<String, VarData>,
     pub func_header: String,

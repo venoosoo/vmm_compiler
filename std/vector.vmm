@@ -46,7 +46,7 @@ fn vector_pop<T>(Vector<T>* vec) -> T {
     return *element;
 }
 
-fn vec_get_element<T>(Vector<T>* vec, i32 element_pos) -> T {
+fn vec_get_element<T>(Vector<T>* vec, i64 element_pos) -> T {
     if vec->length < element_pos {
         exit(1);
     }

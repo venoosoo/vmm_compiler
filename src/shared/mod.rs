@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     Ir::stmt::{LValue, Type},
     tokenizer::TokenType,
@@ -289,4 +291,22 @@ pub fn same_signedness(l: &Type, r: &Type) -> bool {
         (Some((_, l_signed)), Some((_, r_signed))) => l_signed == r_signed,
         _ => true,
     }
+}
+
+pub fn build_generic_map(
+    generic_names: Vec<String>,
+    concrete_types: Vec<Type>,
+) -> HashMap<String, Type> {
+    if generic_names.len() != concrete_types.len() {
+        panic!(
+            "Generic argument mismatch: expected {} arguments, found {}",
+            generic_names.len(),
+            concrete_types.len()
+        );
+    }
+
+    generic_names
+        .into_iter()
+        .zip(concrete_types.into_iter())
+        .collect()
 }

@@ -40,7 +40,6 @@ struct Cli {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli: Cli = Cli::parse();
-
     let mut file = File::open(cli.file.clone())?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
