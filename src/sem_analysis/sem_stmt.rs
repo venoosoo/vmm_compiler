@@ -144,6 +144,7 @@ impl<'a> Analyzer<'a> {
         ),
     ) {
         let (init, condition, update, body) = data;
+        self.scopes.push(HashMap::new());
         if let Some(init_data) = init {
             self.check_stmt(init_data);
         }
@@ -154,6 +155,7 @@ impl<'a> Analyzer<'a> {
             self.check_stmt(update_data);
         }
         self.check_stmt(body);
+        self.scopes.pop();
     }
 
     pub fn check_ret(&mut self, expr: &Option<Expr>) {
