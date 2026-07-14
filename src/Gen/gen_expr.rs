@@ -760,7 +760,6 @@ impl Gen {
         let mut name = name.clone();
         let mut generic_copy = generics.clone();
         let mut is_rvo = false; // return value optimization
-        let saved_generics = self.generics.clone();
 
         for (index, generic) in func_data.generic.iter().enumerate() {
             let ty = &generic_copy[index].clone();
@@ -771,15 +770,12 @@ impl Gen {
                         if let Some(generic_ty) = map.get(name) {
                             generic_ty.clone()
 
-                        // 2. Check if it's a known struct
                         } else if self.structs.contains_key(name) {
                             Type::Struct(name.clone())
 
-                        // 3. Check if it's a known enum
                         } else if self.enums.contains_key(name) {
                             Type::Enum(name.clone(), None)
 
-                        // 4. If it's none of them, crash with a helpful message
                         } else {
                             self::panic!(
                                 "Type resolution failed: '{}' is not a known generic, struct, or enum.",
@@ -793,6 +789,7 @@ impl Gen {
             }
             let mut map = self.generics.borrow_mut();
             map.insert(generic.clone(), generic_copy[index].clone());
+
         }
 
         let new_args = {
@@ -855,7 +852,6 @@ impl Gen {
         }
         self.stack_pos = stack_pos_save;
         self.current_return_type = saved_ret_type;
-        self.generics = saved_generics;
         return "rax".to_string();
     }
 

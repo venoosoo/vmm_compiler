@@ -41,21 +41,61 @@ fn split(u8* str, u8 delim) -> Vector<u8*>* {
     
     while str[i] != 0 {
         if str[i] == delim {
-            str[i] = 0 as u8; 
+            u64 len = (str as u64 + i) - (current_word as u64);
             
-            if current_word[0] != 0 and current_word[0] != 10 {
-                vector_push<u8*>(words,current_word);
+            if len > 0 and current_word[0] != 10 {
+                u8* new_word = malloc((len + 1) as i64) as u8*;
+                
+                u64 j = 0;
+                while j < len {
+                    new_word[j] = current_word[j];
+                    j = j + 1;
+                }
+                
+                new_word[len] = 0 as u8; 
+                
+                vector_push<u8*>(words, new_word);
             }
+            
             current_word = (str as u64 + i + 1) as u8*;
         }
         i = i + 1;
     }
     
-    if (current_word[0] != 0) {
-        vector_push<u8*>(words,current_word);
+    u64 last_len = 0;
+    while current_word[last_len] != 0 {
+        last_len = last_len + 1;
+    }
+    
+    if last_len > 0 and current_word[0] != 10 {
+        u8* new_word = malloc((last_len + 1) as i64) as u8*;
+        
+        u64 j = 0;
+        while j < last_len {
+            new_word[j] = current_word[j];
+            j = j + 1;
+        }
+        new_word[last_len] = 0 as u8;
+        
+        vector_push<u8*>(words, new_word);
     }
     
     return words;
+}
+
+
+fn get_file_name(u8* file_path) -> u8* {
+
+    Vector<u8*>* div = split(file_path, '/');
+
+    if div->length == 0 {
+        return file_path;
+    }
+
+    u8* name = vec_get_element<u8*>(div,div->length - 1);
+    Vector<u8*>* file_name = split(name, '.');
+    return vec_get_element<u8*>(file_name,0);
+
 }
 
 

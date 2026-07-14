@@ -216,7 +216,6 @@ impl Gen {
 
     fn gen_assignment(&mut self, target: &LValue, value: &Expr) {
         let value_expr = value.get_type(self);
-
         let val_reg = self.eval_expr(value, &value_expr);
         let (addr, lval) = self.calc_lvalue(target);
         let size_word = self.get_word(&value_expr);

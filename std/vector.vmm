@@ -48,6 +48,10 @@ fn vector_pop<T>(Vector<T>* vec) -> T {
 
 fn vec_get_element<T>(Vector<T>* vec, i64 element_pos) -> T {
     if vec->length < element_pos {
+        print("trying to get: ");
+        print(element_pos);
+        print("element, but vector size is: ");
+        println(vec->length);
         exit(1);
     }
     i64 offset = vec->element_size * element_pos;
