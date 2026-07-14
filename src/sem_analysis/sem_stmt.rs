@@ -197,7 +197,6 @@ impl<'a> Analyzer<'a> {
             let map = self.scopes.last_mut().unwrap();
             map.insert(arg.name.clone(), ty);
         }
-
         self.current_ret_type = self.ensure_monomorphized(&ret_type.clone());
         self.check_stmt(body);
 

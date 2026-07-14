@@ -309,7 +309,7 @@ impl<'a> Parser<'a> {
         let token = self.consume();
         if token.token == TokenType::Var {
             // hello again unwrap at  none value
-            //dbg!(&token);
+            // dbg!(&token);
             let name = self.types.get(&token.value.unwrap()).unwrap();
             if self.struct_table.get(name).is_some() {
                 return Type::Struct(name.to_string());
@@ -395,7 +395,8 @@ impl<'a> Parser<'a> {
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
 
-        let mut tokenizer = tokenizer::Tokenizer::new(content);
+        let mut tokenizer =
+            tokenizer::Tokenizer::new(content, full_path.to_str().unwrap().to_string());
         tokenizer.tokenize();
 
         let mut parser = Parser::new(
@@ -404,8 +405,11 @@ impl<'a> Parser<'a> {
             self.imported_files,
             self.current_file.clone(),
         );
+        parser.types.extend(self.types.clone());
+        parser.struct_table.extend(self.struct_table.clone());
+        parser.enums_table.extend(self.enums_table.clone());
         parser.base_dir = full_path.parent().unwrap().to_path_buf();
-        let imported_stmts = parser.parse();
+        let imported_stmts: Vec<Stmt> = parser.parse();
         self.types.extend(parser.types);
         self.struct_table.extend(parser.struct_table);
         self.enums_table.extend(parser.enums_table);

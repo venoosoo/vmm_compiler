@@ -33,6 +33,31 @@ fn string_from(u8* c_str) -> String* {
     return s;
 }
 
+fn split(u8* str, u8 delim) -> Vector<u8*>* {
+    Vector<u8*>* words = create_vector<u8*>();
+    
+    u64 i = 0;
+    u8* current_word = str;
+    
+    while str[i] != 0 {
+        if str[i] == delim {
+            str[i] = 0 as u8; 
+            
+            if current_word[0] != 0 and current_word[0] != 10 {
+                vector_push<u8*>(words,current_word);
+            }
+            current_word = (str as u64 + i + 1) as u8*;
+        }
+        i = i + 1;
+    }
+    
+    if (current_word[0] != 0) {
+        vector_push<u8*>(words,current_word);
+    }
+    
+    return words;
+}
+
 
 fn strcmp(String* left, String* right) -> u8 {
     if left->length != right->length {

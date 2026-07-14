@@ -71,6 +71,7 @@ pub enum TokenType {
 pub struct Token {
     pub line: usize,
     pub col: usize,
+    pub file: String,
     pub token: TokenType,
     pub value: Option<String>,
 }
@@ -81,10 +82,14 @@ impl fmt::Display for Tokenizer {
             let _ = match &token.value {
                 Some(v) => write!(
                     f,
-                    "Token {}: type: {:?}, value: \"{}\"\n",
-                    index, token.token, v
+                    "Token {}: type: {:?}, value: \"{}\", file: {:?}\n",
+                    index, token.token, v, self.file
                 ),
-                None => write!(f, "Token {}: type: {:?}, value: None\n", index, token.token),
+                None => write!(
+                    f,
+                    "Token {}: type: {:?}, value: None, file: {:?}\n",
+                    index, token.token, self.file
+                ),
             };
         }
         Ok(())
@@ -97,15 +102,17 @@ pub struct Tokenizer {
     m_buf: String,
     pub line: usize,
     pub col: usize,
+    pub file: String,
     pub m_res: Vec<Token>,
 }
 
 impl Tokenizer {
-    pub fn new(file: String) -> Self {
+    pub fn new(file: String, file_path: String) -> Self {
         Tokenizer {
             m_index: 0,
             m_src: file.chars().collect(),
             m_buf: String::new(),
+            file: file_path,
             line: 1,
             col: 0,
             m_res: Vec::new(),
@@ -118,6 +125,7 @@ impl Tokenizer {
             value,
             line: self.line,
             col: self.col,
+            file: self.file.clone(),
         };
         self.m_res.push(x);
     }

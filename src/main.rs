@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
 
-    let mut tokenizer = tokenizer::Tokenizer::new(contents);
+    let mut tokenizer = tokenizer::Tokenizer::new(contents, cli.file.clone());
     tokenizer.tokenize();
 
     if cli.dump_tokens {
