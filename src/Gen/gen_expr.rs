@@ -330,8 +330,7 @@ impl Gen {
             }
             _ => expected_type,
         };
-        let sized_rax = self.reg_for_size("rax", expected_type).unwrap();
-        self.emit_func_data(format!("    mov {}, {}", sized_rax, num));
+        self.emit_func_data(format!("    mov rax, {}", num));
         "rax".to_string()
     }
 
