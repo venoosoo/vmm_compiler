@@ -102,7 +102,7 @@ fn malloc(i64 size) -> void* {
         malloc_heap_remaining = 4096;
     }
     void* ptr = malloc_heap_current as void*;
-    malloc_heap_current = (malloc_heap_current as i64) + size as i64*;
+    malloc_heap_current = ((malloc_heap_current as i64) + size) as i64*;
     malloc_heap_remaining = malloc_heap_remaining - size;
     return ptr;
 }
@@ -117,7 +117,6 @@ fn memcpy(void* dst, void* src, i64 size) -> void* {
     
     i64* d64 = dst as i64*;
     i64* s64 = src as i64*;
-    
     for (i64 i = 0; i < chunks; i = i + 1) {
         d64[i] = s64[i];
     }

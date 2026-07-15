@@ -44,3 +44,18 @@ fn run_cmd(u8* path, u8** args) -> i32 {
         return status as i32;
     }
 }
+
+fn run_cmd_no_wait(u8* path, u8** args) -> u64 {
+    Result<u64, Errno> res = fork();
+    u64 pid = unwrap_result<u64, Errno>(&res);
+    
+    if pid == 0 {
+        u8* env[1]; 
+        env[0] = 0 as u8*;
+        execve(path, args, env);
+        
+        exit(1); 
+    } else {
+        return pid;
+    }
+}

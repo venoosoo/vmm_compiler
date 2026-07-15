@@ -29,8 +29,7 @@ fn vector_push<T>(Vector<T>* vec, T element) {
         vec->data = new_data;
         vec->capacity = new_capacity;
     }
-    i64 offset = vec->length * vec->element_size;
-    T* dest = vec->data + offset;
+    T* dest = vec->data + vec->length;
     memcpy(dest, &element, vec->element_size);
     vec->length = vec->length + 1;
 }
@@ -41,8 +40,7 @@ fn vector_pop<T>(Vector<T>* vec) -> T {
         exit(1);
     }
     vec->length = vec->length - 1;
-    i64 offset = vec->length * vec->element_size;
-    T* element = vec->data + offset;
+    T* element = vec->data + vec->length;
     return *element;
 }
 
@@ -54,7 +52,6 @@ fn vec_get_element<T>(Vector<T>* vec, i64 element_pos) -> T {
         println(vec->length);
         exit(1);
     }
-    i64 offset = vec->element_size * element_pos;
-    T* element = vec->data + offset;
+    T* element = vec->data + element_pos;
     return *element;
 }
