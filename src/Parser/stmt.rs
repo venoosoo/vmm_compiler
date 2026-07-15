@@ -1,5 +1,5 @@
 use core::panic;
-use std::backtrace;
+use std::{backtrace, env};
 use std::fs::File;
 use std::io::Read;
 
@@ -385,24 +385,65 @@ impl<'a> Parser<'a> {
         })));
     }
 
+    fn resolve_global_import(&self, filename: &str) -> Option<PathBuf> {
+        let mut search_paths: Vec<PathBuf> = Vec::new();
+
+        if let Ok(env_path) = env::var("VMM_LIB_PATH") {
+            search_paths.push(PathBuf::from(env_path));
+        }
+
+        if let Some(home_dir) = env::var_os("HOME") {
+            let mut home_path = PathBuf::from(home_dir);
+            home_path.push(".vmm");
+            home_path.push("lib");
+            search_paths.push(home_path);
+        }
+
+        search_paths.push(PathBuf::from("/usr/local/lib/vmm/"));
+
+        for mut path in search_paths {
+            path.push(filename);
+            if path.exists() {
+                return Some(path.canonicalize().unwrap()); 
+            }
+        }
+
+        None
+    }
+
     fn parse_import(&mut self) {
         self.expect(TokenType::Import);
 
         let saved = self.current_file.clone();
 
-        let file_name = self.consume().value.unwrap();
-        let full_path = self
-            .base_dir
-            .join(&file_name)
-            .canonicalize()
-            .expect(&format!("Cannot find import: {}", file_name));
+        let token = self.consume();
+        let full_path = if token.token == TokenType::String {
+            let file_name = token.value.unwrap();
+            
+            self.base_dir
+                .join(&file_name)
+                .canonicalize()
+                .expect(&format!("Cannot find local import: {}", file_name))
+                
+        } else if token.token == TokenType::Less {
+            let file_name_token = self.consume();
+            let file_name = file_name_token.value.expect("Expected filename inside <>");
+            
+            self.expect(TokenType::More); 
+            
+            self.resolve_global_import(&file_name)
+                .expect(&format!("Cannot find global import: {}", file_name))
+                
+        } else {
+            panic!("Expected string or '<' after import, found {:?}", token.token);
+        };
         let canonical_str = full_path.to_str().unwrap().to_string();
         if self.imported_files.contains(&canonical_str) {
             return;
         }
         self.current_file = canonical_str.clone();
         self.imported_files.insert(canonical_str);
-        let mut file = File::open(&full_path).expect(&format!("Cannot find import: {}", file_name));
+        let mut file = File::open(&full_path).unwrap();
 
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
