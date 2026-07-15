@@ -18,6 +18,8 @@ pub struct Analyzer<'a> {
     pub global_vars: HashMap<String, Type>,
     pub functions: HashMap<String, Vec<FuncData>>,
     pub enums: HashMap<String, EnumData>,
+    pub break_stack: Vec<String>,
+    pub contniue_stack: Vec<String>,
     pub generic_func: HashMap<String, Stmt>,
     pub structs: HashMap<String, StructData>,
     pub current_ret_type: Type,
@@ -44,6 +46,8 @@ pub enum SemanticError {
     UndeclaredStruct(String),
     UndeclaredField(String, String), // (struct_name, field_name)
     AlreadyDeclared(String),
+    BreakOutsideOfLoop,
+    ContinueOutsideOfLoop,
     VoidVariable(String),
     ArrayTooLarge {
         arr_name: String,

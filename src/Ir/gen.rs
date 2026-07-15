@@ -21,6 +21,8 @@ pub struct Gen {
     pub current_return_type: Type,
     pub main_code: Vec<String>,
     pub data_code: Vec<String>,
+    pub contniue_stack: Vec<String>,
+    pub break_stack: Vec<String>,
     pub highest_stack_pos: usize,
     pub generic_func: HashMap<String, Stmt>,
     pub generics: RefCell<HashMap<String, Type>>,

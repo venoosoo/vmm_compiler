@@ -346,6 +346,8 @@ impl<'a> Analyzer<'a> {
             had_error: Cell::new(false),
             scopes: vec![HashMap::new()], // start with global scope
             functions: HashMap::new(),
+            break_stack: Vec::new(),
+            contniue_stack: Vec::new(),
             structs: HashMap::new(),
             current_file: String::new(),
             line: 0,

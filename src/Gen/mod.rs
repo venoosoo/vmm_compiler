@@ -270,6 +270,8 @@ impl Gen {
             data_code: Vec::new(),
             scopes: vec![HashMap::new()],
             stack_pos: 0,
+            contniue_stack: Vec::new(),
+            break_stack: Vec::new(),
             structs: HashMap::new(),
             functions: HashMap::new(),
             out: String::new(),

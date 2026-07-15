@@ -226,6 +226,8 @@ impl Gen {
                     }
                     self.emit_func_data(format!("    idiv {}", divisor_reg));
                 }
+
+                self.emit_func_data(format!("    pop rdx"));
             }
             BinOp::Mod => {
                 let divisor_reg = self.reg_for_size("r10", expected_type).unwrap();
@@ -441,6 +443,11 @@ impl Gen {
         let left_reg = self.reg_for_size("rax", &expected_type).unwrap();
         let right_reg = self.reg_for_size("rbx", &expected_type).unwrap();
 
+        let left_ty = left.get_type(self);
+        let is_op_add = matches!(op,BinOp::Add);
+        let right_ty = right.get_type(self);
+
+
         // the and exception
         if *op == BinOp::And {
             let id = self.get_id();
@@ -456,8 +463,24 @@ impl Gen {
         }
 
         self.eval_expr(right, expected_type);
+        if is_op_add {
+            if let Type::Pointer(inner_ty) = &left_ty {
+                let inner_size = self.type_size(inner_ty);
+                if inner_size > 1 {
+                    self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
+                }
+            }
+        }
         self.push_result();
         self.eval_expr(left, expected_type);
+        if is_op_add {
+            if let Type::Pointer(inner_ty) = &right_ty {
+                let inner_size = self.type_size(inner_ty);
+                if inner_size > 1 {
+                    self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
+                }
+            }
+        }
         self.pop_into("rbx");
 
         self.gen_expr_binop(op, &left_reg, &right_reg, expected_type);

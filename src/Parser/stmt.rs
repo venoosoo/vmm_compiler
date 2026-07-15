@@ -26,6 +26,8 @@ impl<'a> Parser<'a> {
             TokenType::Global => return self.parse_global(),
             TokenType::Enum => return self.parse_enum(),
             TokenType::Match => return self.parse_match(),
+            TokenType::Break => return self.parse_break(),
+            TokenType::Continue => return self.parse_continue(),
             TokenType::ExternFn => return self.parse_extern(),
             TokenType::Import => {
                 return {
@@ -48,6 +50,16 @@ impl<'a> Parser<'a> {
                 return self.parse_expr_stmt();
             }
         };
+    }
+
+    fn parse_break(&mut self) -> Option<Stmt> {
+        self.expect(TokenType::Break);
+        return Some(self.type_to_stmt(StmtType::Break));
+    }
+
+    fn parse_continue(&mut self) -> Option<Stmt> {
+        self.expect(TokenType::Continue);
+        return Some(self.type_to_stmt(StmtType::Continue));
     }
 
     fn parse_extern(&mut self) -> Option<Stmt> {

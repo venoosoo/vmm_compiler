@@ -68,6 +68,8 @@ pub enum StmtType {
 
     Return(Option<Expr>),
     AsmCode(Vec<String>),
+    Break,
+    Continue,
     InitFunc {
         name: String,
         generic_types: HashMap<String, Type>,

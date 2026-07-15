@@ -131,7 +131,11 @@ impl<'a> Analyzer<'a> {
 
     pub fn check_while(&mut self, condition: &Expr, body: &Box<Stmt>) {
         let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::I64));
+        self.break_stack.push("1".to_string());
+        self.contniue_stack.push("1".to_string());
         self.check_stmt(body);
+        self.break_stack.pop();
+        self.contniue_stack.pop();
     }
 
     pub fn check_for(
@@ -154,7 +158,13 @@ impl<'a> Analyzer<'a> {
         if let Some(update_data) = update {
             self.check_stmt(update_data);
         }
+        // doesnt matter what we push it wouldnt be used anyway
+        // we only want to check if the break or continue inside loop
+        self.break_stack.push("1".to_string());
+        self.contniue_stack.push("1".to_string());
         self.check_stmt(body);
+        self.break_stack.pop();
+        self.contniue_stack.pop();
         self.scopes.pop();
     }
 
@@ -287,10 +297,24 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn check_break(&self) {
+        if self.break_stack.is_empty() {
+            self.type_to_error(SemanticError::BreakOutsideOfLoop);
+        }
+    }
+
+    fn check_contniue(&self) {
+        if self.break_stack.is_empty() {
+            self.type_to_error(SemanticError::BreakOutsideOfLoop);
+        }
+    }
+
     pub fn check_stmt(&mut self, stmt: &Stmt) {
         self.line = stmt.line;
         self.current_file = stmt.file.clone();
         match &stmt.ty {
+            StmtType::Break => self.check_break(),
+            StmtType::Continue => self.check_contniue(),
             StmtType::Block(data) => self.check_block(data),
             StmtType::Declaration(data) => self.check_declaration(data),
             StmtType::Assignment { target, value } => self.check_assignment(target, value),

@@ -177,9 +177,10 @@ impl Gen {
                     _ => self::panic!("Cannot index into a non-array/pointer type"),
                 };
                 self.emit_func_data(format!("    push rax")); // save expr
-                let index_reg = self.eval_expr(index, &ty); // evaluate index
+                let mut index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
                     Type::Array(..) | Type::Pointer(_) => {
+                        if index_reg == "al" { index_reg = "rax".to_string() };
                         self.emit_func_data(format!(
                             "    imul {}, {}",
                             index_reg,
@@ -209,7 +210,7 @@ impl Gen {
                 self.emit_func_data(format!("    add rcx, {}", index_reg));
                 self.emit_func_data(format!("    pop rax"));
 
-                (Addr::Reg("rcx".to_string()), ty)
+                (Addr::Reg("rcx".to_string()), inner_ty)
             }
         }
     }
@@ -218,7 +219,7 @@ impl Gen {
         let value_expr = value.get_type(self);
         let val_reg = self.eval_expr(value, &value_expr);
         let (addr, lval) = self.calc_lvalue(target);
-        let size_word = self.get_word(&value_expr);
+        let size_word = self.get_word(&lval);
         match addr {
             Addr::Stack(pos) => {
                 let sized_reg = self.reg_for_size("rax", &lval).unwrap();
@@ -229,7 +230,7 @@ impl Gen {
                 ));
             }
             Addr::Reg(reg) => {
-                let sized_reg = self.reg_for_size(&val_reg, &value_expr).unwrap();
+                let sized_reg = self.reg_for_size(&val_reg, &lval).unwrap();
                 self.emit_func_data(format!("    mov {} [{}], {}", size_word, reg, sized_reg));
             }
         }
@@ -293,12 +294,15 @@ impl Gen {
             self.emit_func_data(format!("    cmp rax, 0"));
             self.emit_func_data(format!("    je for_end_{}", id));
         }
-
+        self.break_stack.push(format!("for_end_{}", id));
+        self.contniue_stack.push(format!("for_start_{}",id));
         self.gen_stmt(&body);
         if let Some(update_stmt) = update {
             self.gen_stmt(update_stmt);
         }
         self.scopes.pop();
+        self.break_stack.pop();
+        self.contniue_stack.pop();
         self.emit_func_data(format!("    jmp for_start_{}", id));
 
         self.emit_func_data(format!("for_end_{}:", id));
@@ -970,8 +974,20 @@ impl Gen {
         }
     }
 
+    fn gen_break(&mut self) {
+        let path = self.break_stack.last().unwrap();
+        self.emit_func_data(format!("    jmp {}",path));
+    }
+
+    fn gen_contniue(&mut self) {
+        let path = self.contniue_stack.last().unwrap();
+        self.emit_func_data(format!("    jmp {}",path));
+    }
+
     pub fn gen_stmt(&mut self, stmt: &Stmt) {
         match &stmt.ty {
+            StmtType::Break => self.gen_break(),
+            StmtType::Continue => self.gen_contniue(),
             StmtType::Block(v) => self.gen_block(v),
             StmtType::Declaration(v) => self.gen_declaration(v),
             StmtType::Assignment { target, value } => self.gen_assignment(target, value),
