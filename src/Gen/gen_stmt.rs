@@ -29,7 +29,6 @@ impl Gen {
             _ => data_ty,
         };
         let stack_pos = self.alloc_type(&data_ty);
-
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data_ty);
             match data_ty.clone() {
@@ -638,9 +637,8 @@ impl Gen {
         for field in &data.fields {
             elements.insert(field.name.clone(), field.clone());
         }
-
-        let size = self.compute_struct_size(&data.fields);
-
+        // the generic structs size would be recomputed anyway
+        let size = if data.generic_type.len() > 0 { 0 } else { self.compute_struct_size(&data.fields) };
         let struct_data = StructData {
             name: data.name.clone(),
             generic_type: data.generic_type.clone(),
@@ -692,7 +690,6 @@ impl Gen {
             Type::GenericType(name) => {
                 let ty = {
                     let map = self.generics.borrow();
-
                     map.get(name).cloned().unwrap()
                 };
                 self.type_size(&ty)

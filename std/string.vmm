@@ -133,10 +133,9 @@ fn strlen(u8* str) -> i64 {
 
 fn strcmp(u8* left, u8* right) -> u8 {
     u64 i = 0;
-    
     while left[i] != 0 {
         
-        if (left[i]) != (right[i]) {
+        if left[i] != right[i] {
             return 0;
         }
         

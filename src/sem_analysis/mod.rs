@@ -400,7 +400,10 @@ impl<'a> Analyzer<'a> {
                     .size
             }
             Type::GenericInst(str, ty) => todo!(),
-            Type::GenericType(_) => todo!(),
+            Type::GenericType(name) => {
+                // TODO: make the self.generic the same as in gen and fix this
+                8
+            },
             Type::Enum(..) => 8,
             Type::Unknown => panic!("unkown type"),
         }

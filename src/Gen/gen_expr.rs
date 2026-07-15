@@ -1475,6 +1475,7 @@ impl Gen {
 
             ExprType::Index { base, index } => {
                 let ty = expr.get_type(self);
+                let ty = self.ensure_monomorphized(&ty);
                 self.gen_expr_index(base, index, &ty)
             }
 
