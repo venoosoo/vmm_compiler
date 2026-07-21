@@ -175,6 +175,7 @@ impl Gen {
                     Type::Pointer(ptr_ty) => *ptr_ty.clone(),
                     _ => self::panic!("Cannot index into a non-array/pointer type"),
                 };
+                let inner_ty = self.ensure_monomorphized(&inner_ty);
                 self.emit_func_data(format!("    push rax")); // save expr
                 let mut index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
