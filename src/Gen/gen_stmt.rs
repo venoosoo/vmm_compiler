@@ -1,3 +1,5 @@
+use std::dbg;
+
 use indexmap::IndexMap;
 
 use super::*;
@@ -74,7 +76,7 @@ impl Gen {
 
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
-            self::panic!("Variable already declared in this scope");
+            self::panic!("Variable {} is already defined",data.name);
         }
 
         let var_data = VarData {
@@ -170,12 +172,7 @@ impl Gen {
             }
             LValue::Index { base, index } => {
                 let (addr, ty) = self.calc_lvalue(base);
-                let inner_ty = match &ty {
-                    Type::Array(arr_ty, _) => *arr_ty.clone(),
-                    Type::Pointer(ptr_ty) => *ptr_ty.clone(),
-                    _ => self::panic!("Cannot index into a non-array/pointer type"),
-                };
-                let inner_ty = self.ensure_monomorphized(&inner_ty);
+                let inner_ty = self.ensure_monomorphized(&ty);
                 self.emit_func_data(format!("    push rax")); // save expr
                 let mut index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {

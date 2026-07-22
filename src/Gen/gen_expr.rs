@@ -1,3 +1,4 @@
+use std::dbg;
 use std::fmt::format;
 
 use indexmap::IndexMap;
@@ -16,7 +17,6 @@ impl Lookup for Gen {
             return Some(Type::Struct(name.clone()));
         }
         if self.enums.get(name).is_some() {
-            // possible bug
             return Some(Type::Enum(name.clone(), None));
         } else {
             let var = self.lookup_var(name);
@@ -65,7 +65,7 @@ impl Lookup for Gen {
         let base_ty = base.get_type(self);
         let idx_ty = index.get_type(self);
         if !is_numeric(&idx_ty) {
-            self::panic!("Array index must be integer");
+            self::panic!("Array index must be a number");
         }
         match base_ty {
             Type::Array(elem_ty, _) => *elem_ty,
@@ -76,10 +76,8 @@ impl Lookup for Gen {
     fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
         let base_ty = base.get_type(self);
         let base_ty = self.resolve_generic_inst(&base_ty);
-
         let struct_name = match &base_ty {
             Type::Struct(n) => n.clone(),
-            // todo: fix this
             Type::Pointer(inner) => match inner.as_ref() {
                 Type::Struct(n) => n.clone(),
                 _ => self::panic!("pointer to non-struct: {:?}", inner),
@@ -446,7 +444,8 @@ impl Gen {
         let left_ty = left.get_type(self);
         let is_op_add = matches!(op,BinOp::Add);
         let right_ty = right.get_type(self);
-
+        let left_ty = self.ensure_monomorphized(&left_ty);
+        let right_ty = self.ensure_monomorphized(&right_ty);
 
         // the and exception
         if *op == BinOp::And {
@@ -465,7 +464,7 @@ impl Gen {
         self.eval_expr(right, expected_type);
         if is_op_add {
             if let Type::Pointer(inner_ty) = &left_ty {
-                let inner_size = self.type_size(inner_ty);
+                let inner_size = self.type_size(&left_ty);
                 if inner_size > 1 {
                     self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
                 }
@@ -475,7 +474,7 @@ impl Gen {
         self.eval_expr(left, expected_type);
         if is_op_add {
             if let Type::Pointer(inner_ty) = &right_ty {
-                let inner_size = self.type_size(inner_ty);
+                let inner_size = self.type_size(&right_ty);
                 if inner_size > 1 {
                     self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
                 }
@@ -877,7 +876,7 @@ impl Gen {
         return "rax".to_string();
     }
 
-    fn generic_to_ty(&self, ty: &Type, type_map: &HashMap<String, Type>) -> Type {
+    pub fn generic_to_ty(&self, ty: &Type, type_map: &HashMap<String, Type>) -> Type {
         match ty {
             Type::GenericType(name) => {
                 return type_map.get(name).cloned().unwrap();
@@ -1180,7 +1179,6 @@ impl Gen {
         self.eval_expr(base, arr_ty);
         self.push_result();
         let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
-
         let elem_size = self.type_size(expected_type);
         self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
         self.pop_into("rbx");
@@ -1228,7 +1226,7 @@ impl Gen {
 
     fn gen_cast(&mut self, expr: &Box<Expr>, target_ty: &Type) -> String {
         let src_ty = expr.get_type(self);
-
+        let src_ty = self.ensure_monomorphized(&src_ty);
         self.eval_expr(expr, &src_ty);
 
         let src_size = self.type_size(&src_ty);

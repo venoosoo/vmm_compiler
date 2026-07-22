@@ -1,6 +1,7 @@
 use core::panic;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::{dbg, matches};
 use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Write};
 
@@ -45,7 +46,15 @@ impl TypeContext for Gen {
                     let param_ty = &func.args[i].ty.clone();
                     let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let param_ty = self.ensure_monomorphized(param_ty);
+                    let expr_ty = {
+                        if matches!(expr_ty, Type::GenericType(_)) {
 
+                            let map = self.generics.borrow();
+                            self.generic_to_ty(&expr_ty, &map)
+                        } else {
+                            expr_ty
+                        }
+                    };
                     let arg_matches = match &expr.ty {
                         ExprType::Number(_) => is_number(&param_ty),
                         _ => check_types(&expr_ty, &param_ty),
@@ -194,7 +203,6 @@ impl TypeContext for Gen {
         match ty {
             Type::GenericInst(name, type_args) => {
                 let mangled = type_name(ty);
-                // already done?
                 if self.structs.contains_key(&mangled) {
                     return Type::Struct(mangled.clone());
                 }

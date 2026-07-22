@@ -151,15 +151,15 @@ fn strcmp(u8* left, u8* right) -> u8 {
 
 fn string_free(String* s) {
 
-    free(s->data as void*, s->capacity);
-    free(s as void*, sizeof(String));
+    free(s->data as void*);
+    free(s as void*);
 
 }
 
 fn string_realloc(String* s) {
     u8* str_data = malloc(s->capacity * 2);
     memcpy(str_data as void*, s->data as void*, s->capacity);
-    free(s->data as void*, s->capacity);
+    free(s->data as void*);
     s->data = str_data;
     s->capacity = s->capacity * 2;
 }
