@@ -1505,7 +1505,11 @@ impl Gen {
 
             ExprType::Deref(inner) => {
                 let ty = expr.get_type(self);
-                self.gen_expr_deref(inner, &ty)
+                if self.type_size(&ty) <= 8 {
+                    self.gen_expr_deref(inner, &ty)
+                } else {
+                    "rax".to_string()
+                }
             }
 
             ExprType::Index { base, index } => {
