@@ -175,6 +175,14 @@ impl<'a> TypeContext for Analyzer<'a> {
                 args.iter().enumerate().all(|(i, expr)| {
                     let expr_ty = expr.get_type(self);
                     let param_ty = &func.args[i].ty.clone();
+                    let (expr_ty, param_ty) = {
+                        let map = self.build_generic_map(&func.generic, generics);
+                        let expr_ty: Type = self.generic_to_ty(&expr_ty, &map);
+                        let param_ty = self.generic_to_ty(param_ty, &map);
+                        (expr_ty, param_ty)
+                    };
+                    let param_ty = self.ensure_monomorphized(&param_ty);
+                    let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let arg_matches = match &expr.ty {
                         ExprType::Number(_) => is_number(&param_ty),
                         _ => check_types(&expr_ty, &param_ty),
@@ -429,6 +437,34 @@ impl<'a> Analyzer<'a> {
         self.had_error.set(true);
     }
 
+    pub fn build_generic_map(
+        &self,
+        generic_names: &Vec<String>,
+        concrete_types: &Vec<Type>,
+    ) -> HashMap<String, Type> {
+        if generic_names.len() > concrete_types.len() {
+            dbg!(generic_names);
+            dbg!(concrete_types);
+            panic!(
+                "Generic argument mismatch: expected at least {} arguments, found {}",
+                generic_names.len(),
+                concrete_types.len()
+            );
+        }
+
+        let existing_map = self.generics.borrow();
+
+        generic_names
+            .iter()
+            .cloned()
+            .zip(
+                concrete_types
+                    .iter()
+                    .map(|t| self.generic_to_ty(t, &existing_map)),
+            )
+            .collect()
+    }
+
     fn ensure_struct_sized(&self, name: &str) -> usize {
         if let Some(existing) = self.structs.borrow().get(name) {
             if existing.size > 0 {
@@ -617,6 +653,28 @@ impl<'a> Analyzer<'a> {
                 self.enums.borrow_mut().insert(name.clone(), enum_data);
             }
             _ => {}
+        }
+    }
+
+    pub fn generic_to_ty(&self, ty: &Type, type_map: &HashMap<String, Type>) -> Type {
+        match ty {
+            Type::GenericType(name) => type_map.get(name).cloned().unwrap_or(ty.clone()),
+            Type::Array(arr_ty, size) => {
+                let res = self.generic_to_ty(arr_ty, type_map);
+                Type::Array(Box::new(res), *size)
+            }
+            Type::Pointer(ptr_ty) => {
+                let res = self.generic_to_ty(ptr_ty, type_map);
+                Type::Pointer(Box::new(res))
+            }
+            Type::GenericInst(name, type_args) => {
+                let resolved_args: Vec<Type> = type_args
+                    .iter()
+                    .map(|arg| self.generic_to_ty(arg, type_map))
+                    .collect();
+                Type::GenericInst(name.clone(), resolved_args)
+            }
+            _ => ty.clone(),
         }
     }
 

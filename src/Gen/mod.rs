@@ -32,7 +32,6 @@ impl TypeContext for Gen {
         generics: &Vec<Type>,
     ) -> Option<(FuncData, usize)> {
         let vec_func_data = self.functions.get(name).unwrap().clone();
-
         if generics.len() > 0 {
             let (overload_pos, func_data) = self
                 .find_overload(&vec_func_data, args, generics)
@@ -291,7 +290,11 @@ impl Gen {
             }
 
             Type::Unknown | Type::GenericInst(..) => return None,
-            Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(..) | Type::Named(..) => 8,
+            Type::Pointer(_)
+            | Type::Array(_, _)
+            | Type::Struct(_)
+            | Type::Enum(..)
+            | Type::Named(..) => 8,
         };
 
         match (base, size) {
@@ -581,10 +584,12 @@ impl Gen {
             }
         }
 
-    
         let struct_names: Vec<String> = self.structs.borrow().keys().cloned().collect();
         for name in struct_names {
-            let is_generic = self.structs.borrow().get(&name)
+            let is_generic = self
+                .structs
+                .borrow()
+                .get(&name)
                 .map(|s| !s.generic_type.is_empty())
                 .unwrap_or(false);
             if is_generic {
@@ -595,7 +600,10 @@ impl Gen {
 
         let enum_names: Vec<String> = self.enums.borrow().keys().cloned().collect();
         for name in enum_names {
-            let is_generic = self.enums.borrow().get(&name)
+            let is_generic = self
+                .enums
+                .borrow()
+                .get(&name)
                 .map(|e| !e.generic_type.is_empty())
                 .unwrap_or(false);
             if is_generic {
@@ -608,7 +616,10 @@ impl Gen {
     fn ensure_struct_sized(&self, name: &str) -> usize {
         if let Some(existing) = self.structs.borrow().get(name) {
             if !existing.generic_type.is_empty() {
-                panic!("attempted to size generic template `{}` directly, must be monomorphized first",name);
+                panic!(
+                    "attempted to size generic template `{}` directly, must be monomorphized first",
+                    name
+                );
             }
             if existing.size > 0 {
                 return existing.size;
@@ -657,10 +668,12 @@ impl Gen {
     }
 
     fn ensure_enum_sized(&self, name: &str) -> usize {
-        
         if let Some(existing) = self.enums.borrow().get(name) {
             if !existing.generic_type.is_empty() {
-                panic!("attempted to size generic template `{}` directly, must be monomorphized first",name);
+                panic!(
+                    "attempted to size generic template `{}` directly, must be monomorphized first",
+                    name
+                );
             }
             if existing.size > 0 {
                 return existing.size;

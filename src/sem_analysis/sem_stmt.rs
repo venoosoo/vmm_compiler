@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs::File};
+use std::{collections::HashMap, env, fs::File, process::exit};
 
 use super::*;
 
@@ -176,6 +176,7 @@ impl<'a> Analyzer<'a> {
 
             expr_ty = self.ensure_monomorphized(&expr_ty);
         }
+
         if !check_types(&self.current_ret_type, &expr_ty) {
             self.print_error(self.type_to_error(SemanticError::ReturnTypeMismatch {
                 expected: self.current_ret_type.clone(),
@@ -212,7 +213,6 @@ impl<'a> Analyzer<'a> {
         }
         self.current_ret_type = self.ensure_monomorphized(&ret_type.clone());
         self.check_stmt(body);
-
         // restore outer scopes
         self.scopes = saved_scopes;
     }

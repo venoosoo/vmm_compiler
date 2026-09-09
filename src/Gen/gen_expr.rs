@@ -123,22 +123,7 @@ impl Lookup for Gen {
             self.functions.get(&func_name).unwrap().clone()
         };
 
-        let func_data = vec_func_data
-            .iter()
-            .find(|func| {
-                if func.args.len() != args.len() {
-                    return false;
-                }
-                args.iter().enumerate().all(|(index, expr)| {
-                    let expr_ty = self.resolve_generic_inst(&expr.get_type(self));
-                    let arg_ty = self.resolve_generic_inst(&func.args[index].ty);
-                    check_types(&expr_ty, &arg_ty)
-                })
-            })
-            .expect(&format!(
-                "no matching overload for function '{}'",
-                func_name
-            ));
+        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
         func_data.return_type.clone()
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -307,7 +292,9 @@ impl Gen {
                 self.emit_func_data(format!("    cmp {}, 0", right_reg));
                 self.emit_func_data(format!("    setne {}", right_byte));
                 self.emit_func_data(format!("    or {}, {}", left_byte, right_byte));
-                self.emit_func_data(format!("    movzx {}, {}", left_reg, left_byte));
+                if left_reg != left_byte {
+                    self.emit_func_data(format!("    movzx {}, {}", left_reg, left_byte));
+                }
             }
         }
     }
@@ -509,7 +496,7 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn resolve_type_with_map(
+    pub fn resolve_type_with_map(
         &self,
         ty: &Type,
         generic_map: &HashMap<String, Type>,
@@ -588,7 +575,7 @@ impl Gen {
                 Some(self.reg_for_size(arg_regs[pos], ty).unwrap())
             } else {
                 self.alloc_type(ty);
-                self.emit_func_data(format!("    push {}", rval));
+                self.emit_func_data(format!("    push {}", to_base_reg(rval)));
                 None
             }
         };
@@ -801,20 +788,22 @@ impl Gen {
             let map = self.generics.borrow();
             self.convert_generic_args(&func_data.args, generics, &map, overload_pos as i64)
         };
+        let ret_type = self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), 0);
 
-        match &self.ensure_monomorphized(&func_data.return_type) {
+        let mut rvo_pos = 0;
+        match &self.ensure_monomorphized(&ret_type) {
             Type::Struct(_) | Type::Enum(_, _) => {
-                self.emit_func_data(format!("    lea rdi, [rbp - {}]", self.stack_pos));
                 is_rvo = true;
+                rvo_pos = self.stack_pos;
             }
             _ => {}
         }
 
         let stack_pos_save = self.stack_pos;
         let saved_ret_type = self.current_return_type.clone();
-        self.stack_pos = 0;
 
         let space_taken = self.gen_args(&args, func_data, &generic_copy, &new_args, is_rvo);
+        self.stack_pos = 0;
 
         if func_data.generic.len() > 0 {
             let generic_candidates = self.generic_func.get(&name).unwrap().clone();
@@ -878,6 +867,10 @@ impl Gen {
             }
         }
 
+        if is_rvo {
+            self.emit_func_data(format!("    lea rdi, [rbp - {}]", rvo_pos));
+        }
+        
         if self.functions.get(&name).unwrap().len() > 1 {
             self.emit_func_data(format!("    call {}___{}", name, overload_pos));
         } else {
@@ -1298,7 +1291,6 @@ impl Gen {
         }
     }
 
-
     fn handle_generic_enum(
         &mut self,
         enum_data: &EnumData,
@@ -1330,11 +1322,11 @@ impl Gen {
         base: &String,
         value: &Vec<EnumExprField>,
         variant: &String,
-        expected_type: &Type
+        expected_type: &Type,
     ) -> String {
         let mut concrete_base = base.clone();
 
-        if let Type::Enum(expected_name,_) = expected_type {
+        if let Type::Enum(expected_name, _) = expected_type {
             concrete_base = expected_name.clone();
         } else {
             let base_enum_data = self
@@ -1343,7 +1335,7 @@ impl Gen {
                 .get(base)
                 .expect(&format!("no enum with name {}", base))
                 .clone();
-                
+
             if base_enum_data.generic_type.len() > 0 {
                 concrete_base = self.handle_generic_enum(&base_enum_data, value, variant);
             }
@@ -1361,7 +1353,7 @@ impl Gen {
             .get(variant)
             .expect(&format!("in enum {} no field {}", concrete_base, variant));
 
-        let pos = self.stack_pos; 
+        let pos = self.stack_pos;
 
         if value.is_empty() {
             self.emit_func_data(format!(
@@ -1377,23 +1369,27 @@ impl Gen {
 
         for (index, var) in variant_data.args.clone().iter().enumerate() {
             let res = &value[index];
-            
+
             let mut var_ty = var.ty.clone();
             if let Type::GenericType(_) = var.ty {
                 var_ty = res.expr.get_type(self);
             }
-            
+
             self.eval_expr(&res.expr, &var_ty);
-            
+
             let reg = self.reg_for_size("rax", &var_ty).unwrap();
             let word = self.get_word(&var_ty);
-            
+
             match &var_ty {
-                Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) | Type::Enum(..) | Type::Struct(_) => {
+                Type::Primitive(_)
+                | Type::Array(..)
+                | Type::Pointer(_)
+                | Type::Enum(..)
+                | Type::Struct(_) => {
                     self.emit_func_data(format!(
                         "    mov {} [rbp - {}], {}",
                         word,
-                        pos - var.offset, 
+                        pos - var.offset,
                         reg,
                     ));
                 }
@@ -1402,7 +1398,7 @@ impl Gen {
                 }
             }
         }
-        
+
         self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
 
         return "rax".to_string();
@@ -1413,12 +1409,12 @@ impl Gen {
         base: &String,
         value: &Vec<EnumExprField>,
         variant: &String,
-        expected_type: &Type
+        expected_type: &Type,
     ) -> String {
-        let pos = self.alloc(self.type_size(expected_type));
+        let pos = self.stack_pos;
         let mut concrete_base = base.clone();
 
-        if let Type::Enum(expected_name,_) = expected_type {
+        if let Type::Enum(expected_name, _) = expected_type {
             concrete_base = expected_name.clone();
         } else {
             let base_enum_data = self
@@ -1427,12 +1423,11 @@ impl Gen {
                 .get(base)
                 .expect(&format!("no enum with name {}", base))
                 .clone();
-                
+
             if base_enum_data.generic_type.len() > 0 {
                 concrete_base = self.handle_generic_enum(&base_enum_data, value, variant);
             }
         }
-
 
         let enum_data = self
             .enums
@@ -1482,7 +1477,6 @@ impl Gen {
             }
             self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
         }
-
         return "rax".to_string();
     }
 
@@ -1539,7 +1533,7 @@ impl Gen {
                 base,
                 value,
                 variant,
-            } => self.gen_get_enum(base, value, variant,expected_type),
+            } => self.gen_get_enum(base, value, variant, expected_type),
         }
     }
 }

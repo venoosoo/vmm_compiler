@@ -1,4 +1,4 @@
-use std::dbg;
+use std::{dbg, format};
 
 use indexmap::IndexMap;
 
@@ -223,19 +223,42 @@ impl Gen {
         let value_expr = value.get_type(self);
         let val_reg = self.eval_expr(value, &value_expr);
         let (addr, lval) = self.calc_lvalue(target);
+        let size = self.type_size(&value_expr);
         let size_word = self.get_word(&lval);
-        match addr {
-            Addr::Stack(pos) => {
-                let sized_reg = self.reg_for_size("rax", &lval).unwrap();
-                let sized_word = self.get_word(&lval);
-                self.emit_func_data(format!(
-                    "    mov {} [rbp - {}], {}",
-                    sized_word, pos, sized_reg
-                ));
+    
+        if size > 8 {
+            self.emit_func_data(format!("    mov rcx, {}", val_reg));
+            
+            let chunks = size / 8;
+            
+            match addr {
+                Addr::Stack(pos) => {
+                    for i in 0..chunks {
+                        self.emit_func_data(format!("    mov rdx, [rcx + {}]", i * 8));
+                        self.emit_func_data(format!("    mov [rbp - {}], rdx", (pos as usize) - (i * 8)));
+                    }
+                }
+                Addr::Reg(reg) => {
+                    for i in 0..chunks {
+                        self.emit_func_data(format!("    mov rdx, [rcx + {}]", i * 8));
+                        self.emit_func_data(format!("    mov [{} + {}], rdx", reg, i * 8));
+                    }
+                }
             }
-            Addr::Reg(reg) => {
-                let sized_reg = self.reg_for_size(&val_reg, &lval).unwrap();
-                self.emit_func_data(format!("    mov {} [{}], {}", size_word, reg, sized_reg));
+        } else {
+            match addr {
+                Addr::Stack(pos) => {
+                    let sized_reg = self.reg_for_size("rax", &lval).unwrap();
+                    let sized_word = self.get_word(&lval);
+                    self.emit_func_data(format!(
+                        "    mov {} [rbp - {}], {}",
+                        sized_word, pos, sized_reg
+                    ));
+                }
+                Addr::Reg(reg) => {
+                    let sized_reg = self.reg_for_size(&val_reg, &lval).unwrap();
+                    self.emit_func_data(format!("    mov {} [{}], {}", size_word, reg, sized_reg));
+                }
             }
         }
     }
@@ -267,12 +290,16 @@ impl Gen {
         let (condition, body) = data;
         let id = self.get_id();
         self.emit_func_data(format!("while_{}:", id));
+        self.break_stack.push(format!("end_while_{}", id));
+        self.contniue_stack.push(format!("while_{}", id));
         self.eval_expr(condition, &Type::Primitive(TokenType::I64));
         self.emit_func_data(format!("    cmp rax, 0"));
         self.emit_func_data(format!("    je end_while_{}", id));
         self.gen_stmt(&*body);
         self.emit_func_data(format!("    jmp while_{}", id));
         self.emit_func_data(format!("end_while_{}:", id));
+        self.break_stack.pop();
+        self.contniue_stack.pop();
     }
 
     pub fn gen_for(
@@ -339,7 +366,7 @@ impl Gen {
                     value,
                 } => {
                     self.alloc(self.type_size(&ret_type));
-                    self.gen_get_enum_addr(base, value, variant,&ret_type);
+                    self.gen_get_enum_addr(base, value, variant, &ret_type);
                 }
                 ExprType::StructInit {
                     struct_name_ty,
@@ -509,7 +536,7 @@ impl Gen {
                         self.get_arg(arg_index, &arg_ty, pos, None, is_rvo);
                         arg_index -= 1
                     } else {
-                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
+                        self.get_arg(7, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         stack_arg_pos += self.type_size(&arg_ty);
                     }
                 }
@@ -524,7 +551,7 @@ impl Gen {
                         self.get_arg(arg_index, &arg_ty, pos, None, is_rvo);
                         arg_index -= 1
                     } else {
-                        self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
+                        self.get_arg(7, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         stack_arg_pos += self.type_size(&arg_ty);
                     }
                 }
@@ -532,9 +559,8 @@ impl Gen {
                     self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                     if arg_index > 6 {
                         stack_arg_pos += self.type_size(&arg_ty);
-                    } else {
-                        arg_index -= 1;
                     }
+                    arg_index -= 1;
                 }
             }
 
@@ -585,6 +611,8 @@ impl Gen {
         let saved_highest_stack_pos = self.highest_stack_pos;
         self.highest_stack_pos = 0;
         let (name, args, ret_type, body, generics) = data;
+        let ret_type = &self.ensure_monomorphized(ret_type);
+        let ret_type = &self.resolve_type_with_map(ret_type, generics, 0);
         self.current_return_type = ret_type.clone();
         // save outer scopes, start fresh with globals only
         let global_scope = self.scopes[0].clone();
@@ -804,7 +832,7 @@ impl Gen {
             }
             Type::Pointer(_) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
-                self.emit_func_data(format!("    add rax, {}", field.offset));
+                self.emit_func_data(format!("    add rax, {}", field.offset + TAG_SIZE));
                 self.emit_func_data(format!("    mov rax, [rax]"));
             }
             _ => {

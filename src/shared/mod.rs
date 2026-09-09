@@ -212,10 +212,24 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
 
     // 3. char array compatible with char* (u8[] <-> u8*)
     match (left, right) {
+        // u8[] <-> u8*
         (Type::Pointer(ptr_elem), Type::Array(arr_elem, _))
         | (Type::Array(arr_elem, _), Type::Pointer(ptr_elem)) => {
             if ptr_elem == arr_elem {
                 return true;
+            }
+        }
+
+        (Type::Pointer(p1), Type::Pointer(p2)) => {
+            if let Type::Array(arr_elem, _) = &**p1 {
+                if arr_elem == p2 {
+                    return true;
+                }
+            }
+            if let Type::Array(arr_elem, _) = &**p2 {
+                if arr_elem == p1 {
+                    return true;
+                }
             }
         }
         _ => {}
@@ -266,6 +280,49 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
 
         if left_is_base && right_matches_base {
             return true;
+        }
+    }
+
+    // 7. match Named type to struct/enum
+    match (left, right) {
+        (Type::Named(l_name), Type::Enum(r_name, _))
+        | (Type::Enum(l_name, _), Type::Named(r_name)) => {
+            if l_name == r_name {
+                return true;
+            }
+        }
+        (Type::Named(l_name), Type::Struct(r_name))
+        | (Type::Struct(l_name), Type::Named(r_name)) => {
+            if l_name == r_name {
+                return true;
+            }
+        }
+        (Type::Named(l_name), Type::Named(r_name)) => {
+            if l_name == r_name {
+                return true;
+            }
+        }
+        _ => {}
+    }
+
+    if let (Type::Pointer(l_inner), Type::Pointer(r_inner)) = (left, right) {
+        if check_types(l_inner, r_inner) {
+            return true;
+        }
+    }
+
+    if let (Type::GenericInst(l_name, l_args), Type::GenericInst(r_name, r_args)) = (left, right) {
+        if l_name == r_name && l_args.len() == r_args.len() {
+            let mut all_match = true;
+            for (l_arg, r_arg) in l_args.iter().zip(r_args.iter()) {
+                if !check_types(l_arg, r_arg) {
+                    all_match = false;
+                    break;
+                }
+            }
+            if all_match {
+                return true;
+            }
         }
     }
 

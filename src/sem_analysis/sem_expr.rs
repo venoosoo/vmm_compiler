@@ -649,6 +649,8 @@ impl<'a> Analyzer<'a> {
         for (index, arg) in variant_data.args.iter().enumerate() {
             let enum_field = &value[index];
             if !check_types(&enum_field.expr.get_type(self), &arg.ty) {
+                dbg!(&enum_field.expr.get_type(self));
+                dbg!(&arg);
                 self::panic!("debil²")
             }
         }
