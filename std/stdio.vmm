@@ -3,8 +3,8 @@ import "std.vmm"
 
 
 
-fn open(u8* path, i32 flags, i32 mode) -> Result<u64, Errno> {
-    u64 fd = syscall(2, path as i64, flags as i64, mode as i64, 0, 0) as u64;
+fn open(u8* path, i64 flags, i64 mode) -> Result<u64, Errno> {
+    u64 fd = syscall(2, path as i64, flags, mode, 0, 0) as u64;
     return handle_error<u64>(fd);
 }
 
@@ -20,15 +20,19 @@ fn read(u32 fd, u8* buf, u64 count) -> Result<u64, Errno> {
 
 fn close(u32 fd) -> Result<u32, Errno> {
     u64 res = syscall(3, fd as i64, 0, 0, 0, 0) as u64;
-    return handle_error<u32>(res);
+    return handle_error<u32>(res as u32);
 }
 
+fn mkdir(u8* path, i64 mode) -> Result<u32, Errno> {
+    u32 res = syscall(83, path as i64, mode, 0, 0, 0) as u32;
+    return handle_error<u32>(res);
+}
 
 fn input(u8* message, u8* buffer, u64 max_length) {
     print(message);
     Result<u64, Errno> res = read(0, buffer, max_length - 1);
     
-    u64 bytes_read = unwrap_result<u64, Errno>(&res);
+    u64 bytes_read = unwrap<u64, Errno>(&res);
 
     buffer[bytes_read] = 0;
 }

@@ -1,0 +1,188 @@
+import <"std.vmm">
+import <"string.vmm">
+
+struct HashMapPair<K,V> {
+    K key;
+    u8* key_str;
+    u32 distanse;
+    V value;
+}
+
+struct HashMap<K,V> {
+    HashMapPair<K,V>** data;
+    u64 length;
+    u64 capacity;
+}
+
+fn hash64(u8* str) -> u64 {
+    u64 hash_value = 0;
+    u64 prime = 31;
+    u64 i = 0;
+    while str[i] != 0 {
+        hash_value = (hash_value * prime) + str[i];
+        i = i + 1;
+    }
+    return hash_value;
+}
+
+fn create_hashmap<K,V>() -> HashMap<K,V>* {
+    u64 starting_capacity = 16;
+    HashMapPair<K,V>** data = malloc(sizeof(HashMapPair<K,V>*) * starting_capacity);
+    u64 i = 0;
+    while i < starting_capacity {
+        data[i] = 0;
+        i = i + 1;
+    }
+    HashMap<K,V>* hash_map = malloc(sizeof(HashMap<K,V>));
+    hash_map->data = data;
+    hash_map->capacity = starting_capacity;
+    hash_map->length = 0;
+    return hash_map;
+}
+
+// Status codes for a probed slot:
+//   0 = occupied by a different key
+//   1 = empty slot
+//   2 = occupied by the SAME key
+fn check_hashmap_pos<K,V>(HashMap<K,V>* hash_map, u64 pos, u8* key_str) -> u8 {
+    HashMapPair<K,V>* pair = hash_map->data[pos];
+    if pair == 0 { return 1; }
+    if strcmp(pair->key_str, key_str) {
+        return 2;
+    } else {
+        return 0;
+    }
+}
+
+
+fn hash_map_move<K,V>(HashMap<K,V>* hash_map, K key, u8* key_str, V value, u64 pos, u32 distanse) -> u8 {
+    pos = pos & (hash_map->capacity - 1);
+    u8 status = check_hashmap_pos<K,V>(hash_map, pos, key_str);
+
+    if status == 1 {
+        HashMapPair<K,V>* pair = malloc(sizeof(HashMapPair<K,V>));
+        pair->key = key;
+        pair->key_str = key_str;
+        pair->value = value;
+        pair->distanse = distanse;
+        hash_map->data[pos] = pair;
+        return 1;
+    }
+
+    HashMapPair<K,V>* pair = hash_map->data[pos];
+
+    if status == 2 {
+        if pair->key_str != key_str {
+            free(pair->key_str as void*);
+            pair->key_str = key_str;
+        }
+        pair->key = key;
+        pair->value = value;
+        return 0;
+    }
+
+    if distanse > pair->distanse {
+        HashMapPair<K,V>* new_pair = malloc(sizeof(HashMapPair<K,V>));
+        new_pair->key = key;
+        new_pair->key_str = key_str;
+        new_pair->value = value;
+        new_pair->distanse = distanse;
+        hash_map->data[pos] = new_pair;
+        hash_map_move<K,V>(hash_map, pair->key, pair->key_str, pair->value, pos + 1, pair->distanse + 1);
+        return 1;
+    } else {
+        return hash_map_move<K,V>(hash_map, key, key_str, value, pos + 1, distanse + 1);
+    }
+}
+
+fn hash_map_move_pair<K,V>(HashMap<K,V>* hash_map, HashMapPair<K,V>* pair, u64 pos) {
+    pos = pos & (hash_map->capacity - 1);
+    HashMapPair<K,V>* existing = hash_map->data[pos];
+
+    if existing == 0 {
+        hash_map->data[pos] = pair;
+        return;
+    }
+
+    if pair->distanse > existing->distanse {
+        hash_map->data[pos] = pair;
+        existing->distanse = existing->distanse + 1;
+        hash_map_move_pair<K,V>(hash_map, existing, pos + 1);
+    } else {
+        pair->distanse = pair->distanse + 1;
+        hash_map_move_pair<K,V>(hash_map, pair, pos + 1);
+    }
+}
+
+fn hashmap_check_resize<K,V>(HashMap<K,V>* hash_map) {
+    if (hash_map->length * 100) <= (hash_map->capacity * 65) {
+        return;
+    }
+
+    u64 old_capacity = hash_map->capacity;
+    HashMapPair<K,V>** old_data = hash_map->data;
+
+    u64 new_capacity = old_capacity * 2;
+    HashMapPair<K,V>** new_data = malloc(sizeof(HashMapPair<K,V>*) * new_capacity);
+
+    u64 i = 0;
+    while i < new_capacity {
+        new_data[i] = 0;
+        i = i + 1;
+    }
+
+    hash_map->data = new_data;
+    hash_map->capacity = new_capacity;
+
+    i = 0;
+    while i < old_capacity {
+        HashMapPair<K,V>* pair = old_data[i];
+        if pair as i64 != 0 {
+            pair->distanse = 0;
+            u64 hash = hash64(pair->key_str);
+            u64 pos = hash & (new_capacity - 1);
+            hash_map_move_pair<K,V>(hash_map, pair, pos);
+        }
+        i = i + 1;
+    }
+
+    free(old_data as void*);
+}
+
+fn hash_map_insert<K,V>(HashMap<K,V>* hash_map, K key, V value) {
+    u8* key_str = to_string(key);
+    u64 hash = hash64(key_str);
+    u64 pos = hash & (hash_map->capacity - 1);
+    u8 inserted = hash_map_move<K,V>(hash_map, key, key_str, value, pos, 0);
+    if inserted {
+        hash_map->length = hash_map->length + 1;
+    }
+    hashmap_check_resize<K,V>(hash_map);
+}
+
+fn hash_map_get_move<K,V>(HashMap<K,V>* hash_map, u8* key_str, u64 pos, u64 distance) -> u64 {
+    pos = pos & (hash_map->capacity - 1);
+    HashMapPair<K,V>* pair = hash_map->data[pos];
+
+    if pair == 0 or distance > pair->distanse {
+        print("the hashmap doesnt have the key: ");
+        println(key_str);
+        exit(1);
+    }
+
+    if strcmp(pair->key_str, key_str) {
+        return pos;
+    } else {
+        return hash_map_get_move<K,V>(hash_map, key_str, pos + 1, distance + 1);
+    }
+}
+
+fn hash_map_get<K,V>(HashMap<K,V>* hash_map, K key) -> V {
+    u8* key_str = to_string(key);
+    u64 hash = hash64(key_str);
+    u64 pos = hash & (hash_map->capacity - 1);
+    u64 final_pos = hash_map_get_move<K,V>(hash_map, key_str, pos, 0);
+
+    HashMapPair<K,V>* pair = hash_map->data[final_pos];
+    return pair->value;
+}

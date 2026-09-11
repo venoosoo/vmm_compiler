@@ -30,7 +30,7 @@ fn wait4(u64 target_pid) -> Result<u64, Errno> {
 
 fn run_cmd(u8* path, u8** args) -> i32 {
     Result<u64, Errno> res = fork();
-    u64 pid = unwrap_result<u64, Errno>(&res);
+    u64 pid = unwrap<u64, Errno>(res);
     
     if pid == 0 {
         u8* env[1]; 
@@ -40,15 +40,15 @@ fn run_cmd(u8* path, u8** args) -> i32 {
         exit(1); 
     } else {
         Result<u64, Errno> wait_res = wait4(pid);
-        u64 status = unwrap_result<u64, Errno>(&wait_res);
+        u64 status = unwrap<u64, Errno>(&wait_res);
         return status as i32;
     }
 }
 
 fn run_cmd_no_wait(u8* path, u8** args) -> u64 {
     Result<u64, Errno> res = fork();
-    u64 pid = unwrap_result<u64, Errno>(&res);
-    
+    u64 pid = unwrap<u64, Errno>(res);
+ 
     if pid == 0 {
         u8* env[1]; 
         env[0] = 0 as u8*;

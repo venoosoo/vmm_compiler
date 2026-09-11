@@ -7,7 +7,100 @@ struct String {
     i64 capacity;
 }
 
+fn to_string(u8* str) -> u8* {
+    return str;
+}
 
+fn to_string(String* str) -> u8* {
+    return str->data;
+}
+
+fn to_string(String str) -> u8* {
+    return str.data;
+}
+
+fn to_string(u64 num) -> u8* {
+    u8* str = malloc(32) as u8*;
+    
+    if num == 0 {
+        str[0] = 48;
+        str[1] = 0;
+        return str;
+    }
+    
+    i64 len = 0;
+
+    while num > 0 {
+        u64 rem = num % 10;
+        str[len] = (rem as u8) + 48;
+        num = num / 10;
+        len = len + 1;
+    }
+    
+    str[len] = 0;
+    
+    i64 start = 0;
+    i64 end = len - 1;
+    
+    while start < end {
+        u8 temp = str[start];
+        str[start] = str[end];
+        str[end] = temp;
+        
+        start = start + 1;
+        end = end - 1;
+    }
+    
+    return str;
+}
+
+fn to_string(i64 num) -> u8* {
+    u8* str = malloc(32) as u8*;
+    
+    if num == 0 {
+        str[0] = 48;
+        str[1] = 0;
+        return str;
+    }
+    
+    i64 is_negative = 0;
+    if num < 0 {
+        is_negative = 1;
+        num = 0 - num;
+    }
+    
+    i64 len = 0;
+    
+    while num > 0 {
+        i64 rem = num % 10;
+        str[len] = (rem as u8) + 48;
+        num = num / 10;
+        len = len + 1;
+    }
+    
+    if is_negative > 0 {
+        str[len] = 45;
+        len = len + 1;
+    }
+    
+    str[len] = 0;
+    
+    i64 start = 0;
+    i64 end = len - 1;
+    
+    while start < end {
+        // Swap the bytes
+        u8 temp = str[start];
+        str[start] = str[end];
+        str[end] = temp;
+        
+        // Move pointers inward
+        start = start + 1;
+        end = end - 1;
+    }
+    
+    return str;
+}
 
 fn string_new() -> String* {
 
@@ -16,6 +109,16 @@ fn string_new() -> String* {
     str->data = str_data;
     str->length = 0;
     str->capacity = 16;
+    return str;
+}
+
+fn string_neww() -> String {
+    u8* str_data = malloc(16);
+    String str = String {
+        data: str_data,
+        length: 0,
+        capacity: 16,
+    };
     return str;
 
 }
@@ -132,13 +235,18 @@ fn strlen(u8* str) -> i64 {
 }
 
 fn strcmp(u8* left, u8* right) -> u8 {
+    
+    if left == 0 or right == 0 {
+        return 0; 
+    }
+
     u64 i = 0;
+    
+    // 3. Normal comparison (safe to dereference now)
     while left[i] != 0 {
-        
         if left[i] != right[i] {
             return 0;
         }
-        
         i = i + 1;
     }
     
@@ -166,12 +274,15 @@ fn string_realloc(String* s) {
 
 fn string_push(String* s, u8 c) {
     i64 length = s->length;
-    while length + 1 > s->capacity {
+    if length + 1 > s->capacity {
         string_realloc(s);
     }
     s->data[length] = c;
     s->length = length + 1;
+}
 
+fn string_push(String s, u8 c) {
+    string_push(&s,c);
 }
 
 

@@ -34,7 +34,7 @@ struct Cli {
     #[arg(long, help = "print the lexer output")]
     dump_tokens: bool,
 
-    #[arg(long, help = "print the parser (result in parser_result.txt)")]
+    #[arg(long, help = "print the parser output (result in parser_result.txt)")]
     dump_ast: bool,
 }
 

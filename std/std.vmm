@@ -86,29 +86,69 @@ fn syscall(i64 a_rax, i64 a_rdi, i64 a_rsi, i64 a_rdx, i64 a_r10, i64 a_r8) -> i
     return result;
 }
 
-global i64* malloc_heap_start;
-global i64* malloc_heap_current;
-global i64 malloc_heap_remaining;
+global i64* malloc_list_head;
 
 fn malloc(i64 size) -> void* {
-    if malloc_heap_start as i64 == 0 {
-        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1);
-        malloc_heap_current = malloc_heap_start;
-        malloc_heap_remaining = 4096;
+    i64 rem = size % 8;
+    if rem != 0 {
+        size = size + (8 - rem);
     }
-    if malloc_heap_remaining < size {
-        malloc_heap_start = syscall(9, 0, 4096, 3, 34, -1);
-        malloc_heap_current = malloc_heap_start;
-        malloc_heap_remaining = 4096;
+
+    i64* curr = malloc_list_head;
+    i64* prev = 0 as i64*;
+    
+    while curr as i64 != 0 {
+        i64 c_size = curr[0];
+        i64 c_free = curr[1];
+        
+        if c_free == 1 {
+            if c_size >= size {
+                curr[1] = 0;
+                
+                return ((curr as i64) + 24) as void*;
+            }
+        }
+        prev = curr;
+        curr = curr[2] as i64*; 
     }
-    void* ptr = malloc_heap_current as void*;
-    malloc_heap_current = ((malloc_heap_current as i64) + size) as i64*;
-    malloc_heap_remaining = malloc_heap_remaining - size;
-    return ptr;
+
+    i64 total_needed = size + 24;
+    i64 mmap_size = 4096;
+    while mmap_size < total_needed {
+        mmap_size = mmap_size + 4096;
+    }
+
+    i64* new_block = syscall(9, 0, mmap_size, 3, 34, -1);
+    
+    new_block[0] = size;
+    new_block[1] = 0;
+
+    i64 leftover = mmap_size - total_needed;
+    
+    if leftover > 32 { 
+        i64* split_block = ((new_block as i64) + 24 + size) as i64*;
+        split_block[0] = leftover - 24;
+        split_block[1] = 1; 
+        split_block[2] = 0;
+        
+        new_block[2] = split_block as i64;
+    } else {
+        // Just give them the whole page
+        new_block[0] = mmap_size - 24; 
+        new_block[2] = 0;
+    }
+
+    if prev as i64 != 0 {
+        prev[2] = new_block as i64;
+    } else {
+        malloc_list_head = new_block;
+    }
+
+    return ((new_block as i64) + 24) as void*;
 }
 
-fn free(i64* ptr, i64 size) {
-    syscall(11, ptr as i64, size, 0, 0, 0);
+fn malloc(u64 size) -> void* {
+    return malloc(size as i64);
 }
 
 fn memcpy(void* dst, void* src, i64 size) -> void* {
@@ -134,12 +174,21 @@ fn memcpy(void* dst, void* src, i64 size) -> void* {
     return dst;
 }
 
+fn free(void* ptr) {
+    if ptr as i64 == 0 {
+        return;
+    }
+    
+    i64* header = ((ptr as i64) - 24) as i64*;
+    
+    header[1] = 1; 
+}
 
 
 
 
-fn Some<T>(T data22) -> Option<T> {
-    return Option::Some(data: data22);
+fn Some<T>(T data) -> Option<T> {
+    return Option::Some(data: data);
 }
 
 
@@ -156,7 +205,23 @@ fn Err<T, E>(E data2) -> Result<T,E> {
     return Result::Err(err: data2);
 }
 
-fn unwrap_result<T,E>(Result<T,E> *res) -> T {
+fn unwrap<T,E>(Result<T,E> *res) -> T {
+    match res {
+        Result::Ok(data) => {
+            return data;
+        }
+        Result::Err(err) => {
+            println("unwrap result on error");
+            exit(1);
+        }
+    }
+    println("unwrap_result got wrong data");
+    exit(1);
+
+}
+
+
+fn unwrap<T,E>(Result<T,E> res) -> T {
     match res {
         Result::Ok(data) => {
             return data;
@@ -172,6 +237,20 @@ fn unwrap_result<T,E>(Result<T,E> *res) -> T {
 }
 
 fn unwrap<T>(Option<T>* data) -> T {
+    match data {
+        Option::Some(data2) => {
+            return data2;
+        }
+        Option::None => {
+            print("unwrap at none value");
+            exit(1);
+        }
+    }
+    println("unwrap got wrong data");
+    exit(1);
+}
+
+fn unwrap<T>(Option<T> data) -> T {
     match data {
         Option::Some(data2) => {
             return data2;
@@ -358,12 +437,12 @@ fn print_arr<T>(T* arr, u64 size) {
 
 
 
-fn handle_error<T>(u64 syscall_res) -> Result<T,Errno> {
+fn handle_error<T>(T syscall_res) -> Result<T,Errno> {
 
     u64 reversed = -syscall_res;
 
     if reversed > 0 and reversed <= 38 {
-        Errno err_code = num_to_errno(syscall_res);
+        Errno err_code = num_to_errno(syscall_res as u64);
         return Err<T,Errno>(err_code);
     } else {
         return Ok<T,Errno>(syscall_res);

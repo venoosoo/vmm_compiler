@@ -134,7 +134,7 @@ fn check_collision(Vector<vec2*>* player) -> i32 {
     if player->length <= 2 {
         return 0;
     }
-    for (i32 i = 1; i < player->length; i = i + 1) {
+    for (i64 i = 1; i < player->length; i = i + 1) {
         vec2* el = vec_get_element<vec2*>(player, i);
         if head->x == el->x and head->y == el->y {
             return 1;
@@ -185,7 +185,7 @@ fn respawn_apple(Vector<vec2*>* player, vec2* apple_pos) {
         i32 x = rand(0, 9);
         i32 y = rand(0, 19);
         i32 temp = 1;
-        for (i32 i = 0; i < player->length; i = i + 1) {
+        for (i64 i = 0; i < player->length; i = i + 1) {
             vec2* el = vec_get_element<vec2*>(player, i);
             if el->x == x and el->y == y {
                 temp = 0;
@@ -203,7 +203,7 @@ fn render_screen(GameData* game_data, Vector<vec2*>* vec, vec2* apple_pos) {
     for (i32 i = 0; i < 10; i = i + 1) {
         for (i32 j = 0; j < 20; j = j + 1) {
             i32 found = 0;
-            for (i32 k = 0; k < vec->length; k = k + 1) {
+            for (i64 k = 0; k < vec->length; k = k + 1) {
                 vec2* player_pos = vec_get_element<vec2*>(vec, k);
                 if player_pos->x == i and player_pos->y == j {
                     found = 1;
