@@ -188,3 +188,15 @@ fn hash_map_get<K,V>(HashMap<K,V>* hash_map, K key) -> V {
 }
 
 
+
+fn hash_map_set<K,V>(HashMap<K,V>* hash_map, K key, V new_val) {
+    u8* key_str = to_string(key);
+    u64 hash = hash64(key_str);
+    u64 pos = hash & (hash_map->capacity - 1);
+    
+    u64 final_pos = hash_map_get_move<K,V>(hash_map, key_str, pos, 0);
+    
+    HashMapPair<K,V>* pair = hash_map->data[final_pos];
+    pair->value = new_val;
+    
+}

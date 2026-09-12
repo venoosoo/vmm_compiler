@@ -1,12 +1,14 @@
+use std::fmt::format;
 use std::{dbg, format, vec};
 
 use indexmap::IndexMap;
 
-use crate::Ir::expr::{BinOp, EnumExprField, Expr, ExprType, Lookup, UnaryOp};
+use crate::Ir::expr::{self, BinOp, EnumExprField, Expr, ExprType, Lookup, UnaryOp};
+use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
-use crate::Ir::stmt::{Declaration, StructField};
+use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
 use crate::shared::{
-    build_generic_map, coerce_numeric, is_numeric, is_unsigned, transform_generic_name,
+    arg_pos, build_generic_map, coerce_numeric, is_numeric, is_unsigned, transform_generic_name,
 };
 
 use super::*;
@@ -31,7 +33,7 @@ impl Lookup for Gen {
             UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
-    fn look_binary(&self, _op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
+    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
         let lty = left.get_type(self);
         let rty = right.get_type(self);
 
@@ -120,7 +122,7 @@ impl Lookup for Gen {
         } else {
             self.functions.get(&func_name).unwrap().clone()
         };
-        let (_overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
+        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
         func_data.return_type.clone()
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -304,7 +306,7 @@ impl Gen {
     }
 
     fn gen_expr_num(&mut self, num: &i64, expected_type: &Type) -> String {
-        let _expected_type = match expected_type {
+        let expected_type = match expected_type {
             Type::GenericType(name) => {
                 let map = self.generics.borrow();
 
@@ -337,7 +339,7 @@ impl Gen {
         }
     }
 
-    fn gen_expr_var(&mut self, var_name: &String, _expected_type: &Type) -> String {
+    fn gen_expr_var(&mut self, var_name: &String, expected_type: &Type) -> String {
         let var_data = self.lookup_var(var_name).clone();
         if var_data.global_flag {
             match var_data.var_type {
@@ -383,7 +385,7 @@ impl Gen {
             Type::Pointer(_) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
-            Type::Enum(_ty, _) => {
+            Type::Enum(ty, _) => {
                 self.emit_func_data(format!("    lea rax, [rbp - {}]", var_data.stack_pos));
             }
             _ => {
@@ -538,8 +540,8 @@ impl Gen {
         &self,
         arg: &Declaration,
         arg_ty: &Type,
-        _generics: &Vec<Type>,
-        _index: usize,
+        generics: &Vec<Type>,
+        index: usize,
         overload_pos: i64,
         generic_map: &HashMap<String, Type>,
     ) -> Declaration {
@@ -620,8 +622,8 @@ impl Gen {
     fn gen_args(
         &mut self,
         args: &Vec<Expr>,
-        _func_data: &FuncData,
-        _generics: &Vec<Type>,
+        func_data: &FuncData,
+        generics: &Vec<Type>,
         new_args: &Vec<Declaration>,
         is_rvo: bool,
         end_expected_type: &Type, // the final expected type of whole stmt
@@ -633,27 +635,29 @@ impl Gen {
             let arg_type = new_args[index].ty.clone();
             let mut temp_size = 0;
             match &args[index].ty {
-                ExprType::Call { name, generics, args } => {
+                ExprType::Call {
+                    name,
+                    generics,
+                    args,
+                } => {
                     let funcs = self.functions.get(name).unwrap();
                     let func_data = self.find_overload(funcs, args, generics).unwrap().1;
-                    let expcted_type_size = self.type_size(end_expected_type);
                     let ret_type = self.ensure_monomorphized(&func_data.return_type);
                     let ret_type_size = self.type_size(&ret_type);
-                    if ret_type_size > 8 && ret_type_size > expcted_type_size {
-                        temp_size = ret_type_size - expcted_type_size;
-                        self.stack_pos += temp_size;
+                    if ret_type_size > 8 {
+                        self.alloc(ret_type_size);
+                        temp_size += ret_type_size;
                     }
                 }
                 ExprType::GetEnum { .. } | ExprType::StructInit { .. } => {
-                    let expected_type_size = self.type_size(end_expected_type);
                     let ret_type_size = self.type_size(&arg_type);
-                    
-                    if ret_type_size > 8 && ret_type_size > expected_type_size {
-                        temp_size = ret_type_size - expected_type_size;
-                        self.stack_pos += temp_size;
+
+                    if ret_type_size > 8 {
+                        self.alloc(ret_type_size);
+                        temp_size += ret_type_size;
                     }
                 }
-                _ => {},
+                _ => {}
             }
             self.eval_expr(&arg, &arg_type);
             match arg_type {
@@ -773,7 +777,7 @@ impl Gen {
         func_data: &FuncData,
         overload_pos: usize,
         generics: &Vec<Type>,
-        expected_type: &Type
+        expected_type: &Type,
     ) -> String {
         let args = args.clone();
         let mut name = name.clone();
@@ -812,7 +816,8 @@ impl Gen {
             let map = self.generics.borrow();
             self.convert_generic_args(&func_data.args, generics, &map, overload_pos as i64)
         };
-        let ret_type = self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), 0);
+        let ret_type =
+            self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), 0);
 
         let mut rvo_pos = 0;
         match &self.ensure_monomorphized(&ret_type) {
@@ -826,7 +831,14 @@ impl Gen {
         let stack_pos_save = self.stack_pos;
         let saved_ret_type = self.current_return_type.clone();
 
-        let space_taken = self.gen_args(&args, func_data, &generic_copy, &new_args, is_rvo,expected_type);
+        let space_taken = self.gen_args(
+            &args,
+            func_data,
+            &generic_copy,
+            &new_args,
+            is_rvo,
+            expected_type,
+        );
         self.stack_pos = 0;
 
         if func_data.generic.len() > 0 {
@@ -873,7 +885,7 @@ impl Gen {
                 match generic_data.ty {
                     StmtType::GenericInitFunc {
                         generic_types,
-                        args: _,
+                        args,
                         ret_type,
                         data,
                         ..
@@ -894,7 +906,7 @@ impl Gen {
         if is_rvo {
             self.emit_func_data(format!("    lea rdi, [rbp - {}]", rvo_pos));
         }
-        
+
         if self.functions.get(&name).unwrap().len() > 1 {
             self.emit_func_data(format!("    call {}___{}", name, overload_pos));
         } else {
@@ -941,7 +953,7 @@ impl Gen {
             Type::GenericType(param_name) => {
                 type_map.insert(param_name.clone(), expr_ty.clone());
             }
-            Type::Array(ty, _size) => {
+            Type::Array(ty, size) => {
                 self.resolve_generic(expr_ty, ty, type_map);
             }
             Type::Pointer(ty) => {
@@ -1219,7 +1231,7 @@ impl Gen {
         let arr_ty = &base.get_type(self);
         self.eval_expr(base, arr_ty);
         self.push_result();
-        let _index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
+        let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
         let elem_size = self.type_size(expected_type);
         self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
         self.pop_into("rbx");
@@ -1322,7 +1334,7 @@ impl Gen {
         variant: &String,
     ) -> String {
         let mut type_map: HashMap<String, Type> = HashMap::new();
-        for (_name, field) in enum_data.variants.iter() {
+        for (name, field) in enum_data.variants.iter() {
             if field.name == *variant {
                 for (index, enum_field) in field.args.iter().enumerate() {
                     let expr_ty = values[index].expr.get_type(self);
@@ -1524,7 +1536,14 @@ impl Gen {
                 generics,
             } => {
                 let (func_data, overload_pos) = self.resolve_call(name, args, generics).unwrap();
-                self.gen_call(&name, args, &func_data, overload_pos, generics,expected_type)
+                self.gen_call(
+                    &name,
+                    args,
+                    &func_data,
+                    overload_pos,
+                    generics,
+                    expected_type,
+                )
             }
 
             ExprType::Deref(inner) => {
@@ -1543,7 +1562,7 @@ impl Gen {
             }
 
             ExprType::StructMember { base, name } => {
-                let _ty = expr.get_type(self);
+                let ty = expr.get_type(self);
                 self.gen_expr_struct_member(base, name)
             }
 

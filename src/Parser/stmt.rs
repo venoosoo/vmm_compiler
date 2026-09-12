@@ -1,7 +1,7 @@
 use core::panic;
+use std::env;
 use std::fs::File;
 use std::io::Read;
-use std::env;
 
 use super::*;
 use crate::Ir::expr::{Expr, ExprType};

@@ -257,7 +257,11 @@ impl<'a> Analyzer<'a> {
 
     fn get_match_left_value_type(&self, lvalue: &MatchLeftValue) -> Type {
         match lvalue {
-            MatchLeftValue::Enum { base, value: _, args: _ } => {
+            MatchLeftValue::Enum {
+                base,
+                value: _,
+                args: _,
+            } => {
                 return Type::Enum(base.clone(), None);
             }
             MatchLeftValue::Expr { expr } => expr.get_type(self),

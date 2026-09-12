@@ -3,7 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-
 use crate::Ir::{
     Stmt,
     expr::{BinOp, UnaryOp},

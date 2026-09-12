@@ -11,8 +11,7 @@ use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{EnumData, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
 use crate::shared::{
-    check_types, is_number, substitute_type, to_base_reg,
-    transform_generic_name, type_name,
+    check_types, is_number, substitute_type, to_base_reg, transform_generic_name, type_name,
 };
 use crate::tokenizer::TokenType;
 

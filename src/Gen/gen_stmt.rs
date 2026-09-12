@@ -55,13 +55,32 @@ impl Gen {
                     }
                     _ => {}
                 },
-                Type::Enum(_name, _variant) => match &expr.ty {
-                    ExprType::GetEnum {
-                        base: _,
-                        variant: _,
-                        value,
-                    } => {
-                        if value.len() == 0 {
+                Type::Enum(ref name, _variant) => match &expr.ty {
+                    ExprType::GetEnum { value, .. } if value.len() == 0 => {
+                        let size_word = self.get_word(&data_ty);
+                        let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
+                        self.emit_func_data(format!(
+                            "    mov {} [rbp - {}], {}",
+                            size_word, stack_pos, sized_reg
+                        ));
+                    }
+                    _ => {
+                        let enum_data = self.enums.borrow().get(name).cloned().unwrap();
+
+                        if enum_data.size > 8 {
+                            let chunks = (enum_data.size + 7) / 8;
+
+                            self.emit_func_data(format!("    mov rcx, rax"));
+
+                            for i in 0..chunks {
+                                self.emit_func_data(format!("    mov rdx, [rcx + {}]", i * 8));
+
+                                self.emit_func_data(format!(
+                                    "    mov [rbp - {}], rdx",
+                                    stack_pos - (i as usize * 8)
+                                ));
+                            }
+                        } else {
                             let size_word = self.get_word(&data_ty);
                             let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
                             self.emit_func_data(format!(
@@ -70,9 +89,37 @@ impl Gen {
                             ));
                         }
                     }
-                    _ => {}
                 },
-                _ => {} // structs/arrays already written to stack by their eval_expr
+                Type::Struct(ref name) => match &expr.ty {
+                    ExprType::Call { .. } | ExprType::StructInit { .. } => {}
+
+                    _ => {
+                        let struct_data = self.structs.borrow().get(name).cloned().unwrap();
+
+                        if struct_data.size > 8 {
+                            let chunks = (struct_data.size + 7) / 8;
+
+                            self.emit_func_data(format!("    mov rcx, rax"));
+
+                            for i in 0..chunks {
+                                self.emit_func_data(format!("    mov rdx, [rcx + {}]", i * 8));
+
+                                self.emit_func_data(format!(
+                                    "    mov [rbp - {}], rdx",
+                                    stack_pos - (i as usize * 8)
+                                ));
+                            }
+                        } else {
+                            let size_word = self.get_word(&data_ty);
+                            let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
+                            self.emit_func_data(format!(
+                                "    mov {} [rbp - {}], {}",
+                                size_word, stack_pos, sized_reg
+                            ));
+                        }
+                    }
+                },
+                _ => {}
             }
         }
 
@@ -225,17 +272,20 @@ impl Gen {
         let (addr, lval) = self.calc_lvalue(target);
         let size = self.type_size(&value_expr);
         let size_word = self.get_word(&lval);
-    
+
         if size > 8 {
             self.emit_func_data(format!("    mov rcx, {}", val_reg));
-            
+
             let chunks = size / 8;
-            
+
             match addr {
                 Addr::Stack(pos) => {
                     for i in 0..chunks {
                         self.emit_func_data(format!("    mov rdx, [rcx + {}]", i * 8));
-                        self.emit_func_data(format!("    mov [rbp - {}], rdx", (pos as usize) - (i * 8)));
+                        self.emit_func_data(format!(
+                            "    mov [rbp - {}], rdx",
+                            (pos as usize) - (i * 8)
+                        ));
                     }
                 }
                 Addr::Reg(reg) => {
@@ -896,7 +946,11 @@ impl Gen {
                 }
                 _ => self::panic!("match field left value not supported"),
             },
-            MatchLeftValue::Enum { base, value, args: _ } => {
+            MatchLeftValue::Enum {
+                base,
+                value,
+                args: _,
+            } => {
                 if base == "_" {
                     self.emit_func_data(format!("    jmp match_{id}_wildcard"));
                     return;
@@ -930,7 +984,11 @@ impl Gen {
                 }
                 _ => self::panic!("not supported"),
             },
-            MatchLeftValue::Enum { base, value, args: _ } => {
+            MatchLeftValue::Enum {
+                base,
+                value,
+                args: _,
+            } => {
                 if base == "_" {
                     self.emit_func_data(format!("match_{id}_wildcard:"));
                 } else {
