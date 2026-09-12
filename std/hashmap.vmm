@@ -186,3 +186,5 @@ fn hash_map_get<K,V>(HashMap<K,V>* hash_map, K key) -> V {
     HashMapPair<K,V>* pair = hash_map->data[final_pos];
     return pair->value;
 }
+
+

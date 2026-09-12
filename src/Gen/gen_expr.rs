@@ -122,7 +122,6 @@ impl Lookup for Gen {
         } else {
             self.functions.get(&func_name).unwrap().clone()
         };
-
         let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
         func_data.return_type.clone()
     }
@@ -627,12 +626,37 @@ impl Gen {
         generics: &Vec<Type>,
         new_args: &Vec<Declaration>,
         is_rvo: bool,
+        end_expected_type: &Type, // the final expected type of whole stmt
     ) -> usize {
         let mut arg_index = self.arg_count(is_rvo, new_args);
 
         let mut space_taken = 0;
         for (index, arg) in args.iter().enumerate().rev() {
             let arg_type = new_args[index].ty.clone();
+            let mut temp_size = 0;
+            match &args[index].ty {
+                ExprType::Call { name, generics, args } => {
+                    let funcs = self.functions.get(name).unwrap();
+                    let func_data = self.find_overload(funcs, args, generics).unwrap().1;
+                    let expcted_type_size = self.type_size(end_expected_type);
+                    let ret_type = self.ensure_monomorphized(&func_data.return_type);
+                    let ret_type_size = self.type_size(&ret_type);
+                    if ret_type_size > 8 && ret_type_size > expcted_type_size {
+                        temp_size = ret_type_size - expcted_type_size;
+                        self.stack_pos += temp_size;
+                    }
+                }
+                ExprType::GetEnum { .. } | ExprType::StructInit { .. } => {
+                    let expected_type_size = self.type_size(end_expected_type);
+                    let ret_type_size = self.type_size(&arg_type);
+                    
+                    if ret_type_size > 8 && ret_type_size > expected_type_size {
+                        temp_size = ret_type_size - expected_type_size;
+                        self.stack_pos += temp_size;
+                    }
+                }
+                _ => {},
+            }
             self.eval_expr(&arg, &arg_type);
             match arg_type {
                 Type::Enum(ref name, _) => {
@@ -739,6 +763,7 @@ impl Gen {
                     self.push_arg(arg_index, &arg_type, &rval);
                 }
             }
+            self.stack_pos -= temp_size;
         }
         return space_taken;
     }
@@ -750,6 +775,7 @@ impl Gen {
         func_data: &FuncData,
         overload_pos: usize,
         generics: &Vec<Type>,
+        expected_type: &Type
     ) -> String {
         let args = args.clone();
         let mut name = name.clone();
@@ -802,7 +828,7 @@ impl Gen {
         let stack_pos_save = self.stack_pos;
         let saved_ret_type = self.current_return_type.clone();
 
-        let space_taken = self.gen_args(&args, func_data, &generic_copy, &new_args, is_rvo);
+        let space_taken = self.gen_args(&args, func_data, &generic_copy, &new_args, is_rvo,expected_type);
         self.stack_pos = 0;
 
         if func_data.generic.len() > 0 {
@@ -1500,7 +1526,7 @@ impl Gen {
                 generics,
             } => {
                 let (func_data, overload_pos) = self.resolve_call(name, args, generics).unwrap();
-                self.gen_call(&name, args, &func_data, overload_pos, generics)
+                self.gen_call(&name, args, &func_data, overload_pos, generics,expected_type)
             }
 
             ExprType::Deref(inner) => {
