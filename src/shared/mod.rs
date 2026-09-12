@@ -375,7 +375,7 @@ pub fn transform_generic_name(name: &String, generics: &Vec<Type>, overload_pos:
     let mut new_generics = Vec::new();
     for i in generics {
         match i {
-            Type::GenericType(name) => {}
+            Type::GenericType(_name) => {}
             _ => new_generics.push(i),
         }
     }

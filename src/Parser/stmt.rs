@@ -1,7 +1,7 @@
 use core::panic;
 use std::fs::File;
 use std::io::Read;
-use std::{backtrace, dbg, env};
+use std::env;
 
 use super::*;
 use crate::Ir::expr::{Expr, ExprType};
@@ -68,7 +68,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::ExternFn);
         self.consume(); //keyword
         let name = self.consume().value.unwrap();
-        let generics = self.parse_generic();
+        let _generics = self.parse_generic();
         let args = self.parse_args();
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
@@ -284,7 +284,7 @@ impl<'a> Parser<'a> {
 
     pub fn apply_ptr(&mut self, ty: Type, index: u32) -> Type {
         let mut ty = ty.clone();
-        for i in 0..index {
+        for _i in 0..index {
             ty = Type::Pointer(Box::new(ty));
         }
         return ty;

@@ -1,4 +1,4 @@
-use std::{dbg, format};
+use std::format;
 
 use indexmap::IndexMap;
 
@@ -44,7 +44,7 @@ impl Gen {
                         size_word, stack_pos, sized_reg
                     ));
                 }
-                Type::Array(ref ty, size) => match **ty {
+                Type::Array(ref ty, _size) => match **ty {
                     Type::Primitive(TokenType::U8) => {
                         let size_word = self.get_word(&data_ty);
                         let sized_reg = self.reg_for_size("rax", &data_ty).unwrap();
@@ -55,10 +55,10 @@ impl Gen {
                     }
                     _ => {}
                 },
-                Type::Enum(name, variant) => match &expr.ty {
+                Type::Enum(_name, _variant) => match &expr.ty {
                     ExprType::GetEnum {
-                        base,
-                        variant,
+                        base: _,
+                        variant: _,
                         value,
                     } => {
                         if value.len() == 0 {
@@ -369,8 +369,8 @@ impl Gen {
                     self.gen_get_enum_addr(base, value, variant, &ret_type);
                 }
                 ExprType::StructInit {
-                    struct_name_ty,
-                    fields,
+                    struct_name_ty: _,
+                    fields: _,
                 } => {
                     self.alloc(self.type_size(&ret_type));
                     self.eval_expr(ret_expr, &ret_type);
@@ -390,9 +390,9 @@ impl Gen {
 
                     match &ret_expr.ty {
                         ExprType::GetEnum {
-                            base,
-                            variant,
-                            value,
+                            base: _,
+                            variant: _,
+                            value: _,
                         } => {
                             self.copy_chunks_to_hidden_ret(enum_data.size);
                         }
@@ -455,7 +455,7 @@ impl Gen {
         ty: &Type,
         local_pos: usize,
         stack_arg_pos: Option<usize>,
-        is_rvo: bool,
+        _is_rvo: bool,
     ) {
         let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
         if pos > 6 {
@@ -509,8 +509,8 @@ impl Gen {
     pub fn compile_args(&mut self, args: &Vec<Declaration>, ret_type: &Type) {
         let mut is_rvo = false;
         match &self.ensure_monomorphized(ret_type) {
-            Type::Enum(name, _) => is_rvo = true,
-            Type::Struct(name) => is_rvo = true,
+            Type::Enum(_name, _) => is_rvo = true,
+            Type::Struct(_name) => is_rvo = true,
             _ => {}
         }
         let mut arg_index = self.arg_count(is_rvo, args);
@@ -521,7 +521,7 @@ impl Gen {
             self.emit_func_data(format!("    mov [rbp - 8], {}", reg));
         }
         let mut stack_arg_pos = 16;
-        for (index, decl) in args.iter().enumerate().rev() {
+        for (_index, decl) in args.iter().enumerate().rev() {
             let arg_ty = self.ensure_monomorphized(&decl.ty);
             let pos = self.alloc_type(&arg_ty);
             match arg_ty {
@@ -773,7 +773,7 @@ impl Gen {
                     self::panic!("global cant have expr");
                 }
                 match &decl_data.ty {
-                    Type::Array(ty, size) => {
+                    Type::Array(ty, _size) => {
                         self.emit_bss(format!("{} {} 0", decl_data.name, self.size_directive(&ty)));
                     }
                     _ => {
@@ -896,7 +896,7 @@ impl Gen {
                 }
                 _ => self::panic!("match field left value not supported"),
             },
-            MatchLeftValue::Enum { base, value, args } => {
+            MatchLeftValue::Enum { base, value, args: _ } => {
                 if base == "_" {
                     self.emit_func_data(format!("    jmp match_{id}_wildcard"));
                     return;
@@ -930,7 +930,7 @@ impl Gen {
                 }
                 _ => self::panic!("not supported"),
             },
-            MatchLeftValue::Enum { base, value, args } => {
+            MatchLeftValue::Enum { base, value, args: _ } => {
                 if base == "_" {
                     self.emit_func_data(format!("match_{id}_wildcard:"));
                 } else {
@@ -974,7 +974,7 @@ impl Gen {
     fn gen_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) {
         let id = self.get_id();
         let expr_ty = &expr.get_type(self);
-        let reg = self.eval_expr(expr, expr_ty);
+        let _reg = self.eval_expr(expr, expr_ty);
         let pos = self.alloc(8);
         self.emit_func_data(format!("    mov [rbp - {}], rax", pos));
         let expr_ty = expr.get_type(self);
@@ -993,10 +993,10 @@ impl Gen {
         match &function.ty {
             StmtType::InitFunc {
                 name,
-                generic_types,
+                generic_types: _,
                 args,
                 ret_type,
-                data,
+                data: _,
             } => {
                 let extern_func_data = FuncData {
                     args: args.to_vec(),
@@ -1051,11 +1051,11 @@ impl Gen {
             StmtType::Return(expr) => self.gen_ret(expr),
             StmtType::AsmCode(data) => self.gen_inline_asm(data),
             StmtType::GenericInitFunc {
-                name,
-                generic_types,
-                args,
-                ret_type,
-                data,
+                name: _,
+                generic_types: _,
+                args: _,
+                ret_type: _,
+                data: _,
             } => {}
             StmtType::InitFunc {
                 name,

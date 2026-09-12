@@ -1,20 +1,17 @@
 use core::panic;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::io::Take;
-use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Write};
 use std::{dbg, matches};
 
 use crate::Ir::Stmt;
 use crate::Ir::expr::{Expr, ExprType, Lookup};
 use crate::Ir::r#gen::*;
-use crate::Ir::sem_analysis::Analyzer;
 use crate::Ir::shared::TypeContext;
-use crate::Ir::stmt::{EnumData, LValue, StmtType};
+use crate::Ir::stmt::{EnumData, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
 use crate::shared::{
-    aligned_size, build_generic_map, check_types, is_number, substitute_type, to_base_reg,
+    check_types, is_number, substitute_type, to_base_reg,
     transform_generic_name, type_name,
 };
 use crate::tokenizer::TokenType;
@@ -222,22 +219,22 @@ impl Expr {
             } => helper.look_call(name, args, generics),
             ExprType::StructInit {
                 struct_name_ty,
-                fields,
+                fields: _,
             } => helper.look_struct_init(struct_name_ty),
             ExprType::StructMember { base, name } => helper.look_struct_member(base, name),
             ExprType::Deref(expr) => helper.look_deref(expr),
             ExprType::Index { base, index } => helper.look_index(base, index),
             ExprType::ArrayInit { elements } => helper.look_array_init(elements),
-            ExprType::SizeOf { ty } => Type::Primitive(TokenType::I64),
+            ExprType::SizeOf { ty: _ } => Type::Primitive(TokenType::I64),
             ExprType::String { str } => {
                 return Type::Array(Box::new(Type::Primitive(TokenType::U8)), str.len() + 1);
             }
             ExprType::GetEnum {
                 base,
                 variant,
-                value,
+                value: _,
             } => helper.look_get_enum(base, variant),
-            ExprType::Cast { expr, ty } => ty.clone(),
+            ExprType::Cast { expr: _, ty } => ty.clone(),
         }
     }
 }
@@ -516,8 +513,8 @@ impl Gen {
                     name,
                     args,
                     ret_type,
-                    data,
-                    generic_types,
+                    data: _,
+                    generic_types: _,
                 } => {
                     let func_data = FuncData {
                         args: args.clone(),
@@ -534,7 +531,7 @@ impl Gen {
                     generic_types,
                     args,
                     ret_type,
-                    data,
+                    data: _,
                 } => {
                     let func_data = FuncData {
                         args: args.clone(),

@@ -1,4 +1,4 @@
-use crate::Ir::{Stmt, stmt::Type};
+use crate::Ir::stmt::Type;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {

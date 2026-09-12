@@ -3,7 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use clap::builder::Str;
 
 use crate::Ir::{
     Stmt,

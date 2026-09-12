@@ -6,7 +6,6 @@ use std::{
     path::Path,
 };
 
-use std::fs;
 
 use crate::Ir::sem_analysis::Analyzer;
 

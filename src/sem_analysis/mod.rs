@@ -3,8 +3,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     dbg,
-    env::var,
-    fmt::{self, write},
+    fmt::{self},
     format, write,
 };
 
@@ -403,7 +402,7 @@ impl<'a> Analyzer<'a> {
                 _ => panic!("Unsupported primitive type: {:?}", token),
             },
             Type::Pointer(_) => 8,
-            Type::Array(elem_type, count) => self.type_size(elem_type),
+            Type::Array(elem_type, _count) => self.type_size(elem_type),
             Type::Struct(name) => self.ensure_struct_sized(name),
             Type::Named(name) => {
                 if self.structs.borrow().contains_key(name) {
@@ -414,8 +413,8 @@ impl<'a> Analyzer<'a> {
                     panic!("unknown type: {}", name);
                 }
             }
-            Type::GenericInst(str, ty) => panic!("generic inst isnt monomorphized"),
-            Type::GenericType(name) => {
+            Type::GenericInst(_str, _ty) => panic!("generic inst isnt monomorphized"),
+            Type::GenericType(_name) => {
                 // TODO: make the self.generic the same as in gen and fix this
                 8
             }
@@ -588,7 +587,7 @@ impl<'a> Analyzer<'a> {
                 generic_types,
                 args,
                 ret_type,
-                data,
+                data: _,
             } => {
                 let func_data = FuncData {
                     args: args.clone(),

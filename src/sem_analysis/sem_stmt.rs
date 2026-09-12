@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs::File, process::exit};
+use std::collections::HashMap;
 
 use super::*;
 
@@ -6,7 +6,7 @@ use crate::{
     Ir::{
         Stmt,
         expr::Expr,
-        r#gen::{StructData, VarData},
+        r#gen::StructData,
         sem_analysis::{Analyzer, SemanticError},
         stmt::{Declaration, LValue, MatchField, MatchLeftValue, StructDef, Type},
     },
@@ -195,7 +195,7 @@ impl<'a> Analyzer<'a> {
             &HashMap<String, Type>,
         ),
     ) {
-        let (name, args, ret_type, body, generic_types) = data;
+        let (name, args, ret_type, body, _generic_types) = data;
 
         if self.functions.get(name).is_none() {
             println!("something strange inside check_init_func");
@@ -257,7 +257,7 @@ impl<'a> Analyzer<'a> {
 
     fn get_match_left_value_type(&self, lvalue: &MatchLeftValue) -> Type {
         match lvalue {
-            MatchLeftValue::Enum { base, value, args } => {
+            MatchLeftValue::Enum { base, value: _, args: _ } => {
                 return Type::Enum(base.clone(), None);
             }
             MatchLeftValue::Expr { expr } => expr.get_type(self),
@@ -341,7 +341,7 @@ impl<'a> Analyzer<'a> {
                 self.check_for((init, condition, update, body));
             }
             StmtType::Return(expr) => self.check_ret(expr),
-            StmtType::AsmCode(code) => {} // im not sure if there need for checking
+            StmtType::AsmCode(_code) => {} // im not sure if there need for checking
             StmtType::InitFunc {
                 name,
                 args,
@@ -361,11 +361,11 @@ impl<'a> Analyzer<'a> {
             }
             StmtType::ExternFn(stmt) => self.check_extern_fn(stmt),
             StmtType::GenericInitFunc {
-                name,
-                generic_types,
-                args,
-                ret_type,
-                data,
+                name: _,
+                generic_types: _,
+                args: _,
+                ret_type: _,
+                data: _,
             } => {}
             StmtType::InitEnum { .. } => {}
             StmtType::Match { expr, variants } => self.check_match(expr, variants),

@@ -1,12 +1,10 @@
 use core::panic;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::path::PathBuf;
 
-use crate::Ir::expr::{BinOp, Expr, UnaryOp};
 use crate::tokenizer::{Token, TokenType};
 
-use crate::Ir::stmt::{EnumData, EnumVariant, MatchLeftValue, Stmt, StructDef, Type};
+use crate::Ir::stmt::{EnumData, Stmt, StructDef, Type};
 
 pub mod expr;
 pub mod function;

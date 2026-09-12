@@ -1,4 +1,3 @@
-use std::env::Args;
 use std::vec;
 
 use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
@@ -32,7 +31,7 @@ impl<'a> Lookup for Analyzer<'a> {
             UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
-    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
+    fn look_binary(&self, _op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
         let lty = left.get_type(self);
         let rty = right.get_type(self);
         coerce_numeric(&lty, &rty)
@@ -152,7 +151,7 @@ impl<'a> Lookup for Analyzer<'a> {
 }
 
 impl<'a> Analyzer<'a> {
-    fn check_num(&mut self, num: &i64, expected_ty: &Type) -> Type {
+    fn check_num(&mut self, _num: &i64, expected_ty: &Type) -> Type {
         match expected_ty {
             Type::Primitive(_) => expected_ty.clone(),
             _ => Type::Primitive(TokenType::I32),
@@ -362,7 +361,7 @@ impl<'a> Analyzer<'a> {
         let mut new_generics = Vec::new();
         for i in generics {
             match i {
-                Type::GenericType(name) => {}
+                Type::GenericType(_name) => {}
                 _ => new_generics.push(i),
             }
         }
@@ -415,8 +414,8 @@ impl<'a> Analyzer<'a> {
         &self,
         arg: &Declaration,
         arg_ty: &Type,
-        generics: &Vec<Type>,
-        index: usize,
+        _generics: &Vec<Type>,
+        _index: usize,
         generic_map: &HashMap<String, Type>,
     ) -> Declaration {
         Declaration {
@@ -444,10 +443,10 @@ impl<'a> Analyzer<'a> {
         &mut self,
         name: &String,
         args: &Vec<Expr>,
-        expected_ty: &Type,
+        _expected_ty: &Type,
         generics: &Vec<Type>,
     ) -> Type {
-        let (func_data, func_index) = {
+        let (func_data, _func_index) = {
             let data = self.resolve_call(name, args, generics);
             if data.is_none() {
                 return Type::Primitive(TokenType::I64);
@@ -471,12 +470,12 @@ impl<'a> Analyzer<'a> {
                 match generic_data.ty {
                     StmtType::GenericInitFunc {
                         generic_types,
-                        args,
+                        args: _,
                         ret_type,
-                        data,
+                        data: _,
                         ..
                     } => {
-                        let generic_data: HashMap<String, Type> = HashMap::new();
+                        let _generic_data: HashMap<String, Type> = HashMap::new();
                         return_ty = substitute_type(&ret_type, &generic_types, generics);
                         return_ty = self.ensure_monomorphized(&return_ty);
                     }
@@ -597,7 +596,7 @@ impl<'a> Analyzer<'a> {
         }
 
         match base_ty {
-            Type::Array(arr_type, size) => *arr_type.clone(),
+            Type::Array(arr_type, _size) => *arr_type.clone(),
             Type::Pointer(ty) => *ty,
             _ => {
                 self.print_error(self.type_to_error(SemanticError::NonArrayIndex(base_ty.clone())));
@@ -626,7 +625,7 @@ impl<'a> Analyzer<'a> {
         Type::Array(Box::new(first_ty.clone()), elements.len())
     }
 
-    fn check_size_of(&mut self, expr: &Type) -> Type {
+    fn check_size_of(&mut self, _expr: &Type) -> Type {
         Type::Primitive(TokenType::I64)
     }
 
@@ -672,7 +671,7 @@ impl<'a> Analyzer<'a> {
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
         match &expr.ty {
             ExprType::Number(num) => self.check_num(num, expected_ty),
-            ExprType::Float(num) => self::panic!("not implemented"),
+            ExprType::Float(_num) => self::panic!("not implemented"),
             ExprType::Variable(var) => self.check_var(var),
             ExprType::Binary { op, left, right } => self.check_binary(op, left, right, expected_ty),
             ExprType::Unary { op, expr } => self.check_unary(op, expr, expected_ty),

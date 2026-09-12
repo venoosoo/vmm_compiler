@@ -1,14 +1,12 @@
-use std::fmt::format;
 use std::{dbg, format, vec};
 
 use indexmap::IndexMap;
 
-use crate::Ir::expr::{self, BinOp, EnumExprField, Expr, ExprType, Lookup, UnaryOp};
-use crate::Ir::r#gen;
+use crate::Ir::expr::{BinOp, EnumExprField, Expr, ExprType, Lookup, UnaryOp};
 use crate::Ir::shared::TypeContext;
-use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
+use crate::Ir::stmt::{Declaration, StructField};
 use crate::shared::{
-    arg_pos, build_generic_map, coerce_numeric, is_numeric, is_unsigned, transform_generic_name,
+    build_generic_map, coerce_numeric, is_numeric, is_unsigned, transform_generic_name,
 };
 
 use super::*;
@@ -33,7 +31,7 @@ impl Lookup for Gen {
             UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
-    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
+    fn look_binary(&self, _op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
         let lty = left.get_type(self);
         let rty = right.get_type(self);
 
@@ -122,7 +120,7 @@ impl Lookup for Gen {
         } else {
             self.functions.get(&func_name).unwrap().clone()
         };
-        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
+        let (_overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
         func_data.return_type.clone()
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -306,7 +304,7 @@ impl Gen {
     }
 
     fn gen_expr_num(&mut self, num: &i64, expected_type: &Type) -> String {
-        let expected_type = match expected_type {
+        let _expected_type = match expected_type {
             Type::GenericType(name) => {
                 let map = self.generics.borrow();
 
@@ -339,7 +337,7 @@ impl Gen {
         }
     }
 
-    fn gen_expr_var(&mut self, var_name: &String, expected_type: &Type) -> String {
+    fn gen_expr_var(&mut self, var_name: &String, _expected_type: &Type) -> String {
         let var_data = self.lookup_var(var_name).clone();
         if var_data.global_flag {
             match var_data.var_type {
@@ -385,7 +383,7 @@ impl Gen {
             Type::Pointer(_) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
-            Type::Enum(ty, _) => {
+            Type::Enum(_ty, _) => {
                 self.emit_func_data(format!("    lea rax, [rbp - {}]", var_data.stack_pos));
             }
             _ => {
@@ -540,8 +538,8 @@ impl Gen {
         &self,
         arg: &Declaration,
         arg_ty: &Type,
-        generics: &Vec<Type>,
-        index: usize,
+        _generics: &Vec<Type>,
+        _index: usize,
         overload_pos: i64,
         generic_map: &HashMap<String, Type>,
     ) -> Declaration {
@@ -622,8 +620,8 @@ impl Gen {
     fn gen_args(
         &mut self,
         args: &Vec<Expr>,
-        func_data: &FuncData,
-        generics: &Vec<Type>,
+        _func_data: &FuncData,
+        _generics: &Vec<Type>,
         new_args: &Vec<Declaration>,
         is_rvo: bool,
         end_expected_type: &Type, // the final expected type of whole stmt
@@ -875,7 +873,7 @@ impl Gen {
                 match generic_data.ty {
                     StmtType::GenericInitFunc {
                         generic_types,
-                        args,
+                        args: _,
                         ret_type,
                         data,
                         ..
@@ -943,7 +941,7 @@ impl Gen {
             Type::GenericType(param_name) => {
                 type_map.insert(param_name.clone(), expr_ty.clone());
             }
-            Type::Array(ty, size) => {
+            Type::Array(ty, _size) => {
                 self.resolve_generic(expr_ty, ty, type_map);
             }
             Type::Pointer(ty) => {
@@ -1221,7 +1219,7 @@ impl Gen {
         let arr_ty = &base.get_type(self);
         self.eval_expr(base, arr_ty);
         self.push_result();
-        let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
+        let _index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
         let elem_size = self.type_size(expected_type);
         self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
         self.pop_into("rbx");
@@ -1324,7 +1322,7 @@ impl Gen {
         variant: &String,
     ) -> String {
         let mut type_map: HashMap<String, Type> = HashMap::new();
-        for (name, field) in enum_data.variants.iter() {
+        for (_name, field) in enum_data.variants.iter() {
             if field.name == *variant {
                 for (index, enum_field) in field.args.iter().enumerate() {
                     let expr_ty = values[index].expr.get_type(self);
@@ -1545,7 +1543,7 @@ impl Gen {
             }
 
             ExprType::StructMember { base, name } => {
-                let ty = expr.get_type(self);
+                let _ty = expr.get_type(self);
                 self.gen_expr_struct_member(base, name)
             }
 
