@@ -1,17 +1,19 @@
-use core::panic;
-use std::env;
-use std::fs::File;
-use std::io::Read;
-
 use super::*;
 use crate::Ir::expr::{Expr, ExprType};
+use crate::Ir::sem_analysis::Error;
+use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::*;
 use crate::shared::type_name;
 use crate::tokenizer;
+use core::panic;
+use std::fs::File;
+use std::io::Read;
+use std::{dbg, env, println};
 
 impl<'a> Parser<'a> {
     pub fn parse_stmt(&mut self) -> Option<Stmt> {
         let token = self.peek(0).clone();
+
         self.line = token.line;
         self.col = token.col;
         match token.token {
@@ -50,6 +52,25 @@ impl<'a> Parser<'a> {
                 return self.parse_expr_stmt();
             }
         };
+    }
+    pub fn type_to_error(&self, error_ty: SemanticError) -> Error {
+        Error {
+            ty: error_ty,
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
+        }
+    }
+
+    pub fn print_error(&self, err: Error) {
+        eprintln!("\x1b[31;1merror\x1b[0m: \x1b[1m{}\x1b[0m", err.ty);
+
+        eprintln!(
+            "  \x1b[34;1m-->\x1b[0m {}:{}:{}",
+            err.file, err.line, err.col
+        );
+
+        self.had_error.set(true);
     }
 
     fn parse_break(&mut self) -> Option<Stmt> {
@@ -316,8 +337,16 @@ impl<'a> Parser<'a> {
         let token = self.consume();
         if token.token == TokenType::Var {
             // i will make parser error system one day
-            // dbg!(&token);
-            let name = self.types.get(&token.value.unwrap()).unwrap();
+            //dbg!(&token);
+            let value = token.value.unwrap();
+            let name = self.types.get(&value);
+            let name = match name {
+                Some(good_name) => good_name,
+                None => {
+                    self.print_error(self.type_to_error(SemanticError::UnkownType(value)));
+                    return Type::Unknown;
+                }
+            };
             if self.struct_table.get(name).is_some() {
                 return Type::Struct(name.to_string());
             } else if self.enums_table.get(name).is_some() {
@@ -466,7 +495,7 @@ impl<'a> Parser<'a> {
         for stmt in imported_stmts {
             self.expressions.push(stmt);
         }
-        self.current_file = full_path.join(saved).to_string_lossy().to_string();
+        self.current_file = saved;
     }
 
     fn parse_struct_init(&mut self) -> Option<Stmt> {
@@ -636,8 +665,13 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::OpenScope);
         let mut stmts: Vec<Stmt> = Vec::new();
         while self.peek(0).token != TokenType::CloseScope {
-            let stmt = self.parse_stmt().unwrap();
-            stmts.push(stmt);
+            let stmt = self.parse_stmt();
+            match stmt {
+                Some(good_stmt) => {
+                    stmts.push(good_stmt);
+                }
+                None => {}
+            }
         }
         self.expect(TokenType::CloseScope);
         return Some(self.type_to_stmt(StmtType::Block(stmts)));
@@ -725,7 +759,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_stmt(&mut self) -> Option<Stmt> {
-        self.peek(0);
+        if self.peek(0).token == TokenType::Var && self.peek(1).token == TokenType::Var {
+            let bad_type = self.consume();
+            let name = self.consume();
+            if self.peek(0).token == TokenType::Eq {
+                self.parse_expr();
+            }
+            self.expect(TokenType::Semi);
+            self.print_error(
+                self.type_to_error(SemanticError::UnkownType(bad_type.value.unwrap())),
+            );
+            return None;
+        }
         let expr = self.parse_expr();
         self.expect(TokenType::Semi);
         Some(self.type_to_stmt(StmtType::ExprStmt(expr)))

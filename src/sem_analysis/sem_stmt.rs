@@ -306,13 +306,13 @@ impl<'a> Analyzer<'a> {
 
     fn check_break(&self) {
         if self.break_stack.is_empty() {
-            self.type_to_error(SemanticError::BreakOutsideOfLoop);
+            self.print_error(self.type_to_error(SemanticError::BreakOutsideOfLoop));
         }
     }
 
     fn check_contniue(&self) {
         if self.break_stack.is_empty() {
-            self.type_to_error(SemanticError::BreakOutsideOfLoop);
+            self.print_error(self.type_to_error(SemanticError::ContinueOutsideOfLoop));
         }
     }
 

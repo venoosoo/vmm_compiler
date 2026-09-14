@@ -46,7 +46,13 @@ pub enum SemanticError {
     UndeclaredStruct(String),
     UndeclaredField(String, String), // (struct_name, field_name)
     AlreadyDeclared(String),
+    UnkownType(String),
     BreakOutsideOfLoop,
+    FunctionArgsMismatch {
+        func_name: String,
+        expected: usize,
+        got: usize,
+    },
     ContinueOutsideOfLoop,
     VoidVariable(String),
     ArrayTooLarge {
@@ -102,6 +108,7 @@ pub enum SemanticError {
     MatchExprUnsuported(Type),
     DerefNonPointer(Type),
     CircularStruct(String),
+    NoFoundFuncOverload(String),
     MissingReturn(String),
     FileDoesntExist(String),
 }

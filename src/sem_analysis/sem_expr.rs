@@ -1,7 +1,7 @@
 use std::vec;
 
 use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
-use crate::Ir::sem_analysis::SemanticError;
+use crate::Ir::sem_analysis::SemanticError::{self, UndeclaredField};
 use crate::Ir::stmt::Declaration;
 use crate::shared::{build_generic_map, coerce_numeric, is_number, is_numeric, same_signedness};
 use crate::{
@@ -77,7 +77,18 @@ impl<'a> Lookup for Analyzer<'a> {
             _ => self::panic!("member access on non-struct {:?}", base_ty),
         };
         let struct_data = self.structs.borrow().get(&struct_name).cloned().unwrap();
-        let field = struct_data.elements.get(name).unwrap();
+        let field = struct_data.elements.get(name).cloned().unwrap_or_else(|| {
+            self.print_error(self.type_to_error(SemanticError::UndeclaredField(
+                struct_name.clone(),
+                name.clone(),
+            )));
+
+            StructField {
+                name: "error".to_string(),
+                offset: 0,
+                ty: Type::Unknown,
+            }
+        });
         field.ty.clone()
     }
     fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Type {
@@ -157,6 +168,7 @@ impl<'a> Analyzer<'a> {
             _ => Type::Primitive(TokenType::I32),
         }
     }
+
     fn check_var(&mut self, var: &String) -> Type {
         let var_data = self.lookup(var);
         if let Some(var) = var_data {
@@ -193,13 +205,31 @@ impl<'a> Analyzer<'a> {
         expected_ty: &Type,
     ) -> Type {
         let mut l_type = self.check_expr(left, expected_ty);
-        let mut r_type: Type = self.check_expr(right, &l_type);
 
-        if matches!(left.ty, ExprType::Number(_)) {
-            l_type = r_type.clone();
+        let left_is_num_lit = matches!(left.ty, ExprType::Number(_));
+        let right_is_num_lit = matches!(right.ty, ExprType::Number(_));
+
+        let right_expected = if right_is_num_lit && is_number(&l_type) {
+            l_type.clone()
+        } else {
+            expected_ty.clone()
+        };
+
+        let mut r_type = self.check_expr(right, &right_expected);
+
+        let l_is_ptr = matches!(l_type, Type::Pointer(_));
+        let r_is_ptr = matches!(r_type, Type::Pointer(_));
+
+        if left_is_num_lit && is_number(&r_type) {
+            if !r_is_ptr || matches!(op, BinOp::Eq | BinOp::Neq) {
+                l_type = r_type.clone();
+            }
         }
-        if matches!(right.ty, ExprType::Number(_)) {
-            r_type = l_type.clone();
+
+        if right_is_num_lit && is_number(&l_type) {
+            if !l_is_ptr || matches!(op, BinOp::Eq | BinOp::Neq) {
+                r_type = l_type.clone();
+            }
         }
 
         let res = self.check_binary_types(op, l_type, r_type);
@@ -248,12 +278,15 @@ impl<'a> Analyzer<'a> {
 
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
-                if matches!(&l, Type::Pointer(_)) && is_number(&r) {
-                    return Ok(l);
+                if matches!(op, BinOp::Add | BinOp::Sub) {
+                    if matches!(&l, Type::Pointer(_)) && is_number(&r) {
+                        return Ok(l);
+                    }
+                    if matches!(&r, Type::Pointer(_)) && is_number(&l) {
+                        return Ok(r);
+                    }
                 }
-                if matches!(&r, Type::Pointer(_)) && is_number(&l) {
-                    return Ok(r);
-                }
+
                 if !is_number(&l) || !is_number(&r) {
                     return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
@@ -261,9 +294,11 @@ impl<'a> Analyzer<'a> {
                         right: r,
                     }));
                 }
+
                 if !same_signedness(&l, &r) {
                     sign_err!();
                 }
+
                 Ok(coerce_numeric(&l, &r))
             }
 
@@ -449,7 +484,7 @@ impl<'a> Analyzer<'a> {
         let (func_data, _func_index) = {
             let data = self.resolve_call(name, args, generics);
             if data.is_none() {
-                return Type::Primitive(TokenType::I64);
+                return Type::Unknown;
             } else {
                 data.unwrap()
             }

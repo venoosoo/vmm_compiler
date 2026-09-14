@@ -3,7 +3,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     dbg,
-    fmt::{self},
+    fmt::{self, write},
     format, write,
 };
 
@@ -46,6 +46,33 @@ impl fmt::Display for SemanticError {
                 "Struct '{}' has no field named '{}'.",
                 struct_name, field_name
             ),
+            SemanticError::BreakOutsideOfLoop => {
+                write!(f, "Break outside of loop")
+            }
+            SemanticError::ContinueOutsideOfLoop => {
+                write!(f, "Continue outside of loop")
+            }
+            SemanticError::UnkownType(name) => {
+                write!(f, "Unkown type '{}'", name)
+            }
+            SemanticError::FunctionArgsMismatch {
+                func_name,
+                expected,
+                got,
+            } => {
+                write!(
+                    f,
+                    "Function '{}' expected {} args, but got {}",
+                    func_name, expected, got
+                )
+            }
+            SemanticError::NoFoundFuncOverload(name) => {
+                write!(
+                    f,
+                    "No overload for function '{}' matches the provided argument types.",
+                    name
+                )
+            }
             SemanticError::AlreadyDeclared(name) => {
                 write!(f, "The name '{}' is already defined in this scope.", name)
             }
@@ -164,34 +191,61 @@ impl<'a> TypeContext for Analyzer<'a> {
         if vec_func_data.len() < 1 {
             return None;
         }
-        let (overload_pos, func_data) = vec_func_data
+        let precomputed_args: Vec<(&Expr, Type)> = args
             .iter()
-            .enumerate()
-            .find(|(_, func)| {
-                if func.args.len() != args.len() {
-                    return false;
-                }
-                args.iter().enumerate().all(|(i, expr)| {
-                    let expr_ty = expr.get_type(self);
-                    let param_ty = &func.args[i].ty.clone();
-                    let (expr_ty, param_ty) = {
-                        let map = self.build_generic_map(&func.generic, generics);
-                        let expr_ty: Type = self.generic_to_ty(&expr_ty, &map);
-                        let param_ty = self.generic_to_ty(param_ty, &map);
-                        (expr_ty, param_ty)
-                    };
-                    let param_ty = self.ensure_monomorphized(&param_ty);
-                    let expr_ty = self.ensure_monomorphized(&expr_ty);
-                    let arg_matches = match &expr.ty {
-                        ExprType::Number(_) => is_number(&param_ty),
-                        _ => check_types(&expr_ty, &param_ty),
-                    };
-                    arg_matches
-                })
-            })
-            .expect(&format!("no matching overload for function '{}'", name));
+            .map(|expr| (expr, expr.get_type(self)))
+            .collect();
 
-        Some((func_data.clone(), overload_pos))
+        let found_overload = vec_func_data.iter().enumerate().find(|(_, func)| {
+            if func.args.len() != precomputed_args.len() {
+                return false;
+            }
+
+            precomputed_args
+                .iter()
+                .enumerate()
+                .all(|(i, (expr, expr_ty))| {
+                    let param_ty = &func.args[i].ty.clone();
+
+                    let (expr_ty_mapped, param_ty_mapped) = {
+                        let map = self.build_generic_map(&func.generic, generics);
+                        let e_ty: Type = self.generic_to_ty(expr_ty, &map);
+                        let p_ty = self.generic_to_ty(param_ty, &map);
+                        (e_ty, p_ty)
+                    };
+
+                    let param_ty_mono = self.ensure_monomorphized(&param_ty_mapped);
+                    let expr_ty_mono = self.ensure_monomorphized(&expr_ty_mapped);
+
+                    match &expr.ty {
+                        ExprType::Number(_) => is_number(&param_ty_mono),
+                        _ => check_types(&expr_ty_mono, &param_ty_mono),
+                    }
+                })
+        });
+
+        match found_overload {
+            Some((overload_pos, func_data)) => Some((func_data.clone(), overload_pos)),
+            None => {
+                let has_matching_arg_count =
+                    vec_func_data.iter().any(|f| f.args.len() == args.len());
+
+                if !has_matching_arg_count {
+                    let expected_hint = vec_func_data.first().map_or(0, |f| f.args.len());
+
+                    self.print_error(self.type_to_error(SemanticError::FunctionArgsMismatch {
+                        func_name: name.clone(),
+                        expected: expected_hint,
+                        got: args.len(),
+                    }));
+                } else {
+                    self.print_error(
+                        self.type_to_error(SemanticError::NoFoundFuncOverload(name.clone())),
+                    );
+                }
+                return None;
+            }
+        }
     }
 
     fn monomorphize_struct(&self, def: &StructData, type_args: &Vec<Type>) -> Type {
@@ -427,7 +481,6 @@ impl<'a> Analyzer<'a> {
 
     pub fn print_error(&self, err: Error) {
         eprintln!("\x1b[31;1merror\x1b[0m: \x1b[1m{}\x1b[0m", err.ty);
-
         eprintln!(
             "  \x1b[34;1m-->\x1b[0m {}:{}:{}",
             err.file, err.line, err.col

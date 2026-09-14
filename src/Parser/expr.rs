@@ -1,3 +1,5 @@
+use std::dbg;
+
 use super::*;
 
 use crate::Ir::expr::*;
@@ -288,6 +290,33 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn is_generic_call_lookahead(&mut self) -> bool {
+        let mut i = 1;
+        let mut depth = 1;
+
+        loop {
+            let kind = self.peek(i).token;
+            match kind {
+                TokenType::Less => depth += 1, // Handle nested generics like Map<String, Vector<u8>>
+                TokenType::More => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // We found the closing '>'.
+                        // If the very next token is '(', it's definitely a generic function call!
+                        // (We also check for '{' in case you support generic struct initialization)
+                        let next_kind = self.peek(i + 1).token;
+                        return next_kind == TokenType::OpenParen
+                            || next_kind == TokenType::OpenScope;
+                    }
+                }
+                // If we hit a semicolon or EOF before finding '>', it's just a math expression
+                TokenType::Semi => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+
     fn parse_enum_expr_field(&mut self) -> EnumExprField {
         let name = self.consume().value.unwrap();
         self.expect(TokenType::Colon);
@@ -407,7 +436,7 @@ impl<'a> Parser<'a> {
                 }
 
                 TokenType::Less => {
-                    if self.is_type(self.peek(1)) {
+                    if self.is_generic_call_lookahead() {
                         expr = self.parse_generic_call(expr);
                     } else {
                         break;

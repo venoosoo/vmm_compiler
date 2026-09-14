@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::tokenizer::{Token, TokenType};
 
 use crate::Ir::stmt::{EnumData, Stmt, StructDef, Type};
-
+use std::cell::{Cell, RefCell};
 pub mod expr;
 pub mod function;
 pub mod stmt;
@@ -13,12 +13,15 @@ pub mod stmt;
 pub struct Parser<'a> {
     m_tokens: Vec<Token>,
     m_index: usize,
+
     expressions: Vec<Stmt>,
     struct_table: HashMap<String, StructDef>,
     types: HashSet<String>,
     enums_table: HashMap<String, EnumData>,
     base_dir: PathBuf,
     current_file: String,
+    source_cache: RefCell<HashMap<String, Vec<String>>>,
+    had_error: Cell<bool>,
     line: usize,
     col: usize,
     generic: HashSet<String>,
@@ -49,8 +52,10 @@ impl<'a> Parser<'a> {
             struct_table: HashMap::new(),
             expressions: Vec::new(),
             types: HashSet::new(),
+            source_cache: RefCell::new(HashMap::new()),
             line: 1,
             col: 0,
+            had_error: Cell::new(false),
             current_file,
             generic: HashSet::new(),
             enums_table: HashMap::new(),
@@ -70,9 +75,56 @@ impl<'a> Parser<'a> {
         &self.m_tokens[pos]
     }
 
+    fn get_source_line(&self, file: &str, line: usize) -> Option<String> {
+        if !self.source_cache.borrow().contains_key(file) {
+            let contents = std::fs::read_to_string(file).ok()?;
+            let lines = contents.lines().map(String::from).collect();
+            self.source_cache
+                .borrow_mut()
+                .insert(file.to_string(), lines);
+        }
+        self.source_cache
+            .borrow()
+            .get(file)?
+            .get(line.saturating_sub(1))
+            .cloned()
+    }
+
+    fn error_at(&self, msg: String, line: usize, col: usize) {
+        eprintln!("\x1b[31;1merror\x1b[0m: \x1b[1m{}\x1b[0m", msg);
+        eprintln!(
+            "  \x1b[34;1m-->\x1b[0m {}:{}:{}",
+            self.current_file, line, col
+        );
+
+        if let Some(src_line) = self.get_source_line(&self.current_file, line) {
+            let gutter = line.to_string();
+            let pad = " ".repeat(gutter.len());
+
+            eprintln!(" {} \x1b[34;1m|\x1b[0m", pad);
+            eprintln!(
+                " \x1b[34;1m{}\x1b[0m \x1b[34;1m|\x1b[0m {}",
+                gutter, src_line
+            );
+            eprintln!(
+                " {} \x1b[34;1m|\x1b[0m {}\x1b[31;1m^\x1b[0m",
+                pad,
+                " ".repeat(col.saturating_sub(1))
+            );
+        }
+
+        self.had_error.set(true);
+    }
+
     pub fn expect(&mut self, ty: TokenType) -> Option<bool> {
         if self.peek(0).token != ty {
-            panic!("expected {:?}, got {:?}", ty, self.peek(0));
+            let found = self.peek(0);
+            self.error_at(
+                format!("Syntax error: expected {:?}, got {:?}", ty, found.token),
+                self.line,
+                self.col,
+            );
+            return None;
         }
         self.consume();
         Some(true)
