@@ -68,6 +68,8 @@ pub enum TokenType {
     LeftShift,
     RightShift,
     ExternFn,
+    Private,
+    SelfKeyword,
     Semi,
 }
 #[derive(Clone, Debug)]
@@ -179,10 +181,12 @@ impl Tokenizer {
                     "while" => self.push_token(TokenType::While, None),
                     "for" => self.push_token(TokenType::For, None),
                     "void" => self.push_token(TokenType::Void, None),
+                    "private" => self.push_token(TokenType::Private, None),
                     "return" => self.push_token(TokenType::Return, None),
                     "struct" => self.push_token(TokenType::Struct, None),
                     "asm" => self.push_token(TokenType::Asm, None),
                     "fn" => self.push_token(TokenType::Func, None),
+                    "self" => self.push_token(TokenType::SelfKeyword, None),
                     "import" => self.push_token(TokenType::Import, None),
                     "global" => self.push_token(TokenType::Global, None),
                     "sizeof" => self.push_token(TokenType::SizeOf, None),

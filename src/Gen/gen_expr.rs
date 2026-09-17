@@ -122,7 +122,10 @@ impl Lookup for Gen {
         } else {
             self.functions.get(&func_name).unwrap().clone()
         };
-        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
+
+        let (overload_pos, func_data) = self
+            .find_overload(&vec_func_data, args, &Vec::new())
+            .unwrap();
         func_data.return_type.clone()
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -626,7 +629,6 @@ impl Gen {
         generics: &Vec<Type>,
         new_args: &Vec<Declaration>,
         is_rvo: bool,
-        end_expected_type: &Type, // the final expected type of whole stmt
     ) -> usize {
         let mut arg_index = self.arg_count(is_rvo, new_args);
 
@@ -818,7 +820,6 @@ impl Gen {
         };
         let ret_type =
             self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), 0);
-
         let mut rvo_pos = 0;
         match &self.ensure_monomorphized(&ret_type) {
             Type::Struct(_) | Type::Enum(_, _) => {
@@ -831,14 +832,7 @@ impl Gen {
         let stack_pos_save = self.stack_pos;
         let saved_ret_type = self.current_return_type.clone();
 
-        let space_taken = self.gen_args(
-            &args,
-            func_data,
-            &generic_copy,
-            &new_args,
-            is_rvo,
-            expected_type,
-        );
+        let space_taken = self.gen_args(&args, func_data, &generic_copy, &new_args, is_rvo);
         self.stack_pos = 0;
 
         if func_data.generic.len() > 0 {
@@ -1037,12 +1031,15 @@ impl Gen {
                 }
                 _ => {}
             }
+
+            let align = self.type_size(field_type);
+            offset = (offset + align - 1) / align * align;
+
             self.eval_expr(field_expr, field_type);
             let sized_reg = self.reg_for_size("rax", field_type).unwrap();
             let size_word = self.get_word(field_type);
             let field_pos = base_pos - offset;
             offset += self.type_size(field_type);
-            // can break code
             match field_type {
                 Type::Array(..) => {}
                 Type::Struct(..) => {}
@@ -1535,6 +1532,23 @@ impl Gen {
                 args,
                 generics,
             } => {
+                let name = {
+                    if !args.is_empty() {
+                        match &args[0].ty {
+                            ExprType::Variable(var_name) => {
+                                let ty = self.look_var(var_name).unwrap();
+                                if let Type::Struct(struct_name) = ty {
+                                    &mangle_method_name(&struct_name, name)
+                                } else {
+                                    name
+                                }
+                            }
+                            _ => name,
+                        }
+                    } else {
+                        name
+                    }
+                };
                 let (func_data, overload_pos) = self.resolve_call(name, args, generics).unwrap();
                 self.gen_call(
                     &name,

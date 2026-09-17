@@ -8,10 +8,11 @@ use crate::Ir::Stmt;
 use crate::Ir::expr::{Expr, ExprType, Lookup};
 use crate::Ir::r#gen::*;
 use crate::Ir::shared::TypeContext;
-use crate::Ir::stmt::{EnumData, StmtType};
+use crate::Ir::stmt::{Declaration, EnumData, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
 use crate::shared::{
-    check_types, is_number, substitute_type, to_base_reg, transform_generic_name, type_name,
+    check_types, is_number, mangle_method_name, substitute_type, to_base_reg,
+    transform_generic_name, type_name,
 };
 use crate::tokenizer::TokenType;
 
@@ -332,8 +333,8 @@ impl Gen {
         concrete_types: &Vec<Type>,
     ) -> HashMap<String, Type> {
         if generic_names.len() > concrete_types.len() {
-            dbg!(generic_names);
-            dbg!(concrete_types);
+            //dbg!(generic_names);
+            //dbg!(concrete_types);
             panic!(
                 "Generic argument mismatch: expected at least {} arguments, found {}",
                 generic_names.len(),
@@ -367,6 +368,9 @@ impl Gen {
                 if func.args.len() != args.len() {
                     return false;
                 }
+                if func.generic.len() != generics.len() {
+                    return false;
+                }
                 args.iter().enumerate().all(|(i, expr)| {
                     let expr_ty = expr.get_type(self);
                     let param_ty = &func.args[i].ty.clone();
@@ -384,7 +388,6 @@ impl Gen {
                         }
                         _ => check_types(&expr_ty, &param_ty),
                     };
-
                     arg_matches
                 })
             })
@@ -505,6 +508,121 @@ impl Gen {
         self::panic!("couldnt find the var with name: {}", name);
     }
 
+    pub fn gen_struct_functions(
+        &mut self,
+        public_functions: &Vec<Stmt>,
+        private_functions: &Vec<Stmt>,
+    ) {
+        let mut to_generate: Vec<(
+            String,
+            Vec<Declaration>,
+            Type,
+            Box<Stmt>,
+            HashMap<String, Type>,
+        )> = Vec::new();
+
+        for func in public_functions.iter().chain(private_functions.iter()) {
+            match &func.ty {
+                StmtType::InitFunc {
+                    name,
+                    generic_types,
+                    args,
+                    ret_type,
+                    struct_data,
+                    data,
+                } => {
+                    let struct_data = struct_data.as_ref().unwrap();
+                    let mangled = mangle_method_name(&struct_data.struct_name, name);
+
+                    let mut full_args = args.clone();
+                    if struct_data.is_self {
+                        full_args.insert(
+                            0,
+                            Declaration {
+                                name: "self".to_string(),
+                                ty: Type::Struct(struct_data.struct_name.clone()),
+                                initializer: None,
+                            },
+                        );
+                    }
+
+                    let func_data = FuncData {
+                        args: full_args.clone(),
+                        generic: Vec::new(),
+                        return_type: ret_type.clone(),
+                    };
+                    self.functions
+                        .entry(mangled.clone())
+                        .or_insert_with(Vec::new)
+                        .push(func_data);
+
+                    to_generate.push((
+                        mangled,
+                        full_args,
+                        ret_type.clone(),
+                        data.clone(),
+                        generic_types.clone(),
+                    ));
+                }
+
+                StmtType::GenericInitFunc {
+                    name,
+                    generic_types,
+                    args,
+                    ret_type,
+                    struct_data,
+                    data,
+                } => {
+                    let struct_data = struct_data.as_ref().unwrap();
+                    let mangled = mangle_method_name(&struct_data.struct_name, name);
+
+                    let mut full_args = args.clone();
+                    if struct_data.is_self {
+                        full_args.insert(
+                            0,
+                            Declaration {
+                                name: "self".to_string(),
+                                ty: Type::Struct(struct_data.struct_name.clone()),
+                                initializer: None,
+                            },
+                        );
+                    }
+
+                    let func_data = FuncData {
+                        args: full_args.clone(),
+                        generic: generic_types.clone(),
+                        return_type: ret_type.clone(),
+                    };
+                    self.functions
+                        .entry(mangled.clone())
+                        .or_insert_with(Vec::new)
+                        .push(func_data);
+
+                    let patched_stmt = Stmt {
+                        ty: StmtType::GenericInitFunc {
+                            name: name.clone(),
+                            generic_types: generic_types.clone(),
+                            args: full_args,
+                            ret_type: ret_type.clone(),
+                            struct_data: Some(struct_data.clone()),
+                            data: data.clone(),
+                        },
+                        line: func.line,
+                        file: func.file.clone(),
+                    };
+
+                    self.generic_func.insert(mangled, vec![patched_stmt]);
+                }
+
+                _ => {}
+            }
+        }
+
+        for (mangled, full_args, ret_type, data, generic_types) in &to_generate {
+            self.gen_func((mangled, full_args, ret_type, data, generic_types));
+        }
+    }
+
     pub fn reg_inits(&mut self, stmt: &Vec<Stmt>) {
         for i in stmt.iter() {
             match &i.ty {
@@ -512,6 +630,7 @@ impl Gen {
                     name,
                     args,
                     ret_type,
+                    struct_data,
                     data: _,
                     generic_types: _,
                 } => {
@@ -520,16 +639,19 @@ impl Gen {
                         generic: Vec::new(),
                         return_type: ret_type.clone(),
                     };
-                    self.functions
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(func_data);
+                    if struct_data.is_none() {
+                        self.functions
+                            .entry(name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(func_data);
+                    }
                 }
                 StmtType::GenericInitFunc {
                     name,
                     generic_types,
                     args,
                     ret_type,
+                    struct_data,
                     data: _,
                 } => {
                     let func_data = FuncData {
@@ -537,14 +659,16 @@ impl Gen {
                         generic: generic_types.clone(),
                         return_type: ret_type.clone(),
                     };
-                    self.functions
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(func_data);
-                    self.generic_func
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(i.clone());
+                    if struct_data.is_none() {
+                        self.functions
+                            .entry(name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(func_data);
+                        self.generic_func
+                            .entry(name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(i.clone());
+                    }
                 }
                 StmtType::InitStruct(data) => {
                     self.structs.borrow_mut().insert(
@@ -560,6 +684,7 @@ impl Gen {
                             size: 0, // placeholder
                         },
                     );
+                    self.gen_struct_functions(&data.public_functions, &data.private_functions);
                 }
                 StmtType::InitEnum {
                     name,

@@ -63,6 +63,5 @@ fn vec_set_element<T>(Vector<T>* vec, i64 element_pos, T element) {
     }
     T* dest = vec->data + element_pos;
     
-    // Using memcpy completely bypasses any compiler assignment bugs!
     memcpy(dest, &element, vec->element_size);
 }

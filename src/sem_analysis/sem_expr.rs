@@ -127,23 +127,9 @@ impl<'a> Lookup for Analyzer<'a> {
         } else {
             self.functions.get(&func_name).unwrap().clone()
         };
-
-        let func_data = vec_func_data
-            .iter()
-            .find(|func| {
-                if func.args.len() != args.len() {
-                    return false;
-                }
-                args.iter().enumerate().all(|(index, expr)| {
-                    let expr_ty = self.resolve_generic_inst(&expr.get_type(self));
-                    let arg_ty = self.resolve_generic_inst(&func.args[index].ty);
-                    check_types(&expr_ty, &arg_ty)
-                })
-            })
-            .expect(&format!(
-                "no matching overload for function '{}'",
-                func_name
-            ));
+        let (overload_pos, func_data) = self
+            .find_overload(&vec_func_data, args, &Vec::new())
+            .unwrap();
 
         func_data.return_type.clone()
     }
@@ -331,9 +317,15 @@ impl<'a> Analyzer<'a> {
             }
 
             BinOp::Eq | BinOp::Neq => {
+                let l_is_ptr = matches!(l, Type::Pointer(_));
+                let r_is_ptr = matches!(r, Type::Pointer(_));
+
                 let compatible = (is_numeric(&l) && is_numeric(&r))
                     || l == r
-                    || matches!((&l, &r), (Type::Pointer(_), Type::Pointer(_)));
+                    || (l_is_ptr && r_is_ptr)
+                    || (l_is_ptr && is_numeric(&r))
+                    || (r_is_ptr && is_numeric(&l));
+
                 if !compatible {
                     return Err(self.type_to_error(SemanticError::InvalidBinary {
                         op: op.clone(),
@@ -341,9 +333,11 @@ impl<'a> Analyzer<'a> {
                         right: r,
                     }));
                 }
+
                 if is_numeric(&l) && is_numeric(&r) && !same_signedness(&l, &r) {
                     sign_err!();
                 }
+
                 Ok(Type::Primitive(TokenType::I32))
             }
 
@@ -458,6 +452,45 @@ impl<'a> Analyzer<'a> {
             ty: self.resolve_type_with_map(arg_ty, generic_map),
             initializer: arg.initializer.clone(),
         }
+    }
+
+    pub fn find_overload(
+        &self,
+        vec_func_data: &Vec<FuncData>,
+        args: &Vec<Expr>,
+        generics: &Vec<Type>,
+    ) -> Option<(usize, FuncData)> {
+        vec_func_data
+            .iter()
+            .enumerate()
+            .find(|(_, func)| {
+                if func.args.len() != args.len() {
+                    return false;
+                }
+                if func.generic.len() != generics.len() {
+                    return false;
+                }
+                args.iter().enumerate().all(|(i, expr)| {
+                    let expr_ty = expr.get_type(self);
+                    let param_ty = &func.args[i].ty.clone();
+                    let (expr_ty, param_ty) = {
+                        let map = self.build_generic_map(&func.generic, generics);
+                        let expr_ty: Type = self.generic_to_ty(&expr_ty, &map);
+                        let param_ty = self.generic_to_ty(param_ty, &map);
+                        (expr_ty, param_ty)
+                    };
+                    let expr_ty = self.ensure_monomorphized(&expr_ty);
+                    let param_ty = self.ensure_monomorphized(&param_ty);
+                    let arg_matches = match &expr.ty {
+                        ExprType::Number(_) => {
+                            matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
+                        }
+                        _ => check_types(&expr_ty, &param_ty),
+                    };
+                    arg_matches
+                })
+            })
+            .map(|(pos, func)| (pos, func.clone()))
     }
 
     fn convert_generic_args(
@@ -715,6 +748,20 @@ impl<'a> Analyzer<'a> {
                 args,
                 generics,
             } => {
+                let name: &String = if !args.is_empty() {
+                    if let ExprType::Variable(ref var_name) = args[0].ty {
+                        let var_ty = self.look_var(var_name).unwrap();
+                        if let Type::Struct(struct_name) = var_ty {
+                            &mangle_method_name(&struct_name, name)
+                        } else {
+                            name
+                        }
+                    } else {
+                        name
+                    }
+                } else {
+                    name
+                };
                 let ty = self.check_call(name, args, expected_ty, generics);
                 return ty;
             }

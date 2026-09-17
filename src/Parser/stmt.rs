@@ -23,7 +23,7 @@ impl<'a> Parser<'a> {
             TokenType::OpenScope => return self.parse_scope(),
             TokenType::Return => return self.parse_ret(),
             TokenType::Asm => return self.parse_asm_stmt(),
-            TokenType::Func => return self.parse_func_init(),
+            TokenType::Func => return self.parse_func_init(false, None),
             TokenType::Struct => return self.parse_struct_init(),
             TokenType::Global => return self.parse_global(),
             TokenType::Enum => return self.parse_enum(),
@@ -90,7 +90,7 @@ impl<'a> Parser<'a> {
         self.consume(); //keyword
         let name = self.consume().value.unwrap();
         let _generics = self.parse_generic();
-        let args = self.parse_args();
+        let (is_self, args) = self.parse_args(false);
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
             self.expect(TokenType::Access);
@@ -107,6 +107,7 @@ impl<'a> Parser<'a> {
             name,
             generic_types: HashMap::new(),
             args,
+            struct_data: None,
             ret_type,
             data: Box::new(self.type_to_stmt(StmtType::Block(Vec::new()))),
         }));
@@ -357,7 +358,12 @@ impl<'a> Parser<'a> {
                 return Type::Named(name.to_string());
             }
         } else {
-            return Type::Primitive(token.token);
+            if self.is_type(&token) {
+                return Type::Primitive(token.token);
+            } else {
+                self.print_error(self.type_to_error(SemanticError::BadType(token)));
+                return Type::Unknown;
+            }
         };
     }
 
@@ -507,24 +513,42 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::OpenScope);
 
         let mut fields: Vec<StructField> = Vec::new();
-
+        let mut public_func = Vec::new();
+        let mut private_func = Vec::new();
         while self.peek(0).token != TokenType::CloseScope {
-            let pre_ptr = self.parse_ptr();
-            let base_ty = self.get_type();
-            let mut ty = self.parse_generic_types(base_ty);
-            let post_ptr = self.parse_ptr();
-            let field_name = self.consume().value.unwrap();
+            if self.peek(0).token == TokenType::Func || self.peek(0).token == TokenType::Private {
+                let mut is_private = false;
+                if self.peek(0).token == TokenType::Private {
+                    self.consume();
+                    is_private = true;
+                }
+                let func_init = self
+                    .parse_func_init(true, Some(struct_name.clone()))
+                    .unwrap();
+                if is_private {
+                    private_func.push(func_init);
+                } else {
+                    public_func.push(func_init);
+                }
+            } else {
+                // type field
+                let pre_ptr = self.parse_ptr();
+                let base_ty = self.get_type();
+                let mut ty = self.parse_generic_types(base_ty);
+                let post_ptr = self.parse_ptr();
+                let field_name = self.consume().value.unwrap();
 
-            ty = self.apply_ptr(ty, pre_ptr + post_ptr);
-            ty = self.parse_array(ty);
+                ty = self.apply_ptr(ty, pre_ptr + post_ptr);
+                ty = self.parse_array(ty);
 
-            self.expect(TokenType::Semi);
+                self.expect(TokenType::Semi);
 
-            fields.push(StructField {
-                name: field_name,
-                ty: ty.clone(),
-                offset: 0, // placeholder — real offset computed later, once all types are known
-            });
+                fields.push(StructField {
+                    name: field_name,
+                    ty: ty.clone(),
+                    offset: 0, // placeholder — real offset computed later, once all types are known
+                });
+            }
         }
 
         self.expect(TokenType::CloseScope);
@@ -533,6 +557,8 @@ impl<'a> Parser<'a> {
             name: struct_name.clone(),
             generic_type: generic,
             fields,
+            public_functions: public_func,
+            private_functions: private_func,
             size: 0, // placeholder — real size computed later in Gen
         };
 

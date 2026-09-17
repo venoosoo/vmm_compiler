@@ -1053,6 +1053,7 @@ impl Gen {
                 name,
                 generic_types: _,
                 args,
+                struct_data,
                 ret_type,
                 data: _,
             } => {
@@ -1112,6 +1113,7 @@ impl Gen {
                 name: _,
                 generic_types: _,
                 args: _,
+                struct_data,
                 ret_type: _,
                 data: _,
             } => {}
@@ -1119,6 +1121,7 @@ impl Gen {
                 name,
                 args,
                 ret_type,
+                struct_data,
                 data,
                 generic_types,
             } => self.gen_func((name, args, ret_type, data, generic_types)),

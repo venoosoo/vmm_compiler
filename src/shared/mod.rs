@@ -414,3 +414,7 @@ pub fn transform_generic_name(name: &String, generics: &Vec<Type>, overload_pos:
         mangled
     }
 }
+
+pub fn mangle_method_name(struct_name: &String, method_name: &String) -> String {
+    return format!("{}${}", struct_name, method_name);
+}

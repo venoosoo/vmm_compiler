@@ -1,5 +1,6 @@
 use core::panic;
 use std::collections::{HashMap, HashSet};
+use std::dbg;
 use std::path::PathBuf;
 
 use crate::tokenizer::{Token, TokenType};
@@ -134,7 +135,10 @@ impl<'a> Parser<'a> {
         if self.m_index >= self.m_tokens.len() {
             panic!("Trying to consume more than m_src len");
         }
-        self.m_tokens.remove(0)
+        let token = self.m_tokens.remove(0);
+        self.line = token.line;
+        self.col = token.col + 6;
+        return token;
     }
 
     fn is_struct(&self, var_name: &String) -> bool {

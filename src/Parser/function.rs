@@ -1,11 +1,27 @@
-use crate::Ir::stmt::{Declaration, StmtType};
+use crate::Ir::stmt::{Declaration, StmtType, StructFunctionData};
 
 use super::*;
 
 impl<'a> Parser<'a> {
-    pub fn parse_args(&mut self) -> Vec<Declaration> {
+    pub fn parse_args(&mut self, allow_self: bool) -> (bool, Vec<Declaration>) {
         let mut res: Vec<Declaration> = Vec::new();
-        self.consume(); // ( 
+        self.expect(TokenType::OpenParen);
+        let mut is_self = false;
+        if self.peek(0).token == TokenType::SelfKeyword {
+            if !allow_self {
+                self.error_at(
+                    "'self' can only be used in struct methods".to_string(),
+                    self.peek(0).line,
+                    self.peek(0).col,
+                );
+            } else {
+                is_self = true;
+                self.consume();
+                if self.peek(0).token == TokenType::Coma {
+                    self.consume();
+                }
+            }
+        }
         while self.peek(0).token != TokenType::CloseParen {
             let arg = self.parse_declaration().unwrap();
             match arg.ty {
@@ -19,14 +35,18 @@ impl<'a> Parser<'a> {
             }
         }
         self.consume();
-        res
+        (is_self, res)
     }
 
-    pub fn parse_func_init(&mut self) -> Option<Stmt> {
+    pub fn parse_func_init(
+        &mut self,
+        allow_self: bool,
+        struct_name: Option<String>,
+    ) -> Option<Stmt> {
         self.expect(TokenType::Func); //keyword
         let name = self.consume().value.unwrap();
         let generics = self.parse_generic();
-        let args = self.parse_args();
+        let (is_self, args) = self.parse_args(allow_self);
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
             self.expect(TokenType::Access);
@@ -43,11 +63,24 @@ impl<'a> Parser<'a> {
             self.parse_stmt()
                 .expect(&format!("the func: {} is empty", name)),
         );
+        let struct_data: Option<StructFunctionData> = {
+            if !allow_self {
+                None
+            } else {
+                Some(StructFunctionData {
+                    is_self,
+                    is_struct: allow_self,
+                    struct_name: struct_name
+                        .expect("the struct function havent provided a struct name"),
+                })
+            }
+        };
         if generics.len() > 0 {
             return Some(self.type_to_stmt(StmtType::GenericInitFunc {
                 name,
                 generic_types: generics,
                 args,
+                struct_data,
                 ret_type,
                 data,
             }));
@@ -56,6 +89,7 @@ impl<'a> Parser<'a> {
                 generic_types: HashMap::new(),
                 name,
                 args,
+                struct_data,
                 ret_type,
                 data,
             }));

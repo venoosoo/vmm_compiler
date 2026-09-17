@@ -3,11 +3,14 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use crate::Ir::{
-    Stmt,
-    expr::{BinOp, UnaryOp},
-    r#gen::{FuncData, StructData},
-    stmt::{EnumData, Type},
+use crate::{
+    Ir::{
+        Stmt,
+        expr::{BinOp, UnaryOp},
+        r#gen::{FuncData, StructData},
+        stmt::{EnumData, Type},
+    },
+    tokenizer::Token,
 };
 
 #[derive(Debug, Clone)]
@@ -64,6 +67,7 @@ pub enum SemanticError {
         expected: Type,
         got: Type,
     },
+    BadType(Token),
     StructCountMismatch {
         struct_name: String,
         expected: usize,

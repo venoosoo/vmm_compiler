@@ -223,6 +223,7 @@ impl<'a> Analyzer<'a> {
                 name,
                 generic_types,
                 args,
+                struct_data,
                 ret_type,
                 data,
             } => {
@@ -351,6 +352,7 @@ impl<'a> Analyzer<'a> {
                 args,
                 ret_type,
                 data,
+                struct_data,
                 generic_types,
             } => {
                 self.check_init_func((name, args, ret_type, data, generic_types));
@@ -368,6 +370,7 @@ impl<'a> Analyzer<'a> {
                 name: _,
                 generic_types: _,
                 args: _,
+                struct_data,
                 ret_type: _,
                 data: _,
             } => {}

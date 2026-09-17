@@ -4,21 +4,22 @@ use std::{
     collections::{HashMap, HashSet},
     dbg,
     fmt::{self, write},
-    format, write,
+    format, matches, write,
 };
 
 use indexmap::IndexMap;
 
+use crate::Ir::stmt::Declaration;
 use crate::{
     Ir::{
         Stmt,
-        expr::{Expr, ExprType},
+        expr::{Expr, ExprType, Lookup},
         r#gen::{FuncData, StructData},
         sem_analysis::*,
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
     },
-    shared::{check_types, is_number, substitute_type, type_name},
+    shared::{check_types, is_number, mangle_method_name, substitute_type, type_name},
     tokenizer::TokenType,
 };
 
@@ -46,6 +47,9 @@ impl fmt::Display for SemanticError {
                 "Struct '{}' has no field named '{}'.",
                 struct_name, field_name
             ),
+            SemanticError::BadType(name) => {
+                write!(f, "Expected type but got '{:?}'", name.token)
+            }
             SemanticError::BreakOutsideOfLoop => {
                 write!(f, "Break outside of loop")
             }
@@ -179,50 +183,17 @@ impl<'a> TypeContext for Analyzer<'a> {
         args: &Vec<Expr>,
         generics: &Vec<Type>,
     ) -> Option<(FuncData, usize)> {
-        if generics.len() > 0 {
-            let vec_func_data = self.get_function(name);
-            if vec_func_data.len() < 1 {
-                return None;
-            }
-            return Some((vec_func_data[0].clone(), 0));
-        }
-
         let vec_func_data = self.get_function(name);
         if vec_func_data.len() < 1 {
             return None;
         }
+
         let precomputed_args: Vec<(&Expr, Type)> = args
             .iter()
             .map(|expr| (expr, expr.get_type(self)))
             .collect();
 
-        let found_overload = vec_func_data.iter().enumerate().find(|(_, func)| {
-            if func.args.len() != precomputed_args.len() {
-                return false;
-            }
-
-            precomputed_args
-                .iter()
-                .enumerate()
-                .all(|(i, (expr, expr_ty))| {
-                    let param_ty = &func.args[i].ty.clone();
-
-                    let (expr_ty_mapped, param_ty_mapped) = {
-                        let map = self.build_generic_map(&func.generic, generics);
-                        let e_ty: Type = self.generic_to_ty(expr_ty, &map);
-                        let p_ty = self.generic_to_ty(param_ty, &map);
-                        (e_ty, p_ty)
-                    };
-
-                    let param_ty_mono = self.ensure_monomorphized(&param_ty_mapped);
-                    let expr_ty_mono = self.ensure_monomorphized(&expr_ty_mapped);
-
-                    match &expr.ty {
-                        ExprType::Number(_) => is_number(&param_ty_mono),
-                        _ => check_types(&expr_ty_mono, &param_ty_mono),
-                    }
-                })
-        });
+        let found_overload = self.find_overload(&vec_func_data, args, generics);
 
         match found_overload {
             Some((overload_pos, func_data)) => Some((func_data.clone(), overload_pos)),
@@ -631,6 +602,57 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn gen_struct_function(&mut self, function: Stmt) {
+        match function.ty {
+            StmtType::InitFunc {
+                name,
+                generic_types,
+                args,
+                ret_type,
+                struct_data,
+                data,
+            } => {
+                let struct_data = struct_data.unwrap();
+                let mangled = mangle_method_name(&struct_data.struct_name, &name);
+
+                let mut full_args = args.clone();
+                if struct_data.is_self {
+                    full_args.insert(
+                        0,
+                        Declaration {
+                            name: "self".to_string(),
+                            ty: Type::Struct(struct_data.struct_name.clone()),
+                            initializer: None,
+                        },
+                    );
+                }
+
+                let func_data = FuncData {
+                    args: full_args.clone(),
+                    generic: Vec::new(),
+                    return_type: ret_type.clone(),
+                };
+                self.functions
+                    .entry(mangled.clone())
+                    .or_insert_with(Vec::new)
+                    .push(func_data);
+
+                self.check_init_func((&mangled, &full_args, &ret_type, &data, &generic_types));
+            }
+            _ => {}
+        }
+    }
+
+    pub fn gen_struct_functions(
+        &mut self,
+        public_functions: &Vec<Stmt>,
+        private_functions: &Vec<Stmt>,
+    ) {
+        for func in public_functions.iter().chain(private_functions.iter()) {
+            self.gen_struct_function(func.clone());
+        }
+    }
+
     pub fn check_init(&mut self, stmt: &Stmt) {
         self.current_file = stmt.file.clone();
         self.line = stmt.line;
@@ -639,6 +661,7 @@ impl<'a> Analyzer<'a> {
                 name,
                 generic_types,
                 args,
+                struct_data,
                 ret_type,
                 data: _,
             } => {
@@ -689,6 +712,7 @@ impl<'a> Analyzer<'a> {
                 self.structs
                     .borrow_mut()
                     .insert(data.name.clone(), struct_data);
+                self.gen_struct_functions(&data.public_functions, &data.private_functions);
             }
             StmtType::InitEnum {
                 name,

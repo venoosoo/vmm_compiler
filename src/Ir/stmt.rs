@@ -78,6 +78,7 @@ pub enum StmtType {
         generic_types: HashMap<String, Type>,
         args: Vec<Declaration>,
         ret_type: Type,
+        struct_data: Option<StructFunctionData>,
         data: Box<Stmt>,
     },
     GenericInitFunc {
@@ -85,6 +86,7 @@ pub enum StmtType {
         generic_types: Vec<String>,
         args: Vec<Declaration>,
         ret_type: Type,
+        struct_data: Option<StructFunctionData>,
         data: Box<Stmt>,
     },
     ExternFn(Box<Stmt>),
@@ -116,6 +118,13 @@ pub struct EnumVariant {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StructFunctionData {
+    pub is_self: bool,
+    pub is_struct: bool,
+    pub struct_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct EnumData {
     pub size: usize,
     pub name: String,
@@ -128,6 +137,8 @@ pub struct StructDef {
     pub name: String,
     pub fields: Vec<StructField>,
     pub generic_type: Vec<String>,
+    pub public_functions: Vec<Stmt>,
+    pub private_functions: Vec<Stmt>,
     pub size: usize,
 }
 

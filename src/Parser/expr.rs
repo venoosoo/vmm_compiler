@@ -201,6 +201,16 @@ impl<'a> Parser<'a> {
                 return expr;
             }
 
+            TokenType::SelfKeyword => {
+                let expr_ty = ExprType::Variable("self".to_string());
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                }
+            }
+
             _ => self::panic!(
                 "Unexpected token in primary expression: {:?}\n{:?}",
                 token.token,
@@ -297,23 +307,33 @@ impl<'a> Parser<'a> {
         loop {
             let kind = self.peek(i).token;
             match kind {
-                TokenType::Less => depth += 1, // Handle nested generics like Map<String, Vector<u8>>
+                TokenType::Less => depth += 1,
                 TokenType::More => {
                     depth -= 1;
                     if depth == 0 {
-                        // We found the closing '>'.
-                        // If the very next token is '(', it's definitely a generic function call!
-                        // (We also check for '{' in case you support generic struct initialization)
                         let next_kind = self.peek(i + 1).token;
                         return next_kind == TokenType::OpenParen
                             || next_kind == TokenType::OpenScope;
                     }
                 }
-                // If we hit a semicolon or EOF before finding '>', it's just a math expression
-                TokenType::Semi => return false,
+               
+                TokenType::Semi
+                | TokenType::OpenScope 
+                | TokenType::CloseScope
+                | TokenType::Match
+                | TokenType::If
+                | TokenType::While
+                | TokenType::For
+                | TokenType::Eq 
+                => return false,
                 _ => {}
             }
             i += 1;
+
+            // Hard safety cap: a real generic arg list won't run this long
+            if i > 20 {
+                return false;
+            }
         }
     }
 
