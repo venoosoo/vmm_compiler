@@ -26,6 +26,7 @@ pub struct Analyzer<'a> {
     pub break_stack: Vec<String>,
     pub contniue_stack: Vec<String>,
     pub generic_func: HashMap<String, Stmt>,
+    pub inside_struct: bool, // needed to check where we call private function
     pub structs: RefCell<HashMap<String, StructData>>,
     pub current_ret_type: Type,
     pub line: usize,
@@ -51,6 +52,7 @@ pub enum SemanticError {
     AlreadyDeclared(String),
     UnkownType(String),
     BreakOutsideOfLoop,
+    PrivateFunctionOutsideCall(String),
     FunctionArgsMismatch {
         func_name: String,
         expected: usize,

@@ -116,6 +116,7 @@ impl Lookup for Gen {
                 vec![FuncData {
                     args: new_args,
                     generic: Vec::new(),
+                    is_private: false,
                     return_type: ret_type,
                 }]
             }
@@ -873,6 +874,7 @@ impl Gen {
                 let res_func_data = FuncData {
                     args: new_args.clone(),
                     generic: Vec::new(),
+                    is_private: false,
                     return_type: ret_type,
                 };
                 self.functions.insert(name.clone(), vec![res_func_data]);

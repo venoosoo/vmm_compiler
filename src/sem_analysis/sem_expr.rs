@@ -121,6 +121,7 @@ impl<'a> Lookup for Analyzer<'a> {
                 vec![FuncData {
                     args: new_args,
                     generic: Vec::new(),
+                    is_private: func_data.is_private,
                     return_type: ret_type,
                 }]
             }
@@ -552,6 +553,7 @@ impl<'a> Analyzer<'a> {
                 let res_func_data = FuncData {
                     args: new_args.clone(),
                     generic: Vec::new(),
+                    is_private: func_data.is_private,
                     return_type: return_ty.clone(),
                 };
                 self.functions.insert(name.clone(), vec![res_func_data]);
@@ -561,6 +563,11 @@ impl<'a> Analyzer<'a> {
                 // TODO: do something here maybe
                 return data[0].return_type.clone();
             }
+        }
+        if func_data.is_private & !self.inside_struct {
+            self.print_error(
+                self.type_to_error(SemanticError::PrivateFunctionOutsideCall(name.clone())),
+            );
         }
         return func_data.return_type;
     }

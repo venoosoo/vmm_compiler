@@ -549,6 +549,7 @@ impl Gen {
                     let func_data = FuncData {
                         args: full_args.clone(),
                         generic: Vec::new(),
+                        is_private: false,
                         return_type: ret_type.clone(),
                     };
                     self.functions
@@ -592,6 +593,7 @@ impl Gen {
                         args: full_args.clone(),
                         generic: generic_types.clone(),
                         return_type: ret_type.clone(),
+                        is_private: false,
                     };
                     self.functions
                         .entry(mangled.clone())
@@ -637,6 +639,7 @@ impl Gen {
                     let func_data = FuncData {
                         args: args.clone(),
                         generic: Vec::new(),
+                        is_private: false,
                         return_type: ret_type.clone(),
                     };
                     if struct_data.is_none() {
@@ -657,6 +660,7 @@ impl Gen {
                     let func_data = FuncData {
                         args: args.clone(),
                         generic: generic_types.clone(),
+                        is_private: false,
                         return_type: ret_type.clone(),
                     };
                     if struct_data.is_none() {
@@ -684,6 +688,7 @@ impl Gen {
                             size: 0, // placeholder
                         },
                     );
+                    self.ensure_struct_sized(&data.name);
                     self.gen_struct_functions(&data.public_functions, &data.private_functions);
                 }
                 StmtType::InitEnum {

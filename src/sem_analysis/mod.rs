@@ -9,7 +9,7 @@ use std::{
 
 use indexmap::IndexMap;
 
-use crate::Ir::stmt::Declaration;
+use crate::Ir::stmt::{Declaration, StructFunctionData};
 use crate::{
     Ir::{
         Stmt,
@@ -127,6 +127,9 @@ impl fmt::Display for SemanticError {
                 "Return type mismatch: expected {:?}, found {:?}.",
                 expected, got
             ),
+            SemanticError::PrivateFunctionOutsideCall(name) => {
+                write!(f, "Private function {} was called outside of struct", name)
+            }
             SemanticError::NotAPointer(ty) => write!(
                 f,
                 "Type {:?} cannot be dereferenced. It is not a pointer.",
@@ -383,6 +386,7 @@ impl<'a> Analyzer<'a> {
             functions: HashMap::new(),
             computing: RefCell::new(HashSet::new()),
             break_stack: Vec::new(),
+            inside_struct: false,
             contniue_stack: Vec::new(),
             structs: RefCell::new(HashMap::new()),
             current_file: String::new(),
@@ -602,7 +606,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn gen_struct_function(&mut self, function: Stmt) {
+    fn check_struct_function(&mut self, function: Stmt, is_private: bool) {
         match function.ty {
             StmtType::InitFunc {
                 name,
@@ -630,6 +634,7 @@ impl<'a> Analyzer<'a> {
                 let func_data = FuncData {
                     args: full_args.clone(),
                     generic: Vec::new(),
+                    is_private,
                     return_type: ret_type.clone(),
                 };
                 self.functions
@@ -643,14 +648,112 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn gen_struct_functions(
+    fn register_func_data(
+        &mut self,
+        name: &String,
+        args: &Vec<Declaration>,
+        ret_type: &Type,
+        generic: Option<&Vec<String>>,
+        struct_data: &Option<StructFunctionData>,
+        is_private: bool,
+    ) -> String {
+        let registered_name = if let Some(sd) = struct_data {
+            mangle_method_name(&sd.struct_name, name)
+        } else {
+            name.clone()
+        };
+
+        let generic = {
+            if generic.is_some() {
+                generic.unwrap()
+            } else {
+                &Vec::new()
+            }
+        };
+
+        let mut full_args = args.clone();
+        if let Some(sd) = struct_data {
+            if sd.is_self {
+                full_args.insert(
+                    0,
+                    Declaration {
+                        name: "self".to_string(),
+                        ty: Type::Struct(sd.struct_name.clone()),
+                        initializer: None,
+                    },
+                );
+            }
+        }
+
+        let func_data = FuncData {
+            args: full_args,
+            generic: generic.to_vec(),
+            is_private,
+            return_type: ret_type.clone(),
+        };
+
+        self.functions
+            .entry(registered_name.clone())
+            .or_insert_with(Vec::new)
+            .push(func_data);
+
+        registered_name
+    }
+
+    fn register_struct_func_signature(&mut self, func: &Stmt, is_private: bool) {
+        match &func.ty {
+            StmtType::GenericInitFunc {
+                name,
+                generic_types,
+                args,
+                struct_data,
+                ret_type,
+                ..
+            } => {
+                let registered_name = self.register_func_data(
+                    name,
+                    args,
+                    ret_type,
+                    Some(generic_types),
+                    struct_data,
+                    is_private,
+                );
+                self.generic_func.insert(registered_name, func.clone());
+            }
+            StmtType::InitFunc {
+                name,
+                args,
+                ret_type,
+                struct_data,
+                ..
+            } => {
+                self.register_func_data(name, args, ret_type, None, struct_data, is_private);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn check_struct_functions(
         &mut self,
         public_functions: &Vec<Stmt>,
         private_functions: &Vec<Stmt>,
     ) {
-        for func in public_functions.iter().chain(private_functions.iter()) {
-            self.gen_struct_function(func.clone());
+        self.inside_struct = true;
+
+        for (funcs, is_private) in [(public_functions, false), (private_functions, true)] {
+            for func in funcs {
+                self.register_struct_func_signature(func, is_private);
+            }
         }
+
+        for func in public_functions {
+            self.check_struct_function(func.clone(), false);
+        }
+        for func in private_functions {
+            self.check_struct_function(func.clone(), true);
+        }
+
+        self.inside_struct = false;
     }
 
     pub fn check_init(&mut self, stmt: &Stmt) {
@@ -665,32 +768,24 @@ impl<'a> Analyzer<'a> {
                 ret_type,
                 data: _,
             } => {
-                let func_data = FuncData {
-                    args: args.clone(),
-                    generic: generic_types.clone(),
-                    return_type: ret_type.clone(),
-                };
-                self.functions
-                    .entry(name.clone())
-                    .or_insert_with(Vec::new)
-                    .push(func_data);
+                self.register_func_data(
+                    name,
+                    args,
+                    ret_type,
+                    Some(generic_types),
+                    struct_data,
+                    false,
+                );
                 self.generic_func.insert(name.clone(), stmt.clone());
             }
             StmtType::InitFunc {
                 name,
                 args,
                 ret_type,
+                struct_data,
                 ..
             } => {
-                let func_data = FuncData {
-                    args: args.clone(),
-                    generic: Vec::new(),
-                    return_type: ret_type.clone(),
-                };
-                self.functions
-                    .entry(name.clone())
-                    .or_insert_with(Vec::new)
-                    .push(func_data);
+                self.register_func_data(name, args, ret_type, None, struct_data, false);
             }
             StmtType::ExternFn(data) => {
                 self.check_init(data);
@@ -712,7 +807,8 @@ impl<'a> Analyzer<'a> {
                 self.structs
                     .borrow_mut()
                     .insert(data.name.clone(), struct_data);
-                self.gen_struct_functions(&data.public_functions, &data.private_functions);
+
+                self.check_struct_functions(&data.public_functions, &data.private_functions);
             }
             StmtType::InitEnum {
                 name,
@@ -800,7 +896,6 @@ impl<'a> Analyzer<'a> {
 
     pub fn check_code(&mut self) {
         self.reg_inits(self.stmts);
-        // checking of every stmt
         for i in self.stmts.iter() {
             self.check_stmt(i);
         }

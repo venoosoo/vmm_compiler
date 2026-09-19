@@ -48,6 +48,7 @@ pub struct FuncData {
     pub args: Vec<Declaration>,
     pub generic: Vec<String>,
     pub return_type: Type,
+    pub is_private: bool,
 }
 
 #[derive(Debug, Clone)]

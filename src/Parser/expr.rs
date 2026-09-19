@@ -316,16 +316,15 @@ impl<'a> Parser<'a> {
                             || next_kind == TokenType::OpenScope;
                     }
                 }
-               
+
                 TokenType::Semi
-                | TokenType::OpenScope 
+                | TokenType::OpenScope
                 | TokenType::CloseScope
                 | TokenType::Match
                 | TokenType::If
                 | TokenType::While
                 | TokenType::For
-                | TokenType::Eq 
-                => return false,
+                | TokenType::Eq => return false,
                 _ => {}
             }
             i += 1;

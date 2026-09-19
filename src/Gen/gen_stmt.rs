@@ -1060,6 +1060,7 @@ impl Gen {
                 let extern_func_data = FuncData {
                     args: args.to_vec(),
                     generic: Vec::new(),
+                    is_private: false,
                     return_type: ret_type.clone(),
                 };
                 self.emit(format!("extern {}", name));
