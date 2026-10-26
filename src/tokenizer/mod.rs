@@ -68,6 +68,7 @@ pub enum TokenType {
     LeftShift,
     RightShift,
     ExternFn,
+    Module,
     Semi,
 }
 #[derive(Clone, Debug)]
@@ -185,6 +186,7 @@ impl Tokenizer {
                     "fn" => self.push_token(TokenType::Func, None),
                     "import" => self.push_token(TokenType::Import, None),
                     "global" => self.push_token(TokenType::Global, None),
+                    "module" => self.push_token(TokenType::Module, None),
                     "sizeof" => self.push_token(TokenType::SizeOf, None),
                     "break" => self.push_token(TokenType::Break, None),
                     "continue" => self.push_token(TokenType::Continue, None),

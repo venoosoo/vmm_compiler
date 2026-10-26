@@ -61,7 +61,10 @@ pub enum StmtType {
         condition: Expr,
         body: Box<Stmt>,
     },
-
+    Module {
+        name: String,
+        code: Box<Stmt>,
+    },
     For {
         init: Option<Box<Stmt>>,
         condition: Option<Expr>,

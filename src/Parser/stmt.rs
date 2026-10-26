@@ -3,8 +3,9 @@ use crate::Ir::expr::{Expr, ExprType};
 use crate::Ir::sem_analysis::Error;
 use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::*;
-use crate::shared::type_name;
+use crate::shared::{transform_module_name, type_name};
 use crate::tokenizer;
+use crate::tokenizer::TokenType::Module;
 use core::panic;
 use std::fs::File;
 use std::io::Read;
@@ -17,6 +18,7 @@ impl<'a> Parser<'a> {
         self.line = token.line;
         self.col = token.col;
         match token.token {
+            TokenType::Module => return self.parse_module(),
             TokenType::If => return self.parse_if(),
             TokenType::While => return self.parse_while(),
             TokenType::For => return self.parse_for(),
@@ -146,6 +148,30 @@ impl<'a> Parser<'a> {
             let left = self.parse_expr();
             return MatchLeftValue::Expr { expr: left };
         }
+    }
+
+    fn parse_module(&mut self) -> Option<Stmt> {
+        self.expect(TokenType::Module);
+        let mut names = Vec::new();
+        loop {
+            if self.peek(0).token == TokenType::Dot {
+                self.expect(TokenType::Dot);
+            }
+            let name = self.consume().value.unwrap();
+            names.push(name);
+
+            if self.peek(0).token != TokenType::Dot {
+                break;
+            }
+        }
+        let code = self.parse_scope().expect(&format!(
+            "in module {:?} no block of code",
+            transform_module_name(&names)
+        ));
+        return Some(self.type_to_stmt(StmtType::Module {
+            name: transform_module_name(&names),
+            code: Box::new(code),
+        }));
     }
 
     fn parse_match(&mut self) -> Option<Stmt> {
@@ -469,32 +495,43 @@ impl<'a> Parser<'a> {
         self.current_file = canonical_str.clone();
         self.imported_files.insert(canonical_str);
         let mut file = File::open(&full_path).unwrap();
-
+        
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
 
         let mut tokenizer =
             tokenizer::Tokenizer::new(content, full_path.to_str().unwrap().to_string());
         tokenizer.tokenize();
-
+        
         let mut parser = Parser::new(
             tokenizer.m_res,
             self.base_dir.clone(),
             self.imported_files,
             self.current_file.clone(),
         );
+        
         parser.types.extend(self.types.clone());
         parser.struct_table.extend(self.struct_table.clone());
         parser.enums_table.extend(self.enums_table.clone());
         parser.base_dir = full_path.parent().unwrap().to_path_buf();
         let imported_stmts: Vec<Stmt> = parser.parse();
+        
+        for stmt in imported_stmts {
+            if matches!(
+                &stmt.ty,
+                StmtType::Module { .. }
+                    | StmtType::ExternFn(_)
+                    | StmtType::InitStruct(_)
+                    | StmtType::InitEnum { .. }
+                    | StmtType::GlobalDecl(_)
+            ) {
+                self.expressions.push(stmt);
+            }
+        }
         self.types.extend(parser.types);
         self.struct_table.extend(parser.struct_table);
         self.enums_table.extend(parser.enums_table);
 
-        for stmt in imported_stmts {
-            self.expressions.push(stmt);
-        }
         self.current_file = saved;
     }
 

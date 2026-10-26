@@ -770,6 +770,25 @@ impl Gen {
         return space_taken;
     }
 
+    pub fn resolve_function_name(
+        &self,
+        name: &str,
+    ) -> Option<String> {
+        if let Some(module) = &self.current_module {
+            let qualified = format!("{module}__{name}");
+    
+            if self.functions.contains_key(&qualified) {
+                return Some(qualified);
+            }
+        }
+    
+        if self.functions.contains_key(name) {
+            return Some(name.to_string());
+        }
+    
+        None
+    }
+
     fn gen_call(
         &mut self,
         name: &String,
@@ -780,7 +799,7 @@ impl Gen {
         expected_type: &Type,
     ) -> String {
         let args = args.clone();
-        let mut name = name.clone();
+        let mut name = self.resolve_function_name(name).unwrap();
         let mut generic_copy = generics.clone();
         let mut is_rvo = false; // return value optimization
         let map_copy = self.generics.borrow().clone();

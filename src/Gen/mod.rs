@@ -11,7 +11,8 @@ use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{EnumData, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
 use crate::shared::{
-    check_types, is_number, substitute_type, to_base_reg, transform_generic_name, type_name,
+    check_module_name, check_types, is_number, substitute_type, to_base_reg,
+    transform_generic_name, type_name,
 };
 use crate::tokenizer::TokenType;
 
@@ -27,6 +28,7 @@ impl TypeContext for Gen {
         args: &Vec<Expr>,
         generics: &Vec<Type>,
     ) -> Option<(FuncData, usize)> {
+        let name = &self.resolve_function_name(name).unwrap();
         let vec_func_data = self.functions.get(name).unwrap().clone();
         if generics.len() > 0 {
             let (overload_pos, func_data) = self
@@ -253,6 +255,7 @@ impl Gen {
             structs: RefCell::new(HashMap::new()),
             functions: HashMap::new(),
             out: String::new(),
+            current_module: None,
             generics: RefCell::new(HashMap::new()),
             highest_stack_pos: 0,
             bss_code: Vec::new(),
@@ -508,6 +511,14 @@ impl Gen {
     pub fn reg_inits(&mut self, stmt: &Vec<Stmt>) {
         for i in stmt.iter() {
             match &i.ty {
+                StmtType::Module { name, code } => {
+                    // the nested modules are not allowed
+                    self.current_module = Some(name.clone());
+                    if let StmtType::Block(stmts) = &code.ty {
+                        self.reg_inits(stmts);
+                    }
+                    self.current_module = None;
+                }
                 StmtType::InitFunc {
                     name,
                     args,
@@ -520,6 +531,7 @@ impl Gen {
                         generic: Vec::new(),
                         return_type: ret_type.clone(),
                     };
+                    let name = check_module_name(&self.current_module, name);
                     self.functions
                         .entry(name.clone())
                         .or_insert_with(Vec::new)
@@ -537,6 +549,7 @@ impl Gen {
                         generic: generic_types.clone(),
                         return_type: ret_type.clone(),
                     };
+                    let name = check_module_name(&self.current_module, name);
                     self.functions
                         .entry(name.clone())
                         .or_insert_with(Vec::new)
@@ -680,7 +693,6 @@ impl Gen {
             panic!("recursive enum without indirection: {}", name);
         }
         self.computing.borrow_mut().insert(name.to_string());
-
         let raw_variants: HashMap<String, EnumVariant> =
             self.enums.borrow().get(name).unwrap().variants.clone();
 

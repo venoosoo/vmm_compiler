@@ -10,7 +10,7 @@ use crate::{
         sem_analysis::{Analyzer, SemanticError},
         stmt::{Declaration, LValue, MatchField, MatchLeftValue, StructDef, Type},
     },
-    shared::lvalue_root,
+    shared::{check_module_name, lvalue_root},
     tokenizer::TokenType,
 };
 
@@ -196,9 +196,10 @@ impl<'a> Analyzer<'a> {
         ),
     ) {
         let (name, args, ret_type, body, _generic_types) = data;
-
-        if self.functions.get(name).is_none() {
+        let name = check_module_name(&self.current_module, name);
+        if self.functions.get(&name).is_none() {
             println!("something strange inside check_init_func");
+            
         }
 
         // save outer scopes FIRST before adding any args
@@ -316,10 +317,17 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    pub fn check_module(&mut self, name: &String, code: &Box<Stmt>) {
+        self.current_module = Some(name.clone());
+        self.check_stmt(code);
+        self.current_module = None;
+    }
+
     pub fn check_stmt(&mut self, stmt: &Stmt) {
         self.line = stmt.line;
         self.current_file = stmt.file.clone();
         match &stmt.ty {
+            StmtType::Module { name, code } => self.check_module(name, code),
             StmtType::Break => self.check_break(),
             StmtType::Continue => self.check_contniue(),
             StmtType::Block(data) => self.check_block(data),

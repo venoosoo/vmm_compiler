@@ -17,9 +17,7 @@ use crate::{
         sem_analysis::*,
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
-    },
-    shared::{check_types, is_number, substitute_type, type_name},
-    tokenizer::TokenType,
+    }, shared::{check_module_name, check_types, is_number, substitute_type, type_name}, tokenizer::TokenType,
 };
 
 pub mod sem_expr;
@@ -417,6 +415,7 @@ impl<'a> Analyzer<'a> {
             current_file: String::new(),
             line: 0,
             col: 0,
+            current_module: None,
             global_vars: HashMap::new(),
             enums: RefCell::new(HashMap::new()),
             generic_func: HashMap::new(),
@@ -635,6 +634,13 @@ impl<'a> Analyzer<'a> {
         self.current_file = stmt.file.clone();
         self.line = stmt.line;
         match &stmt.ty {
+            StmtType::Module { name, code } => {
+                self.current_module = Some(name.clone());
+                if let StmtType::Block(stmts) = &code.ty {
+                    self.reg_inits(stmts);
+                }
+                self.current_module = None;
+            }
             StmtType::GenericInitFunc {
                 name,
                 generic_types,
@@ -647,6 +653,7 @@ impl<'a> Analyzer<'a> {
                     generic: generic_types.clone(),
                     return_type: ret_type.clone(),
                 };
+                let name = check_module_name(&self.current_module, name);
                 self.functions
                     .entry(name.clone())
                     .or_insert_with(Vec::new)
@@ -664,6 +671,7 @@ impl<'a> Analyzer<'a> {
                     generic: Vec::new(),
                     return_type: ret_type.clone(),
                 };
+                let name = check_module_name(&self.current_module, name);
                 self.functions
                     .entry(name.clone())
                     .or_insert_with(Vec::new)

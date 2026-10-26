@@ -36,6 +36,7 @@ pub struct Gen {
     pub func_header: String,
     pub func_data: String,
     pub func_out: String,
+    pub current_module: Option<String>,
     pub bss_code: Vec<String>,
     pub structs: RefCell<HashMap<String, StructData>>,
     pub functions: HashMap<String, Vec<FuncData>>,

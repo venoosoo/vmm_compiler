@@ -22,6 +22,7 @@ pub struct Analyzer<'a> {
     pub enums: RefCell<HashMap<String, EnumData>>,
     pub break_stack: Vec<String>,
     pub contniue_stack: Vec<String>,
+    pub current_module: Option<String>,
     pub generic_func: HashMap<String, Stmt>,
     pub structs: RefCell<HashMap<String, StructData>>,
     pub current_ret_type: Type,

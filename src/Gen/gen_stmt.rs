@@ -661,6 +661,7 @@ impl Gen {
         let saved_highest_stack_pos = self.highest_stack_pos;
         self.highest_stack_pos = 0;
         let (name, args, ret_type, body, generics) = data;
+        let name = &check_module_name(&self.current_module, name);
         let ret_type = &self.ensure_monomorphized(ret_type);
         let ret_type = &self.resolve_type_with_map(ret_type, generics, 0);
         self.current_return_type = ret_type.clone();
@@ -1078,8 +1079,15 @@ impl Gen {
         self.emit_func_data(format!("    jmp {}", path));
     }
 
+    fn gen_module(&mut self, name: &String, code: &Box<Stmt>) {
+        self.current_module = Some(name.clone());
+        self.gen_stmt(code);
+        self.current_module = None;
+    }
+
     pub fn gen_stmt(&mut self, stmt: &Stmt) {
         match &stmt.ty {
+            StmtType::Module { name, code } => self.gen_module(name, code),
             StmtType::Break => self.gen_break(),
             StmtType::Continue => self.gen_contniue(),
             StmtType::Block(v) => self.gen_block(v),

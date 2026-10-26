@@ -2,7 +2,7 @@ use std::dbg;
 
 use super::*;
 
-use crate::Ir::expr::*;
+use crate::{Ir::expr::*, shared::transform_module_name};
 
 impl<'a> Parser<'a> {
     fn parse_struct_expr(&mut self, struct_name: &String) -> Expr {
@@ -317,6 +317,41 @@ impl<'a> Parser<'a> {
         }
     }
 
+
+    fn parse_struct_member(&mut self, expr: Expr) -> Expr {
+        let name = self.consume().value.unwrap();
+    
+        Expr {
+            ty: ExprType::StructMember {
+                base: Box::new(expr),
+                name,
+            },
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
+        }
+    }
+
+    fn parse_module_call(&mut self, expr: Expr) -> Expr {
+        let mut names = match &expr.ty {
+            ExprType::Variable(name) => vec![name.clone()],
+            _ => panic!("Expected a module name"),
+        };
+    
+        // The first dot was already consumed by the caller.
+        names.push(self.consume().value.unwrap());
+    
+        while self.peek(0).token == TokenType::Dot {
+            self.expect(TokenType::Dot);
+            names.push(self.consume().value.unwrap());
+        }
+    
+        let name = transform_module_name(&names);
+        let mut new_expr = expr;
+        new_expr.ty = ExprType::Variable(name);
+        return new_expr;
+    }
+
     fn parse_enum_expr_field(&mut self) -> EnumExprField {
         let name = self.consume().value.unwrap();
         self.expect(TokenType::Colon);
@@ -367,53 +402,16 @@ impl<'a> Parser<'a> {
 
                 TokenType::Dot => {
                     self.expect(TokenType::Dot);
-                    if self.peek(1).token == TokenType::OpenParen
-                        || self.peek(1).token == TokenType::Less
-                    {
-                        // vec.vector_push(5) syntax
-                        let name_ident = self.parse_primary(); // just consumes the function name token
-
-                        let call = if self.peek(0).token == TokenType::Less {
-                            self.parse_generic_call(name_ident)
-                        } else {
-                            self.parse_call(name_ident)
-                        };
-
-                        match call.ty {
-                            ExprType::Call {
-                                name,
-                                generics,
-                                args,
-                            } => {
-                                let mut new_args = args.clone();
-                                new_args.insert(0, expr);
-                                let expr_ty = ExprType::Call {
-                                    generics: generics,
-                                    name: name,
-                                    args: new_args,
-                                };
-                                expr = Expr {
-                                    ty: expr_ty,
-                                    file: self.current_file.clone(),
-                                    line: self.line,
-                                    col: self.col,
-                                };
-                            }
-                            _ => self::panic!(""),
-                        }
+                
+                    if self.peek(1).token == TokenType::Dot {
+                        // std.io.print()
+                        expr = self.parse_module_call(expr);
+                    } else if self.peek(1).token == TokenType::OpenParen {
+                        // std.println()
+                        expr = self.parse_module_call(expr);
                     } else {
-                        // vector_push(vec,5) syntax
-                        let name = self.consume().value.unwrap();
-                        let expr_ty = ExprType::StructMember {
-                            base: Box::new(expr),
-                            name: name,
-                        };
-                        expr = Expr {
-                            ty: expr_ty,
-                            file: self.current_file.clone(),
-                            line: self.line,
-                            col: self.col,
-                        };
+                        // vec.length
+                        expr = self.parse_struct_member(expr);
                     }
                 }
 

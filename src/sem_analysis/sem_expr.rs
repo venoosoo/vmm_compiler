@@ -474,6 +474,23 @@ impl<'a> Analyzer<'a> {
             .collect()
     }
 
+    pub fn resolve_function_name(
+        &self,
+        name: &str,
+    ) -> Option<String> {
+        if let Some(module) = &self.current_module {
+            let qualified = format!("{module}__{name}");
+            if self.functions.contains_key(&qualified) {
+                return Some(qualified);
+            }
+        }
+        if self.functions.contains_key(name) {
+            return Some(name.to_string());
+        }
+    
+        None
+    }
+
     fn check_call(
         &mut self,
         name: &String,
@@ -481,6 +498,7 @@ impl<'a> Analyzer<'a> {
         _expected_ty: &Type,
         generics: &Vec<Type>,
     ) -> Type {
+        let name = &self.resolve_function_name(name).unwrap();
         let (func_data, _func_index) = {
             let data = self.resolve_call(name, args, generics);
             if data.is_none() {

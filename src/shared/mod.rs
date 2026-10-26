@@ -414,3 +414,19 @@ pub fn transform_generic_name(name: &String, generics: &Vec<Type>, overload_pos:
         mangled
     }
 }
+
+pub fn transform_module_name(module_name: &[String]) -> String {
+    module_name.join("__")
+}
+
+pub fn gen_module_func_name(module_name: &String, function_name: &String) -> String {
+    format!("{}__{}", module_name, function_name)
+}
+
+pub fn check_module_name(current_module: &Option<String>, name: &String) -> String {
+    if let Some(module_name) = current_module {
+        gen_module_func_name(&module_name, name)
+    } else {
+        name.clone()
+    }
+}
