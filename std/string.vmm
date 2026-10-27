@@ -7,312 +7,315 @@ struct String {
     i64 capacity;
 }
 
-fn to_string(u8* str) -> u8* {
-    return str;
-}
-
-fn to_string(String* str) -> u8* {
-    return str->data;
-}
-
-fn to_string(String str) -> u8* {
-    return str.data;
-}
-
-fn to_string(u64 num) -> u8* {
-    u8* str = malloc(32) as u8*;
-    
-    if num == 0 {
-        str[0] = 48;
-        str[1] = 0;
+module string {
+    fn to_string(u8* str) -> u8* {
         return str;
     }
     
-    i64 len = 0;
-
-    while num > 0 {
-        u64 rem = num % 10;
-        str[len] = (rem as u8) + 48;
-        num = num / 10;
-        len = len + 1;
+    fn to_string(String* str) -> u8* {
+        return str->data;
     }
     
-    str[len] = 0;
+    fn to_string(String str) -> u8* {
+        return str.data;
+    }
     
-    i64 start = 0;
-    i64 end = len - 1;
-    
-    while start < end {
-        u8 temp = str[start];
-        str[start] = str[end];
-        str[end] = temp;
+    fn to_string(u64 num) -> u8* {
+        u8* str = malloc(32) as u8*;
         
-        start = start + 1;
-        end = end - 1;
-    }
-    
-    return str;
-}
-
-fn to_string(i64 num) -> u8* {
-    u8* str = malloc(32) as u8*;
-    
-    if num == 0 {
-        str[0] = 48;
-        str[1] = 0;
-        return str;
-    }
-    
-    i64 is_negative = 0;
-    if num < 0 {
-        is_negative = 1;
-        num = 0 - num;
-    }
-    
-    i64 len = 0;
-    
-    while num > 0 {
-        i64 rem = num % 10;
-        str[len] = (rem as u8) + 48;
-        num = num / 10;
-        len = len + 1;
-    }
-    
-    if is_negative > 0 {
-        str[len] = 45;
-        len = len + 1;
-    }
-    
-    str[len] = 0;
-    
-    i64 start = 0;
-    i64 end = len - 1;
-    
-    while start < end {
-        // Swap the bytes
-        u8 temp = str[start];
-        str[start] = str[end];
-        str[end] = temp;
+        if num == 0 {
+            str[0] = 48;
+            str[1] = 0;
+            return str;
+        }
         
-        // Move pointers inward
-        start = start + 1;
-        end = end - 1;
-    }
+        i64 len = 0;
     
-    return str;
-}
-
-fn string_new() -> String* {
-
-    String* str = malloc(sizeof(String));
-    u8* str_data = malloc(16);
-    str->data = str_data;
-    str->length = 0;
-    str->capacity = 16;
-    return str;
-}
-
-fn string_neww() -> String {
-    u8* str_data = malloc(16);
-    String str = String {
-        data: str_data,
-        length: 0,
-        capacity: 16,
-    };
-    return str;
-
-}
-
-fn string_from(u8* c_str) -> String* {
-    String* s = malloc(sizeof(String)) ;
-    
-    s->length = strlen(c_str);
-    s->capacity = s->length + 1;
-    
-    s->data = malloc(s->capacity) as u8*;
-    
-    memcpy(s->data as void*, c_str as void*, s->length + 1);
-    
-    return s;
-}
-
-fn split(u8* str, u8 delim) -> Vector<u8*>* {
-    Vector<u8*>* words = create_vector<u8*>();
-    
-    u64 i = 0;
-    u8* current_word = str;
-    
-    while str[i] != 0 {
-        if str[i] == delim {
-            u64 len = (str as u64 + i) - (current_word as u64);
+        while num > 0 {
+            u64 rem = num % 10;
+            str[len] = (rem as u8) + 48;
+            num = num / 10;
+            len = len + 1;
+        }
+        
+        str[len] = 0;
+        
+        i64 start = 0;
+        i64 end = len - 1;
+        
+        while start < end {
+            u8 temp = str[start];
+            str[start] = str[end];
+            str[end] = temp;
             
-            if len > 0 and current_word[0] != 10 {
-                u8* new_word = malloc((len + 1) as i64) as u8*;
+            start = start + 1;
+            end = end - 1;
+        }
+        
+        return str;
+    }
+    
+    fn to_string(i64 num) -> u8* {
+        u8* str = malloc(32) as u8*;
+        
+        if num == 0 {
+            str[0] = 48;
+            str[1] = 0;
+            return str;
+        }
+        
+        i64 is_negative = 0;
+        if num < 0 {
+            is_negative = 1;
+            num = 0 - num;
+        }
+        
+        i64 len = 0;
+        
+        while num > 0 {
+            i64 rem = num % 10;
+            str[len] = (rem as u8) + 48;
+            num = num / 10;
+            len = len + 1;
+        }
+        
+        if is_negative > 0 {
+            str[len] = 45;
+            len = len + 1;
+        }
+        
+        str[len] = 0;
+        
+        i64 start = 0;
+        i64 end = len - 1;
+        
+        while start < end {
+            // Swap the bytes
+            u8 temp = str[start];
+            str[start] = str[end];
+            str[end] = temp;
+            
+            // Move pointers inward
+            start = start + 1;
+            end = end - 1;
+        }
+        
+        return str;
+    }
+    
+    fn string_new() -> String* {
+    
+        String* str = malloc(sizeof(String));
+        u8* str_data = malloc(16);
+        str->data = str_data;
+        str->length = 0;
+        str->capacity = 16;
+        return str;
+    }
+    
+    fn string_neww() -> String {
+        u8* str_data = malloc(16);
+        String str = String {
+            data: str_data,
+            length: 0,
+            capacity: 16,
+        };
+        return str;
+    
+    }
+    
+    fn string_from(u8* c_str) -> String* {
+        String* s = malloc(sizeof(String)) ;
+        
+        s->length = strlen(c_str);
+        s->capacity = s->length + 1;
+        
+        s->data = malloc(s->capacity) as u8*;
+        
+        memcpy(s->data as void*, c_str as void*, s->length + 1);
+        
+        return s;
+    }
+    
+    fn split(u8* str, u8 delim) -> Vector<u8*>* {
+        Vector<u8*>* words = create_vector<u8*>();
+        
+        u64 i = 0;
+        u8* current_word = str;
+        
+        while str[i] != 0 {
+            if str[i] == delim {
+                u64 len = (str as u64 + i) - (current_word as u64);
                 
-                u64 j = 0;
-                while j < len {
-                    new_word[j] = current_word[j];
-                    j = j + 1;
+                if len > 0 and current_word[0] != 10 {
+                    u8* new_word = malloc((len + 1) as i64) as u8*;
+                    
+                    u64 j = 0;
+                    while j < len {
+                        new_word[j] = current_word[j];
+                        j = j + 1;
+                    }
+                    
+                    new_word[len] = 0 as u8; 
+                    
+                    vector_push<u8*>(words, new_word);
                 }
                 
-                new_word[len] = 0 as u8; 
-                
-                vector_push<u8*>(words, new_word);
+                current_word = (str as u64 + i + 1) as u8*;
+            }
+            i = i + 1;
+        }
+        
+        u64 last_len = 0;
+        while current_word[last_len] != 0 {
+            last_len = last_len + 1;
+        }
+        
+        if last_len > 0 and current_word[0] != 10 {
+            u8* new_word = malloc((last_len + 1) as i64) as u8*;
+            
+            u64 j = 0;
+            while j < last_len {
+                new_word[j] = current_word[j];
+                j = j + 1;
+            }
+            new_word[last_len] = 0 as u8;
+            
+            vector_push<u8*>(words, new_word);
+        }
+        
+        return words;
+    }
+    
+    
+    fn get_file_name(u8* file_path) -> u8* {
+    
+        Vector<u8*>* div = split(file_path, '/');
+    
+        if div->length == 0 {
+            return file_path;
+        }
+    
+        u8* name = vec_get_element<u8*>(div,div->length - 1);
+        Vector<u8*>* file_name = split(name, '.');
+        return vec_get_element<u8*>(file_name,0);
+    
+    }
+    
+    
+    fn strcmp(String* left, String* right) -> u8 {
+        if left->length != right->length {
+            return 0; 
+        }
+    
+        u64 i = 0;
+        u8* l_data = left->data;
+        u8* r_data = right->data;
+        u64 len = left->length as u64;
+    
+        while i < len {
+            u8 l_char = l_data[i];
+            u8 r_char = r_data[i];
+            
+            if l_char != r_char {
+                return 0;
             }
             
-            current_word = (str as u64 + i + 1) as u8*;
+            i = i + 1;
         }
-        i = i + 1;
+    
+        return 1;
     }
     
-    u64 last_len = 0;
-    while current_word[last_len] != 0 {
-        last_len = last_len + 1;
-    }
-    
-    if last_len > 0 and current_word[0] != 10 {
-        u8* new_word = malloc((last_len + 1) as i64) as u8*;
-        
-        u64 j = 0;
-        while j < last_len {
-            new_word[j] = current_word[j];
-            j = j + 1;
+    fn strlen(u8* str) -> i64 {
+        i64 i = 0;
+        while str[i] != 0 {
+            i = i + 1;
         }
-        new_word[last_len] = 0 as u8;
-        
-        vector_push<u8*>(words, new_word);
+        return i;
     }
     
-    return words;
-}
-
-
-fn get_file_name(u8* file_path) -> u8* {
-
-    Vector<u8*>* div = split(file_path, '/');
-
-    if div->length == 0 {
-        return file_path;
-    }
-
-    u8* name = vec_get_element<u8*>(div,div->length - 1);
-    Vector<u8*>* file_name = split(name, '.');
-    return vec_get_element<u8*>(file_name,0);
-
-}
-
-
-fn strcmp(String* left, String* right) -> u8 {
-    if left->length != right->length {
-        return 0; 
-    }
-
-    u64 i = 0;
-    u8* l_data = left->data;
-    u8* r_data = right->data;
-    u64 len = left->length as u64;
-
-    while i < len {
-        u8 l_char = l_data[i];
-        u8 r_char = r_data[i];
+    fn strcmp(u8* left, u8* right) -> u8 {
         
-        if l_char != r_char {
+        if left == 0 or right == 0 {
+            return 0; 
+        }
+    
+        u64 i = 0;
+        
+        // 3. Normal comparison (safe to dereference now)
+        while left[i] != 0 {
+            if left[i] != right[i] {
+                return 0;
+            }
+            i = i + 1;
+        }
+        
+        if right[i] != 0 {
             return 0;
         }
         
-        i = i + 1;
+        return 1;
     }
-
-    return 1;
-}
-
-fn strlen(u8* str) -> i64 {
-    i64 i = 0;
-    while str[i] != 0 {
-        i = i + 1;
-    }
-    return i;
-}
-
-fn strcmp(u8* left, u8* right) -> u8 {
     
-    if left == 0 or right == 0 {
-        return 0; 
-    }
-
-    u64 i = 0;
+    fn string_free(String* s) {
     
-    // 3. Normal comparison (safe to dereference now)
-    while left[i] != 0 {
-        if left[i] != right[i] {
-            return 0;
+        free(s->data as void*);
+        free(s as void*);
+    
+    }
+    
+    fn string_realloc(String* s) {
+        u8* str_data = malloc(s->capacity * 2);
+        memcpy(str_data as void*, s->data as void*, s->capacity);
+        free(s->data as void*);
+        s->data = str_data;
+        s->capacity = s->capacity * 2;
+    }
+    
+    fn string_push(String* s, u8 c) {
+        i64 length = s->length;
+        if length + 1 > s->capacity {
+            string_realloc(s);
         }
-        i = i + 1;
+        s->data[length] = c;
+        s->length = length + 1;
     }
     
-    if right[i] != 0 {
-        return 0;
+    fn string_push(String s, u8 c) {
+        string_push(&s,c);
     }
     
-    return 1;
-}
-
-fn string_free(String* s) {
-
-    free(s->data as void*);
-    free(s as void*);
-
-}
-
-fn string_realloc(String* s) {
-    u8* str_data = malloc(s->capacity * 2);
-    memcpy(str_data as void*, s->data as void*, s->capacity);
-    free(s->data as void*);
-    s->data = str_data;
-    s->capacity = s->capacity * 2;
-}
-
-fn string_push(String* s, u8 c) {
-    i64 length = s->length;
-    if length + 1 > s->capacity {
-        string_realloc(s);
-    }
-    s->data[length] = c;
-    s->length = length + 1;
-}
-
-fn string_push(String s, u8 c) {
-    string_push(&s,c);
-}
-
-
-fn string_concat(String* dest, String* src) {
-    while dest->length + src->length > dest->capacity {
-        string_realloc(dest);
-    }
-    memcpy((dest->data + dest->length) as void*, src->data as void*, src->length + 1);
-    dest->length = dest->length + src->length;
     
-}
-
-fn string_clear(String* s) {
-    s->length = 0;
-}
-
-
-fn print(String* str) {
-    for (i64 i = 0; i < str->length; i = i + 1) {
-        print_char(str->data[i]);
+    fn string_concat(String* dest, String* src) {
+        while dest->length + src->length > dest->capacity {
+            string_realloc(dest);
+        }
+        memcpy((dest->data + dest->length) as void*, src->data as void*, src->length + 1);
+        dest->length = dest->length + src->length;
+        
     }
-}
+    
+    fn string_clear(String* s) {
+        s->length = 0;
+    }
+    
+    
+    fn print(String* str) {
+        for (i64 i = 0; i < str->length; i = i + 1) {
+            print_char(str->data[i]);
+        }
+    }
+    
+    fn println(String* str) {
+        print(str);
+        print_newline();
+    
+    }
+    
+    
+    fn to_c_string(String* str) -> u8* {
+        return str->data;
+    }
 
-fn println(String* str) {
-    print(str);
-    print_newline();
-
-}
-
-
-fn to_c_string(String* str) -> u8* {
-    return str->data;
 }

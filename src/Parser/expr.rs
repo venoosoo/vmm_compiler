@@ -2,7 +2,7 @@ use std::dbg;
 
 use super::*;
 
-use crate::{Ir::expr::*, shared::transform_module_name};
+use crate::{Ir::expr::*, shared::{gen_module_func_name, transform_module_name}};
 
 impl<'a> Parser<'a> {
     fn parse_struct_expr(&mut self, struct_name: &String) -> Expr {
@@ -335,10 +335,10 @@ impl<'a> Parser<'a> {
     fn parse_module_call(&mut self, expr: Expr) -> Expr {
         let mut names = match &expr.ty {
             ExprType::Variable(name) => vec![name.clone()],
-            _ => panic!("Expected a module name"),
+            _ => panic!("expected a variable module name, got: {:?}",expr.ty),
         };
     
-        // The first dot was already consumed by the caller.
+        self.expect(TokenType::BitNot);
         names.push(self.consume().value.unwrap());
     
         while self.peek(0).token == TokenType::Dot {
@@ -399,19 +399,100 @@ impl<'a> Parser<'a> {
                         col: self.col,
                     };
                 }
+                TokenType::BitNot => {
+                    expr = self.parse_module_call(expr);
+                }
 
                 TokenType::Dot => {
                     self.expect(TokenType::Dot);
                 
-                    if self.peek(1).token == TokenType::Dot {
-                        // std.io.print()
-                        expr = self.parse_module_call(expr);
-                    } else if self.peek(1).token == TokenType::OpenParen {
-                        // std.println()
-                        expr = self.parse_module_call(expr);
+                    let name = self.consume().value
+                        .expect("expected a name after '.'");
+                
+                    if self.peek(0).token == TokenType::BitNot {
+                        // Previous expression is the first argument to the module call.
+                        self.expect(TokenType::BitNot);
+                    
+                        let module_name = name;
+                        let func_name = self.consume().value
+                            .expect("expected a function name after '~'");
+                    
+                        let name_ident = Expr {
+                            ty: ExprType::Variable(gen_module_func_name(&module_name, &func_name)),
+                            file: self.current_file.clone(),
+                            line: self.line,
+                            col: self.col,
+                        };
+                    
+                        let call = if self.peek(0).token == TokenType::Less {
+                            self.parse_generic_call(name_ident)
+                        } else {
+                            self.parse_call(name_ident)
+                        };
+                    
+                        match call.ty {
+                            ExprType::Call { name, generics, mut args } => {
+                                args.insert(0, expr);
+                    
+                                expr = Expr {
+                                    ty: ExprType::Call { name, generics, args },
+                                    file: self.current_file.clone(),
+                                    line: self.line,
+                                    col: self.col,
+                                };
+                            }
+                            _ => unreachable!("expected a function call"),
+                        }
+                    } else if self.peek(0).token == TokenType::OpenParen
+                        || self.peek(0).token == TokenType::Less
+                    {
+                        // vec.push(5) or vec.push<u32>(5)
+                        let name_ident = Expr {
+                            ty: ExprType::Variable(name),
+                            file: self.current_file.clone(),
+                            line: self.line,
+                            col: self.col,
+                        };
+                
+                        let call = if self.peek(0).token == TokenType::Less {
+                            self.parse_generic_call(name_ident)
+                        } else {
+                            self.parse_call(name_ident)
+                        };
+                
+                        match call.ty {
+                            ExprType::Call {
+                                name,
+                                generics,
+                                args,
+                            } => {
+                                let mut new_args = args;
+                                new_args.insert(0, expr);
+                
+                                expr = Expr {
+                                    ty: ExprType::Call {
+                                        name,
+                                        generics,
+                                        args: new_args,
+                                    },
+                                    file: self.current_file.clone(),
+                                    line: self.line,
+                                    col: self.col,
+                                };
+                            }
+                            _ => unreachable!("expected a function call"),
+                        }
                     } else {
-                        // vec.length
-                        expr = self.parse_struct_member(expr);
+                        // vec.data or vec.data.length
+                        expr = Expr {
+                            ty: ExprType::StructMember {
+                                base: Box::new(expr),
+                                name,
+                            },
+                            file: self.current_file.clone(),
+                            line: self.line,
+                            col: self.col,
+                        };
                     }
                 }
 

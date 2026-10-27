@@ -8,61 +8,68 @@ struct Vector<T> {
 }
 
 
-
-fn create_vector<T>() -> *Vector<T> {
-    i32 el_size = sizeof(T);
-    i64 base_capacity = 8;
-    T* memory = malloc(el_size * base_capacity) as T*;
-    Vector<T>* res = malloc(sizeof(Vector<T>));
-    res->data = memory;
-    res->length = 0;
-    res->capacity = base_capacity;
-    res->element_size = el_size;
-    return res;
-}
-
-fn vector_push<T>(Vector<T>* vec, T element) {
-    if vec->length == vec->capacity {
-        i64 new_capacity = vec->capacity * 2;
-        T* new_data = malloc(new_capacity * vec->element_size);
-        memcpy(new_data, vec->data, vec->length * vec->element_size);
-        vec->data = new_data;
-        vec->capacity = new_capacity;
+module vector {
+    fn new<T>() -> *Vector<T> {
+        i32 el_size = sizeof(T);
+        i64 base_capacity = 8;
+        T* memory = std~malloc(el_size * base_capacity) as T*;
+        Vector<T>* res = std~malloc(sizeof(Vector<T>));
+        res->data = memory;
+        res->length = 0;
+        res->capacity = base_capacity;
+        res->element_size = el_size;
+        return res;
     }
-    T* dest = vec->data + vec->length;
-    memcpy(dest, &element, vec->element_size);
-    vec->length = vec->length + 1;
-}
-
-
-fn vector_pop<T>(Vector<T>* vec) -> T {
-    if vec->length == 0 {
-        exit(1);
-    }
-    vec->length = vec->length - 1;
-    T* element = vec->data + vec->length;
-    return *element;
-}
-
-fn vec_get_element<T>(Vector<T>* vec, i64 element_pos) -> T {
-    if vec->length < element_pos {
-        print("trying to get: ");
-        print(element_pos);
-        print("element, but vector size is: ");
-        println(vec->length);
-        exit(1);
-    }
-    T* element = vec->data + element_pos;
-    return *element;
-}
-
-fn vec_set_element<T>(Vector<T>* vec, i64 element_pos, T element) {
-    if vec->length <= element_pos {
-        println("Error: Vector set out of bounds");
-        exit(1);
-    }
-    T* dest = vec->data + element_pos;
     
-    // Using memcpy completely bypasses any compiler assignment bugs!
-    memcpy(dest, &element, vec->element_size);
+    fn push<T>(Vector<T>* vec, T element) {
+        if vec->length == vec->capacity {
+            i64 new_capacity = vec->capacity * 2;
+            T* new_data = std~malloc(new_capacity * vec->element_size);
+            std~memcpy(new_data, vec->data, vec->length * vec->element_size);
+            vec->data = new_data;
+            vec->capacity = new_capacity;
+        }
+        T* dest = vec->data + vec->length;
+        std~memcpy(dest, &element, vec->element_size);
+        vec->length = vec->length + 1;
+    }
+    
+    
+    fn pop<T>(Vector<T>* vec) -> T {
+        if vec->length == 0 {
+            std~exit(1);
+        }
+        vec->length = vec->length - 1;
+        T* element = vec->data + vec->length;
+        return *element;
+    }
+    
+    fn get_element<T>(Vector<T>* vec, i64 element_pos) -> T {
+        if vec->length <= element_pos {
+            std~print("trying to get element: ");
+            std~print(element_pos);
+            std~print(", but vector size is: ");
+            std~println(vec->length);
+            std~exit(1);
+        }
+        T* element = vec->data + element_pos;
+        return *element;
+    }
+    
+    fn set_element<T>(Vector<T>* vec, i64 element_pos, T element) {
+        if vec->length <= element_pos {
+            println("Error: Vector set out of bounds");
+            std~exit(1);
+        }
+        T* dest = vec->data + element_pos;
+        
+        // Using memcpy completely bypasses any compiler assignment bugs!
+        std~memcpy(dest, &element, vec->element_size);
+    }
+}
+
+
+
+fn main() {
+    std~println("loha lox");
 }
