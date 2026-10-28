@@ -495,27 +495,27 @@ impl<'a> Parser<'a> {
         self.current_file = canonical_str.clone();
         self.imported_files.insert(canonical_str);
         let mut file = File::open(&full_path).unwrap();
-        
+
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
 
         let mut tokenizer =
             tokenizer::Tokenizer::new(content, full_path.to_str().unwrap().to_string());
         tokenizer.tokenize();
-        
+
         let mut parser = Parser::new(
             tokenizer.m_res,
             self.base_dir.clone(),
             self.imported_files,
             self.current_file.clone(),
         );
-        
+
         parser.types.extend(self.types.clone());
         parser.struct_table.extend(self.struct_table.clone());
         parser.enums_table.extend(self.enums_table.clone());
         parser.base_dir = full_path.parent().unwrap().to_path_buf();
         let imported_stmts: Vec<Stmt> = parser.parse();
-        
+
         for stmt in imported_stmts {
             if matches!(
                 &stmt.ty,

@@ -199,7 +199,6 @@ impl<'a> Analyzer<'a> {
         let name = check_module_name(&self.current_module, name);
         if self.functions.get(&name).is_none() {
             println!("something strange inside check_init_func");
-            
         }
 
         // save outer scopes FIRST before adding any args

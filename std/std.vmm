@@ -96,11 +96,9 @@ module std {
     
         i64* curr = malloc_list_head;
         i64* prev = 0 as i64*;
-        
         while curr as i64 != 0 {
             i64 c_size = curr[0];
             i64 c_free = curr[1];
-            
             if c_free == 1 {
                 if c_size >= size {
                     curr[1] = 0;
@@ -124,7 +122,6 @@ module std {
         new_block[1] = 0;
     
         i64 leftover = mmap_size - total_needed;
-        
         if leftover > 32 { 
             i64* split_block = ((new_block as i64) + 24 + size) as i64*;
             split_block[0] = leftover - 24;
@@ -143,7 +140,6 @@ module std {
         } else {
             malloc_list_head = new_block;
         }
-    
         return ((new_block as i64) + 24) as void*;
     }
     

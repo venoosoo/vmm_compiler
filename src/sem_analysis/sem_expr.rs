@@ -31,10 +31,16 @@ impl<'a> Lookup for Analyzer<'a> {
             UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
         }
     }
-    fn look_binary(&self, _op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
+    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
         let lty = left.get_type(self);
         let rty = right.get_type(self);
-        coerce_numeric(&lty, &rty)
+
+        match op {
+            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
+                Type::Primitive(TokenType::I64)
+            }
+            _ => coerce_numeric(&lty, &rty),
+        }
     }
     fn look_struct_init(&self, struct_name: &String) -> Type {
         if let Some(_struct_data) = self.structs.borrow().get(struct_name) {
@@ -121,6 +127,7 @@ impl<'a> Lookup for Analyzer<'a> {
                 vec![FuncData {
                     args: new_args,
                     generic: Vec::new(),
+                    current_module: func_data.current_module.clone(),
                     return_type: ret_type,
                 }]
             }
@@ -128,22 +135,7 @@ impl<'a> Lookup for Analyzer<'a> {
             self.functions.get(&func_name).unwrap().clone()
         };
 
-        let func_data = vec_func_data
-            .iter()
-            .find(|func| {
-                if func.args.len() != args.len() {
-                    return false;
-                }
-                args.iter().enumerate().all(|(index, expr)| {
-                    let expr_ty = self.resolve_generic_inst(&expr.get_type(self));
-                    let arg_ty = self.resolve_generic_inst(&func.args[index].ty);
-                    check_types(&expr_ty, &arg_ty)
-                })
-            })
-            .expect(&format!(
-                "no matching overload for function '{}'",
-                func_name
-            ));
+        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
 
         func_data.return_type.clone()
     }
@@ -474,10 +466,7 @@ impl<'a> Analyzer<'a> {
             .collect()
     }
 
-    pub fn resolve_function_name(
-        &self,
-        name: &str,
-    ) -> Option<String> {
+    pub fn resolve_function_name(&self, name: &str) -> Option<String> {
         if let Some(module) = &self.current_module {
             let qualified = format!("{module}__{name}");
             if self.functions.contains_key(&qualified) {
@@ -487,7 +476,7 @@ impl<'a> Analyzer<'a> {
         if self.functions.contains_key(name) {
             return Some(name.to_string());
         }
-    
+
         None
     }
 
@@ -537,6 +526,7 @@ impl<'a> Analyzer<'a> {
                 let res_func_data = FuncData {
                     args: new_args.clone(),
                     generic: Vec::new(),
+                    current_module: func_data.current_module.clone(),
                     return_type: return_ty.clone(),
                 };
                 self.functions.insert(name.clone(), vec![res_func_data]);

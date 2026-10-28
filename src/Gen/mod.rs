@@ -5,7 +5,7 @@ use std::{collections::HashMap, fmt::Write};
 use std::{dbg, matches};
 
 use crate::Ir::Stmt;
-use crate::Ir::expr::{Expr, ExprType, Lookup};
+use crate::Ir::expr::{Expr, ExprType, Lookup, UnaryOp};
 use crate::Ir::r#gen::*;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{EnumData, StmtType};
@@ -385,9 +385,16 @@ impl Gen {
                         ExprType::Number(_) => {
                             matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
                         }
+
+                        ExprType::Unary { op, expr: inner }
+                            if matches!(op, UnaryOp::Neg)
+                                && matches!(&inner.ty, ExprType::Number(_)) =>
+                        {
+                            matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
+                        }
+
                         _ => check_types(&expr_ty, &param_ty),
                     };
-
                     arg_matches
                 })
             })
@@ -529,6 +536,7 @@ impl Gen {
                     let func_data = FuncData {
                         args: args.clone(),
                         generic: Vec::new(),
+                        current_module: self.current_module.clone(),
                         return_type: ret_type.clone(),
                     };
                     let name = check_module_name(&self.current_module, name);
@@ -547,6 +555,7 @@ impl Gen {
                     let func_data = FuncData {
                         args: args.clone(),
                         generic: generic_types.clone(),
+                        current_module: self.current_module.clone(),
                         return_type: ret_type.clone(),
                     };
                     let name = check_module_name(&self.current_module, name);

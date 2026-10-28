@@ -21,8 +21,7 @@ module string {
     }
     
     fn to_string(u64 num) -> u8* {
-        u8* str = malloc(32) as u8*;
-        
+        u8* str = std~malloc(32);
         if num == 0 {
             str[0] = 48;
             str[1] = 0;
@@ -30,7 +29,6 @@ module string {
         }
         
         i64 len = 0;
-    
         while num > 0 {
             u64 rem = num % 10;
             str[len] = (rem as u8) + 48;
@@ -54,10 +52,17 @@ module string {
         
         return str;
     }
+
+    fn strlen(u8* str) -> i64 {
+        i64 i = 0;
+        while str[i] != 0 {
+            i = i + 1;
+        }
+        return i;
+    }
     
     fn to_string(i64 num) -> u8* {
-        u8* str = malloc(32) as u8*;
-        
+        u8* str = std~malloc(32);
         if num == 0 {
             str[0] = 48;
             str[1] = 0;
@@ -102,19 +107,23 @@ module string {
         
         return str;
     }
+
+    fn to_string(i32 num) -> u8* {
+        return to_string(num as i64);
+    }
     
-    fn string_new() -> String* {
+    fn new() -> String* {
     
-        String* str = malloc(sizeof(String));
-        u8* str_data = malloc(16);
+        String* str = std~malloc(sizeof(String));
+        u8* str_data = std~malloc(16);
         str->data = str_data;
         str->length = 0;
         str->capacity = 16;
         return str;
     }
     
-    fn string_neww() -> String {
-        u8* str_data = malloc(16);
+    fn new_value() -> String {
+        u8* str_data = std~malloc(16);
         String str = String {
             data: str_data,
             length: 0,
@@ -124,21 +133,21 @@ module string {
     
     }
     
-    fn string_from(u8* c_str) -> String* {
-        String* s = malloc(sizeof(String)) ;
+    fn from_c_string(u8* c_str) -> String* {
+        String* s = std~malloc(sizeof(String)) ;
         
         s->length = strlen(c_str);
         s->capacity = s->length + 1;
         
-        s->data = malloc(s->capacity) as u8*;
+        s->data = std~malloc(s->capacity) as u8*;
         
-        memcpy(s->data as void*, c_str as void*, s->length + 1);
+        std~memcpy(s->data as void*, c_str as void*, s->length + 1);
         
         return s;
     }
     
     fn split(u8* str, u8 delim) -> Vector<u8*>* {
-        Vector<u8*>* words = create_vector<u8*>();
+        Vector<u8*>* words = vector~new<u8*>();
         
         u64 i = 0;
         u8* current_word = str;
@@ -148,7 +157,7 @@ module string {
                 u64 len = (str as u64 + i) - (current_word as u64);
                 
                 if len > 0 and current_word[0] != 10 {
-                    u8* new_word = malloc((len + 1) as i64) as u8*;
+                    u8* new_word = std~malloc((len + 1) as i64) as u8*;
                     
                     u64 j = 0;
                     while j < len {
@@ -158,7 +167,7 @@ module string {
                     
                     new_word[len] = 0 as u8; 
                     
-                    vector_push<u8*>(words, new_word);
+                    vector~push<u8*>(words, new_word);
                 }
                 
                 current_word = (str as u64 + i + 1) as u8*;
@@ -172,7 +181,7 @@ module string {
         }
         
         if last_len > 0 and current_word[0] != 10 {
-            u8* new_word = malloc((last_len + 1) as i64) as u8*;
+            u8* new_word = std~malloc((last_len + 1) as i64) as u8*;
             
             u64 j = 0;
             while j < last_len {
@@ -181,7 +190,7 @@ module string {
             }
             new_word[last_len] = 0 as u8;
             
-            vector_push<u8*>(words, new_word);
+            vector~push<u8*>(words, new_word);
         }
         
         return words;
@@ -196,9 +205,9 @@ module string {
             return file_path;
         }
     
-        u8* name = vec_get_element<u8*>(div,div->length - 1);
+        u8* name = vector~get_element<u8*>(div,div->length - 1);
         Vector<u8*>* file_name = split(name, '.');
-        return vec_get_element<u8*>(file_name,0);
+        return vector~get_element<u8*>(file_name,0);
     
     }
     
@@ -226,24 +235,15 @@ module string {
     
         return 1;
     }
-    
-    fn strlen(u8* str) -> i64 {
-        i64 i = 0;
-        while str[i] != 0 {
-            i = i + 1;
-        }
-        return i;
-    }
+
     
     fn strcmp(u8* left, u8* right) -> u8 {
-        
-        if left == 0 or right == 0 {
+        // fix in future when there would be null
+        if left == 0 as void* or right == 0 as void* {
             return 0; 
         }
     
         u64 i = 0;
-        
-        // 3. Normal comparison (safe to dereference now)
         while left[i] != 0 {
             if left[i] != right[i] {
                 return 0;
@@ -258,58 +258,58 @@ module string {
         return 1;
     }
     
-    fn string_free(String* s) {
+    fn free(String* s) {
     
-        free(s->data as void*);
-        free(s as void*);
+        std~free(s->data as void*);
+        std~free(s as void*);
     
     }
     
-    fn string_realloc(String* s) {
-        u8* str_data = malloc(s->capacity * 2);
-        memcpy(str_data as void*, s->data as void*, s->capacity);
-        free(s->data as void*);
+    fn realloc(String* s) {
+        u8* str_data = std~malloc(s->capacity * 2);
+        std~memcpy(str_data as void*, s->data as void*, s->capacity);
+        std~free(s->data as void*);
         s->data = str_data;
         s->capacity = s->capacity * 2;
     }
     
-    fn string_push(String* s, u8 c) {
+    fn push(String* s, u8 c) {
         i64 length = s->length;
         if length + 1 > s->capacity {
-            string_realloc(s);
+            realloc(s);
         }
         s->data[length] = c;
         s->length = length + 1;
     }
     
-    fn string_push(String s, u8 c) {
-        string_push(&s,c);
+    fn push(String s, u8 c) {
+        push(&s,c);
     }
     
     
-    fn string_concat(String* dest, String* src) {
+    fn concat(String* dest, String* src) {
         while dest->length + src->length > dest->capacity {
-            string_realloc(dest);
+            realloc(dest);
         }
-        memcpy((dest->data + dest->length) as void*, src->data as void*, src->length + 1);
+        std~memcpy((dest->data + dest->length) as void*, src->data as void*, src->length + 1);
         dest->length = dest->length + src->length;
         
     }
     
-    fn string_clear(String* s) {
+    fn clear(String* s) {
         s->length = 0;
     }
     
     
     fn print(String* str) {
         for (i64 i = 0; i < str->length; i = i + 1) {
-            print_char(str->data[i]);
+            std~print_char(str->data[i]);
         }
     }
     
     fn println(String* str) {
         print(str);
-        print_newline();
+        std~print_newline();
     
     }
     
@@ -318,4 +318,286 @@ module string {
         return str->data;
     }
 
+}
+
+// Helpers outside the string module
+
+fn assert_true(i64 condition, u8* test_name) {
+    if condition == 0 {
+        std~println("FAIL");
+        std~println(test_name);
+    } else {
+        std~println("PASS");
+        std~println(test_name);
+    }
+}
+
+fn assert_string_equal(u8* actual, u8* expected, u8* test_name) {
+    assert_true(string~strcmp(actual, expected) as i64, test_name);
+}
+
+fn assert_i64_equal(i64 actual, i64 expected, u8* test_name) {
+    assert_true(actual == expected, test_name);
+}
+
+fn main() -> u8 {
+    // --------------------------------------------------
+    // 1. strlen
+    // --------------------------------------------------
+
+    assert_i64_equal(string~strlen(""), 0, "strlen empty");
+    assert_i64_equal(string~strlen("hello"), 5, "strlen hello");
+    assert_i64_equal(string~strlen("hello world"), 11, "strlen spaces");
+
+    // --------------------------------------------------
+    // 2. to_string: C strings and numeric conversions
+    // --------------------------------------------------
+
+    assert_string_equal(
+        string~to_string("hello"),
+        "hello",
+        "to_string C string"
+    );
+    assert_string_equal(
+        string~to_string(0 as u64),
+        "0",
+        "to_string unsigned zero"
+    );
+
+    assert_string_equal(
+        string~to_string(12345 as u64),
+        "12345",
+        "to_string unsigned positive"
+    );
+
+    assert_string_equal(
+        string~to_string(0 as i64),
+        "0",
+        "to_string signed zero"
+    );
+
+    assert_string_equal(
+        string~to_string(12345 as i64),
+        "12345",
+        "to_string signed positive"
+    );
+
+    assert_string_equal(
+        string~to_string(-12345 as i64),
+        "-12345",
+        "to_string signed negative"
+    );
+
+    // --------------------------------------------------
+    // 3. String construction
+    // --------------------------------------------------
+
+    String* s = string~new();
+
+    assert_i64_equal(s->length, 0, "new length");
+    assert_i64_equal(s->capacity, 16, "new capacity");
+    assert_true(s->data != 0, "new allocated data");
+
+    string~free(s);
+
+    String value = string~new_value();
+
+    assert_i64_equal(value.length, 0, "new_value length");
+    assert_i64_equal(value.capacity, 16, "new_value capacity");
+    assert_true(value.data != 0, "new_value allocated data");
+
+    std~free(value.data as void*);
+
+    // --------------------------------------------------
+    // 4. from_c_string
+    // --------------------------------------------------
+
+    String* from = string~from_c_string("hello");
+
+    assert_i64_equal(from->length, 5, "from_c_string length");
+    assert_i64_equal(from->capacity, 6, "from_c_string capacity");
+    assert_string_equal(from->data, "hello", "from_c_string content");
+
+    string~free(from);
+
+    // --------------------------------------------------
+    // 5. strcmp
+    // --------------------------------------------------
+
+    assert_true(
+        string~strcmp("hello", "hello") as i64,
+        "strcmp equal C strings"
+    );
+
+    assert_true(
+        string~strcmp("hello", "world") == 0,
+        "strcmp different C strings"
+    );
+
+    assert_true(
+        string~strcmp("", "") as i64,
+        "strcmp empty C strings"
+    );
+
+    String* left = string~from_c_string("hello");
+    String* right = string~from_c_string("hello");
+    String* different = string~from_c_string("world");
+
+    assert_true(
+        string~strcmp(left, right) as i64,
+        "strcmp equal String pointers"
+    );
+
+    assert_true(
+        string~strcmp(left, different) == 0,
+        "strcmp different String pointers"
+    );
+
+    string~free(left);
+    string~free(right);
+    string~free(different);
+
+    // --------------------------------------------------
+    // 6. push and automatic reallocation
+    // --------------------------------------------------
+
+    String* pushed = string~new();
+
+    string~push(pushed, 65);
+    string~push(pushed, 66);
+    string~push(pushed, 67);
+
+    assert_i64_equal(pushed->length, 3, "push length");
+    assert_i64_equal(pushed->data[0] as i64, 65, "push first character");
+    assert_i64_equal(pushed->data[1] as i64, 66, "push second character");
+    assert_i64_equal(pushed->data[2] as i64, 67, "push third character");
+
+    // Fill beyond the initial capacity to test realloc.
+    for (i64 i = 0; i < 30; i = i + 1) {
+        string~push(pushed, 120);
+    }
+
+    assert_i64_equal(pushed->length, 33, "push length after realloc");
+    assert_true(
+        pushed->capacity >= pushed->length,
+        "push capacity after realloc"
+    );
+
+    string~free(pushed);
+
+    // --------------------------------------------------
+    // 7. clear
+    // --------------------------------------------------
+
+    String* cleared = string~from_c_string("hello");
+
+    string~clear(cleared);
+
+    assert_i64_equal(cleared->length, 0, "clear length");
+
+    // Clearing should retain the allocation.
+    assert_true(cleared->data != 0, "clear retains data buffer");
+
+    string~free(cleared);
+
+    // --------------------------------------------------
+    // 8. concat
+    // --------------------------------------------------
+
+    String* dest = string~from_c_string("hello ");
+    String* src = string~from_c_string("world");
+
+    string~concat(dest, src);
+
+    assert_i64_equal(dest->length, 11, "concat length");
+    assert_string_equal(dest->data, "hello world", "concat content");
+
+    string~free(dest);
+    string~free(src);
+
+    // --------------------------------------------------
+    // 9. split
+    // --------------------------------------------------
+
+    Vector<u8*>* words = string~split("one,two,three", 44);
+    
+    assert_i64_equal(words->length, 3, "split word count");
+    
+    assert_string_equal(
+        vector~get_element<u8*>(words, 0),
+        "one",
+        "split first word"
+    );
+    
+    assert_string_equal(
+        vector~get_element<u8*>(words, 1),
+        "two",
+        "split second word"
+    );
+    
+    assert_string_equal(
+        vector~get_element<u8*>(words, 2),
+        "three",
+        "split third word"
+    );
+    
+    // Empty fields are skipped.
+    Vector<u8*>* empty_fields = string~split("one,,two,", 44);
+    
+    assert_i64_equal(
+        empty_fields->length,
+        2,
+        "split skips empty fields"
+    );
+    
+    assert_string_equal(
+        vector~get_element<u8*>(empty_fields, 0),
+        "one",
+        "split empty fields: first word"
+    );
+    
+    assert_string_equal(
+        vector~get_element<u8*>(empty_fields, 1),
+        "two",
+        "split empty fields: second word"
+    );
+
+    // --------------------------------------------------
+    // 10. get_file_name
+    // --------------------------------------------------
+
+    assert_string_equal(
+        string~get_file_name("/home/user/test.vmm"),
+        "test",
+        "get_file_name path"
+    );
+
+    assert_string_equal(
+        string~get_file_name("test.vmm"),
+        "test",
+        "get_file_name without directory"
+    );
+
+    assert_string_equal(
+        string~get_file_name("/home/user/archive.tar"),
+        "archive",
+        "get_file_name extension"
+    );
+
+    // --------------------------------------------------
+    // 11. to_c_string
+    // --------------------------------------------------
+
+    String* cstr = string~from_c_string("hello");
+
+    assert_string_equal(
+        string~to_c_string(cstr),
+        "hello",
+        "to_c_string content"
+    );
+
+    string~free(cstr);
+
+    std~println("All string tests completed.");
+    return 0;
 }

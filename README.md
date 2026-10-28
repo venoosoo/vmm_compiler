@@ -3,7 +3,7 @@ A compiler for a custom systems programming language, written from scratch in Ru
 
 The language is procedural and C-style at its core — manual memory, pointers, structs — but borrows some of Rust's ergonomics: pattern matching on enums with payloads, Option types, and exhaustive match expressions(in future).
 
-> **Status(v0.1.0):** Work in progress. Core pipeline is functional — see [what's working](#whats-working) below.
+> **Status(v0.x.y):** Work in progress. Core pipeline is functional — see [what's working](#whats-working) below.
 
 ---
 

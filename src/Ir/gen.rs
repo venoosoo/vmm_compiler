@@ -48,6 +48,7 @@ pub struct Gen {
 pub struct FuncData {
     pub args: Vec<Declaration>,
     pub generic: Vec<String>,
+    pub current_module: Option<String>,
     pub return_type: Type,
 }
 

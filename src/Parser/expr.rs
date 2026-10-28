@@ -2,7 +2,10 @@ use std::dbg;
 
 use super::*;
 
-use crate::{Ir::expr::*, shared::{gen_module_func_name, transform_module_name}};
+use crate::{
+    Ir::expr::*,
+    shared::{gen_module_func_name, transform_module_name},
+};
 
 impl<'a> Parser<'a> {
     fn parse_struct_expr(&mut self, struct_name: &String) -> Expr {
@@ -317,10 +320,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-
     fn parse_struct_member(&mut self, expr: Expr) -> Expr {
         let name = self.consume().value.unwrap();
-    
+
         Expr {
             ty: ExprType::StructMember {
                 base: Box::new(expr),
@@ -335,17 +337,17 @@ impl<'a> Parser<'a> {
     fn parse_module_call(&mut self, expr: Expr) -> Expr {
         let mut names = match &expr.ty {
             ExprType::Variable(name) => vec![name.clone()],
-            _ => panic!("expected a variable module name, got: {:?}",expr.ty),
+            _ => panic!("expected a variable module name, got: {:?}", expr.ty),
         };
-    
+
         self.expect(TokenType::BitNot);
         names.push(self.consume().value.unwrap());
-    
+
         while self.peek(0).token == TokenType::Dot {
             self.expect(TokenType::Dot);
             names.push(self.consume().value.unwrap());
         }
-    
+
         let name = transform_module_name(&names);
         let mut new_expr = expr;
         new_expr.ty = ExprType::Variable(name);
@@ -405,37 +407,46 @@ impl<'a> Parser<'a> {
 
                 TokenType::Dot => {
                     self.expect(TokenType::Dot);
-                
-                    let name = self.consume().value
-                        .expect("expected a name after '.'");
-                
+
+                    let name = self.consume().value.expect("expected a name after '.'");
+
                     if self.peek(0).token == TokenType::BitNot {
                         // Previous expression is the first argument to the module call.
                         self.expect(TokenType::BitNot);
-                    
+
                         let module_name = name;
-                        let func_name = self.consume().value
+                        let func_name = self
+                            .consume()
+                            .value
                             .expect("expected a function name after '~'");
-                    
+
                         let name_ident = Expr {
                             ty: ExprType::Variable(gen_module_func_name(&module_name, &func_name)),
                             file: self.current_file.clone(),
                             line: self.line,
                             col: self.col,
                         };
-                    
+
                         let call = if self.peek(0).token == TokenType::Less {
                             self.parse_generic_call(name_ident)
                         } else {
                             self.parse_call(name_ident)
                         };
-                    
+
                         match call.ty {
-                            ExprType::Call { name, generics, mut args } => {
+                            ExprType::Call {
+                                name,
+                                generics,
+                                mut args,
+                            } => {
                                 args.insert(0, expr);
-                    
+
                                 expr = Expr {
-                                    ty: ExprType::Call { name, generics, args },
+                                    ty: ExprType::Call {
+                                        name,
+                                        generics,
+                                        args,
+                                    },
                                     file: self.current_file.clone(),
                                     line: self.line,
                                     col: self.col,
@@ -453,13 +464,13 @@ impl<'a> Parser<'a> {
                             line: self.line,
                             col: self.col,
                         };
-                
+
                         let call = if self.peek(0).token == TokenType::Less {
                             self.parse_generic_call(name_ident)
                         } else {
                             self.parse_call(name_ident)
                         };
-                
+
                         match call.ty {
                             ExprType::Call {
                                 name,
@@ -468,7 +479,7 @@ impl<'a> Parser<'a> {
                             } => {
                                 let mut new_args = args;
                                 new_args.insert(0, expr);
-                
+
                                 expr = Expr {
                                     ty: ExprType::Call {
                                         name,

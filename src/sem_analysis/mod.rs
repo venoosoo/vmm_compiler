@@ -12,12 +12,14 @@ use indexmap::IndexMap;
 use crate::{
     Ir::{
         Stmt,
-        expr::{Expr, ExprType},
+        expr::{Expr, ExprType, UnaryOp},
         r#gen::{FuncData, StructData},
         sem_analysis::*,
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
-    }, shared::{check_module_name, check_types, is_number, substitute_type, type_name}, tokenizer::TokenType,
+    },
+    shared::{check_module_name, check_types, is_number, substitute_type, type_name},
+    tokenizer::TokenType,
 };
 
 pub mod sem_expr;
@@ -227,7 +229,6 @@ impl<'a> TypeContext for Analyzer<'a> {
             None => {
                 let has_matching_arg_count =
                     vec_func_data.iter().any(|f| f.args.len() == args.len());
-
                 if !has_matching_arg_count {
                     let expected_hint = vec_func_data.first().map_or(0, |f| f.args.len());
 
@@ -516,6 +517,50 @@ impl<'a> Analyzer<'a> {
             .collect()
     }
 
+    pub fn find_overload(
+        &self,
+        vec_func_data: &Vec<FuncData>,
+        args: &Vec<Expr>,
+        generics: &Vec<Type>,
+    ) -> Option<(usize, FuncData)> {
+        vec_func_data
+            .iter()
+            .enumerate()
+            .find(|(_, func)| {
+                if func.args.len() != args.len() {
+                    return false;
+                }
+                args.iter().enumerate().all(|(i, expr)| {
+                    let expr_ty = expr.get_type(self);
+                    let param_ty = &func.args[i].ty.clone();
+                    let (expr_ty, param_ty) = {
+                        let map = self.build_generic_map(&func.generic, generics);
+                        let expr_ty: Type = self.generic_to_ty(&expr_ty, &map);
+                        let param_ty = self.generic_to_ty(param_ty, &map);
+                        (expr_ty, param_ty)
+                    };
+                    let expr_ty = self.ensure_monomorphized(&expr_ty);
+                    let param_ty = self.ensure_monomorphized(&param_ty);
+                    let arg_matches = match &expr.ty {
+                        ExprType::Number(_) => {
+                            matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
+                        }
+
+                        ExprType::Unary { op, expr: inner }
+                            if matches!(op, UnaryOp::Neg)
+                                && matches!(&inner.ty, ExprType::Number(_)) =>
+                        {
+                            matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
+                        }
+
+                        _ => check_types(&expr_ty, &param_ty),
+                    };
+                    arg_matches
+                })
+            })
+            .map(|(pos, func)| (pos, func.clone()))
+    }
+
     fn ensure_struct_sized(&self, name: &str) -> usize {
         if let Some(existing) = self.structs.borrow().get(name) {
             if existing.size > 0 {
@@ -652,6 +697,7 @@ impl<'a> Analyzer<'a> {
                     args: args.clone(),
                     generic: generic_types.clone(),
                     return_type: ret_type.clone(),
+                    current_module: self.current_module.clone(),
                 };
                 let name = check_module_name(&self.current_module, name);
                 self.functions
@@ -669,6 +715,7 @@ impl<'a> Analyzer<'a> {
                 let func_data = FuncData {
                     args: args.clone(),
                     generic: Vec::new(),
+                    current_module: self.current_module.clone(),
                     return_type: ret_type.clone(),
                 };
                 let name = check_module_name(&self.current_module, name);

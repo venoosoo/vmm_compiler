@@ -661,7 +661,7 @@ impl Gen {
         let saved_highest_stack_pos = self.highest_stack_pos;
         self.highest_stack_pos = 0;
         let (name, args, ret_type, body, generics) = data;
-        let name = &check_module_name(&self.current_module, name);
+        let name = &self.resolve_function_name(name).unwrap();
         let ret_type = &self.ensure_monomorphized(ret_type);
         let ret_type = &self.resolve_type_with_map(ret_type, generics, 0);
         self.current_return_type = ret_type.clone();
@@ -687,8 +687,16 @@ impl Gen {
         } else {
             self.emit_func_header(format!("{}:", name));
         }
+
+        let func = &self.functions.get(name).unwrap()[overload_pos];
+
+        let saved_module = self.current_module.clone();
+        self.current_module = func.current_module.clone();
+
         self.compile_args(args, ret_type);
         self.gen_stmt(body);
+
+        self.current_module = saved_module;
 
         // restore outer scopes
         match ret_type {
@@ -1060,6 +1068,7 @@ impl Gen {
                 let extern_func_data = FuncData {
                     args: args.to_vec(),
                     generic: Vec::new(),
+                    current_module: None,
                     return_type: ret_type.clone(),
                 };
                 self.emit(format!("extern {}", name));

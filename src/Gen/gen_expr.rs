@@ -8,7 +8,8 @@ use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
 use crate::shared::{
-    arg_pos, build_generic_map, coerce_numeric, is_numeric, is_unsigned, transform_generic_name,
+    arg_pos, build_generic_map, check_nested_arg, coerce_numeric, gen_module_func_name, is_numeric,
+    is_unsigned, transform_generic_name,
 };
 
 use super::*;
@@ -36,11 +37,15 @@ impl Lookup for Gen {
     fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
         let lty = left.get_type(self);
         let rty = right.get_type(self);
-
-        match (&left.ty, &right.ty) {
-            (ExprType::Number(_), _) => rty,
-            (_, ExprType::Number(_)) => lty,
-            _ => coerce_numeric(&lty, &rty),
+        match op {
+            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
+                Type::Primitive(TokenType::I64)
+            }
+            _ => match (&left.ty, &right.ty) {
+                (ExprType::Number(_), _) => rty,
+                (_, ExprType::Number(_)) => lty,
+                _ => coerce_numeric(&lty, &rty),
+            },
         }
     }
     fn look_struct_init(&self, struct_name: &String) -> Type {
@@ -116,11 +121,18 @@ impl Lookup for Gen {
                 vec![FuncData {
                     args: new_args,
                     generic: Vec::new(),
+                    current_module: func_data.current_module.clone(),
                     return_type: ret_type,
                 }]
             }
         } else {
-            self.functions.get(&func_name).unwrap().clone()
+            let res = self.functions.get(&func_name);
+            if let Some(result) = res {
+                result.clone()
+            } else {
+                let new_name = check_module_name(&self.current_module, &func_name);
+                self.functions.get(&new_name).unwrap().clone()
+            }
         };
         let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
         func_data.return_type.clone()
@@ -422,12 +434,29 @@ impl Gen {
         expected_type: &Type,
     ) -> String {
         let (op, left, right) = data;
-        let left_reg = self.reg_for_size("rax", &expected_type).unwrap();
-        let right_reg = self.reg_for_size("rbx", &expected_type).unwrap();
-
         let left_ty = left.get_type(self);
-        let is_op_add = matches!(op, BinOp::Add);
         let right_ty = right.get_type(self);
+
+        let left_is_number = matches!(&left.ty, ExprType::Number(_))
+            || matches!(&left.ty, ExprType::Unary { op, expr: inner }
+                if matches!(op, UnaryOp::Neg)
+                    && matches!(&inner.ty, ExprType::Number(_)));
+
+        let right_is_number = matches!(&right.ty, ExprType::Number(_))
+            || matches!(&right.ty, ExprType::Unary { op, expr: inner }
+                if matches!(op, UnaryOp::Neg)
+                    && matches!(&inner.ty, ExprType::Number(_)));
+
+        let op_ty = match (left_is_number, right_is_number) {
+            (true, false) => right_ty.clone(),
+            (false, true) => left_ty.clone(),
+            _ => left_ty.clone(),
+        };
+
+        let left_reg = self.reg_for_size("rax", &op_ty).unwrap();
+        let right_reg = self.reg_for_size("rbx", &op_ty).unwrap();
+
+        let is_op_add = matches!(op, BinOp::Add);
         let left_ty = self.ensure_monomorphized(&left_ty);
         let right_ty = self.ensure_monomorphized(&right_ty);
 
@@ -619,17 +648,33 @@ impl Gen {
         }
     }
 
+    fn gen_expr_preserving_arg_regs(&mut self, expr: &Expr, ty: &Type, preserve: bool) {
+        const ARG_REGS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+
+        if preserve {
+            for reg in ARG_REGS {
+                self.emit_func_data(format!("    push {}", reg));
+            }
+        }
+
+        self.eval_expr(expr, ty);
+
+        if preserve {
+            for &reg in ARG_REGS.iter().rev() {
+                self.emit_func_data(format!("    pop {}", reg));
+            }
+        }
+    }
+
     fn gen_args(
         &mut self,
         args: &Vec<Expr>,
-        func_data: &FuncData,
-        generics: &Vec<Type>,
         new_args: &Vec<Declaration>,
         is_rvo: bool,
-        end_expected_type: &Type, // the final expected type of whole stmt
+        overload_pos: usize,
     ) -> usize {
         let mut arg_index = self.arg_count(is_rvo, new_args);
-
+        let nested_call = check_nested_arg(args);
         let mut space_taken = 0;
         for (index, arg) in args.iter().enumerate().rev() {
             let arg_type = new_args[index].ty.clone();
@@ -640,17 +685,49 @@ impl Gen {
                     generics,
                     args,
                 } => {
-                    let funcs = self.functions.get(name).unwrap();
-                    let func_data = self.find_overload(funcs, args, generics).unwrap().1;
-                    let ret_type = self.ensure_monomorphized(&func_data.return_type);
+                    let ret_type = if generics.is_empty() {
+                        let resolved_name = self.resolve_function_name(name).unwrap_or_else(|| {
+                            panic!(
+                                "Could not resolve function '{}' in module {:?}",
+                                name, self.current_module
+                            )
+                        });
+
+                        let funcs = self.functions.get(&resolved_name).unwrap();
+
+                        let func_data = self.find_overload(funcs, args, generics).unwrap().1;
+
+                        self.ensure_monomorphized(&func_data.return_type)
+                    } else {
+                        let resolved_name = self.resolve_function_name(name).unwrap_or_else(|| {
+                            panic!(
+                                "Could not resolve function '{}' in module {:?}",
+                                name, self.current_module
+                            )
+                        });
+
+                        let (func_data, nested_overload_pos) =
+                            self.resolve_call(name, args, generics).unwrap();
+                        let saved_generics = self.generics.borrow().clone();
+
+                        let (nested_generic_copy, nested_new_args, nested_ret_type) =
+                            self.prepare_generic_call(&func_data, generics, nested_overload_pos);
+
+                        self.ensure_monomorphized_function(
+                            &resolved_name,
+                            &func_data,
+                            generics,
+                            &nested_generic_copy,
+                            &nested_new_args,
+                            nested_overload_pos,
+                        );
+
+                        self.generics.replace(saved_generics);
+
+                        self.ensure_monomorphized(&nested_ret_type)
+                    };
+
                     let ret_type_size = self.type_size(&ret_type);
-                    if ret_type_size > 8 {
-                        self.alloc(ret_type_size);
-                        temp_size += ret_type_size;
-                    }
-                }
-                ExprType::GetEnum { .. } | ExprType::StructInit { .. } => {
-                    let ret_type_size = self.type_size(&arg_type);
 
                     if ret_type_size > 8 {
                         self.alloc(ret_type_size);
@@ -659,7 +736,7 @@ impl Gen {
                 }
                 _ => {}
             }
-            self.eval_expr(&arg, &arg_type);
+            self.gen_expr_preserving_arg_regs(arg, &arg_type, nested_call);
             match arg_type {
                 Type::Enum(ref name, _) => {
                     let enum_data = self.enums.borrow().get(name).cloned().unwrap();
@@ -770,23 +847,167 @@ impl Gen {
         return space_taken;
     }
 
-    pub fn resolve_function_name(
-        &self,
-        name: &str,
-    ) -> Option<String> {
+    pub fn resolve_function_name(&self, name: &str) -> Option<String> {
         if let Some(module) = &self.current_module {
             let qualified = format!("{module}__{name}");
-    
             if self.functions.contains_key(&qualified) {
                 return Some(qualified);
             }
         }
-    
+
         if self.functions.contains_key(name) {
             return Some(name.to_string());
         }
-    
+
         None
+    }
+
+    fn ensure_monomorphized_function(
+        &mut self,
+        name: &String,
+        func_data: &FuncData,
+        generics: &Vec<Type>,
+        generic_copy: &Vec<Type>,
+        new_args: &Vec<Declaration>,
+        overload_pos: usize,
+    ) -> String {
+        let mut name = name.clone();
+
+        if func_data.generic.is_empty() {
+            return name;
+        }
+
+        let generic_candidates = self.generic_func.get(&name).unwrap().clone();
+
+        let generic_data = generic_candidates
+            .iter()
+            .find(|stmt| match &stmt.ty {
+                StmtType::GenericInitFunc {
+                    generic_types,
+                    args,
+                    ..
+                } => {
+                    args.len() == func_data.args.len()
+                        && generic_types.len() == func_data.generic.len()
+                        && args
+                            .iter()
+                            .zip(func_data.args.iter())
+                            .all(|(decl_arg, resolved_arg)| {
+                                let decl_ty = decl_arg.ty.clone();
+                                let resolved_ty = resolved_arg.ty.clone();
+                                check_types(&decl_ty, &resolved_ty)
+                            })
+                }
+                _ => false,
+            })
+            .expect(&format!(
+                "no matching generic definition for function '{}'",
+                name
+            ))
+            .clone();
+
+        name = transform_generic_name(&name, generic_copy, overload_pos as i64);
+
+        // Already generated.
+        if self.functions.get(&name).is_some() {
+            return name;
+        }
+
+        let ret_type = self.resolve_type_with_map(
+            &func_data.return_type,
+            &self.generics.borrow(),
+            overload_pos as i64,
+        );
+
+        let res_func_data = FuncData {
+            args: new_args.clone(),
+            generic: Vec::new(),
+            current_module: func_data.current_module.clone(),
+            return_type: ret_type,
+        };
+
+        self.functions.insert(name.clone(), vec![res_func_data]);
+
+        match generic_data.ty {
+            StmtType::GenericInitFunc {
+                generic_types,
+                args,
+                ret_type,
+                data,
+                ..
+            } => {
+                let mut generic_data: HashMap<String, Type> = HashMap::new();
+
+                for i in 0..generic_types.len() {
+                    let generic_var = generic_types[i].clone();
+                    let generic_ty = generics[i].clone();
+
+                    generic_data.insert(generic_var, generic_ty);
+                }
+
+                self.gen_func((&name, &new_args, &ret_type, &data, &generic_data));
+            }
+
+            _ => self::panic!("error"),
+        }
+
+        name
+    }
+
+    fn resolve_call_generics(&mut self, func_data: &FuncData, generic_copy: &mut Vec<Type>) {
+        for (index, generic) in func_data.generic.iter().enumerate() {
+            let ty = &generic_copy[index].clone();
+
+            match ty {
+                Type::GenericType(name) => {
+                    let ty = {
+                        let map = self.generics.borrow();
+
+                        if let Some(generic_ty) = map.get(name) {
+                            generic_ty.clone()
+                        } else if self.structs.borrow().contains_key(name) {
+                            Type::Struct(name.clone())
+                        } else if self.enums.borrow().contains_key(name) {
+                            Type::Enum(name.clone(), None)
+                        } else {
+                            panic!(
+                                "Type resolution failed: '{}' is not a known generic, struct, or enum.",
+                                name
+                            );
+                        }
+                    };
+
+                    generic_copy[index] = ty;
+                }
+
+                _ => {}
+            }
+
+            let mut map = self.generics.borrow_mut();
+            map.insert(generic.clone(), generic_copy[index].clone());
+        }
+    }
+
+    fn prepare_generic_call(
+        &mut self,
+        func_data: &FuncData,
+        generics: &Vec<Type>,
+        overload_pos: usize,
+    ) -> (Vec<Type>, Vec<Declaration>, Type) {
+        let mut generic_copy = generics.clone();
+
+        self.resolve_call_generics(func_data, &mut generic_copy);
+
+        let new_args = {
+            let map = self.generics.borrow();
+
+            self.convert_generic_args(&func_data.args, generics, &map, overload_pos as i64)
+        };
+
+        let ret_type =
+            self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), 0);
+
+        (generic_copy, new_args, ret_type)
     }
 
     fn gen_call(
@@ -800,43 +1021,11 @@ impl Gen {
     ) -> String {
         let args = args.clone();
         let mut name = self.resolve_function_name(name).unwrap();
-        let mut generic_copy = generics.clone();
         let mut is_rvo = false; // return value optimization
         let map_copy = self.generics.borrow().clone();
-        for (index, generic) in func_data.generic.iter().enumerate() {
-            let ty = &generic_copy[index].clone();
-            match ty {
-                Type::GenericType(name) => {
-                    let ty = {
-                        let map = self.generics.borrow();
-                        if let Some(generic_ty) = map.get(name) {
-                            generic_ty.clone()
-                        } else if self.structs.borrow().contains_key(name) {
-                            Type::Struct(name.clone())
-                        } else if self.enums.borrow().contains_key(name) {
-                            Type::Enum(name.clone(), None)
-                        } else {
-                            self::panic!(
-                                "Type resolution failed: '{}' is not a known generic, struct, or enum.",
-                                name
-                            );
-                        }
-                    };
-                    generic_copy[index] = ty;
-                }
-                _ => {}
-            }
-            let mut map = self.generics.borrow_mut();
 
-            map.insert(generic.clone(), generic_copy[index].clone());
-        }
-
-        let new_args = {
-            let map = self.generics.borrow();
-            self.convert_generic_args(&func_data.args, generics, &map, overload_pos as i64)
-        };
-        let ret_type =
-            self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), 0);
+        let (generic_copy, new_args, ret_type) =
+            self.prepare_generic_call(func_data, generics, overload_pos);
 
         let mut rvo_pos = 0;
         match &self.ensure_monomorphized(&ret_type) {
@@ -849,78 +1038,17 @@ impl Gen {
 
         let stack_pos_save = self.stack_pos;
         let saved_ret_type = self.current_return_type.clone();
-
-        let space_taken = self.gen_args(
-            &args,
-            func_data,
-            &generic_copy,
-            &new_args,
-            is_rvo,
-            expected_type,
-        );
+        let space_taken = self.gen_args(&args, &new_args, is_rvo, overload_pos);
         self.stack_pos = 0;
 
-        if func_data.generic.len() > 0 {
-            let generic_candidates = self.generic_func.get(&name).unwrap().clone();
-            let generic_data = generic_candidates
-                .iter()
-                .find(|stmt| match &stmt.ty {
-                    StmtType::GenericInitFunc {
-                        generic_types,
-                        args,
-                        ..
-                    } => {
-                        args.len() == func_data.args.len()
-                            && generic_types.len() == func_data.generic.len()
-                            && args.iter().zip(func_data.args.iter()).all(
-                                |(decl_arg, resolved_arg)| {
-                                    let decl_ty = decl_arg.ty.clone();
-                                    let resolved_ty = resolved_arg.ty.clone();
-                                    check_types(&decl_ty, &resolved_ty)
-                                },
-                            )
-                    }
-                    _ => false,
-                })
-                .expect(&format!(
-                    "no matching generic definition for function '{}'",
-                    name
-                ))
-                .clone();
-
-            name = transform_generic_name(&name, &generic_copy, overload_pos as i64);
-            if self.functions.get(&name).is_none() {
-                let ret_type = self.resolve_type_with_map(
-                    &func_data.return_type,
-                    &self.generics.borrow(),
-                    overload_pos as i64,
-                );
-                let res_func_data = FuncData {
-                    args: new_args.clone(),
-                    generic: Vec::new(),
-                    return_type: ret_type,
-                };
-                self.functions.insert(name.clone(), vec![res_func_data]);
-                match generic_data.ty {
-                    StmtType::GenericInitFunc {
-                        generic_types,
-                        args,
-                        ret_type,
-                        data,
-                        ..
-                    } => {
-                        let mut generic_data: HashMap<String, Type> = HashMap::new();
-                        for i in 0..generic_types.len() {
-                            let generic_var = generic_types[i].clone();
-                            let generic_ty = generics[i].clone();
-                            generic_data.insert(generic_var, generic_ty);
-                        }
-                        self.gen_func((&name, &new_args, &ret_type, &data, &generic_data));
-                    }
-                    _ => self::panic!("error"),
-                };
-            }
-        }
+        name = self.ensure_monomorphized_function(
+            &name,
+            func_data,
+            generics,
+            &generic_copy,
+            &new_args,
+            overload_pos,
+        );
 
         if is_rvo {
             self.emit_func_data(format!("    lea rdi, [rbp - {}]", rvo_pos));

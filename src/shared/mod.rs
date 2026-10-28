@@ -2,7 +2,10 @@ use core::panic;
 use std::{collections::HashMap, dbg, format, matches};
 
 use crate::{
-    Ir::stmt::{LValue, Type},
+    Ir::{
+        expr::{Expr, ExprType},
+        stmt::{LValue, Type},
+    },
     tokenizer::TokenType,
 };
 
@@ -387,7 +390,7 @@ pub fn transform_generic_name(name: &String, generics: &Vec<Type>, overload_pos:
         };
     }
 
-    if overload_pos < 0 {
+    if overload_pos <= 0 {
         // struct/enum path — unchanged, no overload disambiguation
         let mangled = format!(
             "{}__{}",
@@ -429,4 +432,18 @@ pub fn check_module_name(current_module: &Option<String>, name: &String) -> Stri
     } else {
         name.clone()
     }
+}
+
+pub fn check_nested_arg(args: &Vec<Expr>) -> bool {
+    for i in args {
+        match &i.ty {
+            ExprType::Call {
+                name,
+                generics,
+                args,
+            } => return true,
+            _ => {}
+        }
+    }
+    false
 }
