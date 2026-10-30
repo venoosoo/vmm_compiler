@@ -23,56 +23,64 @@ impl<'a> Lookup for Analyzer<'a> {
             self.lookup(name)
         }
     }
-    fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
+    fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Option<Type> {
         match op {
             UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => expr.get_type(self),
-            UnaryOp::Not => Type::Primitive(TokenType::U8), // boolean
-            UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
+            UnaryOp::Not => Some(Type::Primitive(TokenType::U8)), // boolean
+            UnaryOp::GetAddr => Some(Type::Pointer(Box::new(expr.get_type(self)?))),
         }
     }
-    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
-        let lty = left.get_type(self);
-        let rty = right.get_type(self);
+    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Option<Type> {
+        let lty = left.get_type(self)?;
+        let rty = right.get_type(self)?;
 
         match op {
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                Type::Primitive(TokenType::I64)
+                Some(Type::Primitive(TokenType::I64))
             }
-            _ => coerce_numeric(&lty, &rty),
+            _ => Some(coerce_numeric(&lty, &rty)),
         }
     }
-    fn look_struct_init(&self, struct_name: &String) -> Type {
+    fn look_struct_init(&self, struct_name: &String) -> Option<Type> {
         if let Some(_struct_data) = self.structs.borrow().get(struct_name) {
-            Type::Struct(struct_name.clone())
+            Some(Type::Struct(struct_name.clone()))
         } else {
-            self::panic!("Struct {} not found in get_type", struct_name);
+            self.print_error(
+                self.type_to_error(SemanticError::UndeclaredStruct(struct_name.to_string())),
+            );
+            None
         }
     }
-    fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
-        match ptr_expr.get_type(self) {
-            Type::Pointer(inner) => *inner,
-            _ => self::panic!("Cannot dereference a non-pointer"),
+    fn look_deref(&self, ptr_expr: &Box<Expr>) -> Option<Type> {
+        match ptr_expr.get_type(self)? {
+            Type::Pointer(inner) => Some(*inner),
+            _ => {
+                self.print_error(
+                    self.type_to_error(SemanticError::DerefNonPointer(ptr_expr.get_type(self)?)),
+                );
+                None
+            }
         }
     }
-    fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type {
-        let ty = var_expr.get_type(self);
-        Type::Pointer(Box::new(ty))
+    fn look_addres_of(&self, var_expr: &Box<Expr>) -> Option<Type> {
+        let ty = var_expr.get_type(self)?;
+        Some(Type::Pointer(Box::new(ty)))
     }
-    fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Type {
-        let base_ty = base.get_type(self);
-        let idx_ty = index.get_type(self);
+    fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Option<Type> {
+        let base_ty = base.get_type(self)?;
+        let idx_ty = index.get_type(self)?;
         if !is_numeric(&idx_ty) {
             self::panic!("Array index must be integer");
         }
         match base_ty {
-            Type::Array(elem_ty, _) => *elem_ty,
-            Type::Pointer(elem_ty) => *elem_ty,
+            Type::Array(elem_ty, _) => Some(*elem_ty),
+            Type::Pointer(elem_ty) => Some(*elem_ty),
             _ => self::panic!("Cannot index into non-array type"),
         }
     }
-    fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
-        let base_ty = base.get_type(self);
+    fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Option<Type> {
+        let base_ty = base.get_type(self)?;
         let base_ty = self.resolve_generic_inst(&base_ty);
         let struct_name = match &base_ty {
             Type::Struct(n) => n.clone(),
@@ -95,9 +103,9 @@ impl<'a> Lookup for Analyzer<'a> {
                 ty: Type::Unknown,
             }
         });
-        field.ty.clone()
+        Some(field.ty.clone())
     }
-    fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Type {
+    fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Option<Type> {
         let func_name = name.clone();
 
         let vec_func_data: Vec<FuncData> = if generics.len() > 0 {
@@ -111,7 +119,7 @@ impl<'a> Lookup for Analyzer<'a> {
                     *self.generics.borrow_mut() = generic_map.clone();
                 }
                 let new_args: Vec<Declaration> =
-                    self.convert_generic_args(&func_data.args, generics, &generic_map);
+                    self.convert_generic_args(&func_data.args, generics, &generic_map)?;
 
                 let ret_type: Type = match &func_data.return_type {
                     Type::GenericType(name) => {
@@ -137,38 +145,38 @@ impl<'a> Lookup for Analyzer<'a> {
 
         let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
 
-        func_data.return_type.clone()
+        Some(func_data.return_type.clone())
     }
 
-    fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
+    fn look_array_init(&self, elements: &Vec<Expr>) -> Option<Type> {
         if elements.len() > 0 {
             return elements[0].get_type(self);
         } else {
-            Type::Unknown
+            // idk how to do this better
+            Some(Type::Unknown)
         }
     }
 
-    fn look_get_enum(&self, base: &String, variant: &String) -> Type {
-        Type::Enum(base.clone(), Some(variant.clone()))
+    fn look_get_enum(&self, base: &String, variant: &String) -> Option<Type> {
+        Some(Type::Enum(base.clone(), Some(variant.clone())))
     }
 }
 
 impl<'a> Analyzer<'a> {
-    fn check_num(&mut self, _num: &i64, expected_ty: &Type) -> Type {
+    fn check_num(&mut self, _num: &i64, expected_ty: &Type) -> Option<Type> {
         match expected_ty {
-            Type::Primitive(_) => expected_ty.clone(),
-            _ => Type::Primitive(TokenType::I32),
+            Type::Primitive(_) => Some(expected_ty.clone()),
+            _ => Some(Type::Primitive(TokenType::I32)),
         }
     }
 
-    fn check_var(&mut self, var: &String) -> Type {
+    fn check_var(&mut self, var: &String) -> Option<Type> {
         let var_data = self.lookup(var);
         if let Some(var) = var_data {
-            var
+            Some(var)
         } else {
             self.print_error(self.type_to_error(SemanticError::UndeclaredVariable(var.clone())));
-            // satisfy return type it wouldnt be compiled because of error anyway
-            Type::Primitive(TokenType::I64)
+            None
         }
     }
 
@@ -195,8 +203,8 @@ impl<'a> Analyzer<'a> {
         left: &Box<Expr>,
         right: &Box<Expr>,
         expected_ty: &Type,
-    ) -> Type {
-        let mut l_type = self.check_expr(left, expected_ty);
+    ) -> Option<Type> {
+        let mut l_type = self.check_expr(left, expected_ty)?;
 
         let left_is_num_lit = matches!(left.ty, ExprType::Number(_));
         let right_is_num_lit = matches!(right.ty, ExprType::Number(_));
@@ -207,7 +215,7 @@ impl<'a> Analyzer<'a> {
             expected_ty.clone()
         };
 
-        let mut r_type = self.check_expr(right, &right_expected);
+        let mut r_type = self.check_expr(right, &right_expected)?;
 
         let l_is_ptr = matches!(l_type, Type::Pointer(_));
         let r_is_ptr = matches!(r_type, Type::Pointer(_));
@@ -226,16 +234,16 @@ impl<'a> Analyzer<'a> {
 
         let res = self.check_binary_types(op, l_type, r_type);
         match res {
-            Ok(ty) => ty,
+            Ok(ty) => Some(ty),
             Err(err) => {
                 self.print_error(err);
-                Type::Primitive(TokenType::I64)
+                None
             }
         }
     }
 
-    fn check_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>, expected_ty: &Type) -> Type {
-        let mut expr_type = self.check_expr(expr, expected_ty);
+    fn check_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>, expected_ty: &Type) -> Option<Type> {
+        let mut expr_type = self.check_expr(expr, expected_ty)?;
         let valid = match op {
             UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => is_number(&expr_type),
@@ -250,10 +258,10 @@ impl<'a> Analyzer<'a> {
                 op: op.clone(),
                 ty: expr_type.clone(),
             }));
-            return Type::Primitive(TokenType::I64);
+            return Some(Type::Primitive(TokenType::I64));
         }
 
-        expr_type
+        Some(expr_type)
     }
 
     pub fn check_binary_types(&mut self, op: &BinOp, l: Type, r: Type) -> Result<Type, Error> {
@@ -404,36 +412,37 @@ impl<'a> Analyzer<'a> {
         mangled
     }
 
-    fn resolve_type_with_map(&self, ty: &Type, generic_map: &HashMap<String, Type>) -> Type {
+    fn resolve_type_with_map(
+        &self,
+        ty: &Type,
+        generic_map: &HashMap<String, Type>,
+    ) -> Option<Type> {
         match ty {
             Type::GenericInst(name, inner_types) => {
-                let resolved_inner: Vec<Type> = inner_types
+                let resolved_inner = inner_types
                     .iter()
                     .map(|t| self.resolve_type_with_map(t, generic_map))
-                    .collect();
+                    .collect::<Option<Vec<_>>>()?;
 
                 let normal_name = self.transform_generic_name(name, &resolved_inner);
 
                 if self.structs.borrow().contains_key(&normal_name) {
-                    Type::Struct(normal_name)
+                    Some(Type::Struct(normal_name))
                 } else if self.enums.borrow().contains_key(&normal_name) {
-                    Type::Enum(normal_name, None)
+                    Some(Type::Enum(normal_name, None))
                 } else {
                     self.ensure_monomorphized(ty)
                 }
             }
-            Type::GenericType(name) => generic_map
-                .get(name)
-                .cloned()
-                .expect(&format!("Generic type '{}' not found in map!", name)),
-            Type::Pointer(inner) => {
-                Type::Pointer(Box::new(self.resolve_type_with_map(inner, generic_map)))
-            }
-            Type::Array(inner, size) => Type::Array(
-                Box::new(self.resolve_type_with_map(inner, generic_map)),
+            Type::GenericType(name) => generic_map.get(name).cloned(),
+            Type::Pointer(inner) => Some(Type::Pointer(Box::new(
+                self.resolve_type_with_map(inner, generic_map)?,
+            ))),
+            Type::Array(inner, size) => Some(Type::Array(
+                Box::new(self.resolve_type_with_map(inner, generic_map)?),
                 *size,
-            ),
-            _ => ty.clone(),
+            )),
+            _ => Some(ty.clone()),
         }
     }
 
@@ -444,12 +453,12 @@ impl<'a> Analyzer<'a> {
         _generics: &Vec<Type>,
         _index: usize,
         generic_map: &HashMap<String, Type>,
-    ) -> Declaration {
-        Declaration {
+    ) -> Option<Declaration> {
+        Some(Declaration {
             name: arg.name.clone(),
-            ty: self.resolve_type_with_map(arg_ty, generic_map),
+            ty: self.resolve_type_with_map(arg_ty, generic_map)?,
             initializer: arg.initializer.clone(),
-        }
+        })
     }
 
     fn convert_generic_args(
@@ -457,13 +466,13 @@ impl<'a> Analyzer<'a> {
         args: &Vec<Declaration>,
         generics: &Vec<Type>,
         generic_map: &HashMap<String, Type>,
-    ) -> Vec<Declaration> {
+    ) -> Option<Vec<Declaration>> {
         args.iter()
             .enumerate()
             .map(|(index, arg)| {
                 self.convert_generic_arg(arg, &arg.ty, generics, index, generic_map)
             })
-            .collect()
+            .collect::<Option<Vec<_>>>()
     }
 
     pub fn resolve_function_name(&self, name: &str) -> Option<String> {
@@ -486,16 +495,17 @@ impl<'a> Analyzer<'a> {
         args: &Vec<Expr>,
         _expected_ty: &Type,
         generics: &Vec<Type>,
-    ) -> Type {
+    ) -> Option<Type> {
         let name = &self.resolve_function_name(name).unwrap();
         let (func_data, _func_index) = {
             let data = self.resolve_call(name, args, generics);
             if data.is_none() {
-                return Type::Unknown;
+                return None;
             } else {
                 data.unwrap()
             }
         };
+        self.check_generic_count(generics.len(), func_data.generic.len())?;
         for (index, generic) in func_data.generic.iter().enumerate() {
             self.generics
                 .borrow_mut()
@@ -503,12 +513,12 @@ impl<'a> Analyzer<'a> {
         }
         let args = func_data.args.clone();
         let generic_map = self.generics.borrow().clone();
-        let new_args = self.convert_generic_args(&args, generics, &generic_map);
+        let new_args = self.convert_generic_args(&args, generics, &generic_map)?;
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(name).unwrap().clone();
             let name = self.transform_generic_name(name, generics);
             if self.functions.get(&name).is_none() {
-                let mut return_ty = func_data.return_type.clone();
+                let mut return_ty;
                 match generic_data.ty {
                     StmtType::GenericInitFunc {
                         generic_types,
@@ -519,7 +529,7 @@ impl<'a> Analyzer<'a> {
                     } => {
                         let _generic_data: HashMap<String, Type> = HashMap::new();
                         return_ty = substitute_type(&ret_type, &generic_types, generics);
-                        return_ty = self.ensure_monomorphized(&return_ty);
+                        return_ty = self.ensure_monomorphized(&return_ty)?;
                     }
                     _ => self::panic!("error"),
                 };
@@ -530,17 +540,21 @@ impl<'a> Analyzer<'a> {
                     return_type: return_ty.clone(),
                 };
                 self.functions.insert(name.clone(), vec![res_func_data]);
-                return return_ty;
+                return Some(return_ty);
             } else {
                 let data = self.functions.get(&name).unwrap();
                 // TODO: do something here maybe
-                return data[0].return_type.clone();
+                return Some(data[0].return_type.clone());
             }
         }
-        return func_data.return_type;
+        return Some(func_data.return_type);
     }
 
-    fn check_struct_expr(&mut self, struct_name: &String, fields: &Vec<(String, Expr)>) -> Type {
+    fn check_struct_expr(
+        &mut self,
+        struct_name: &String,
+        fields: &Vec<(String, Expr)>,
+    ) -> Option<Type> {
         let struct_data = self
             .structs
             .borrow()
@@ -558,9 +572,9 @@ impl<'a> Analyzer<'a> {
             let res = struct_data.elements.get(arg_name);
             if let Some(struct_arg) = res {
                 let arg_type = if matches!(arg.ty, ExprType::Number(_)) {
-                    self.check_expr(arg, &struct_arg.ty)
+                    self.check_expr(arg, &struct_arg.ty)?
                 } else {
-                    arg.get_type(self)
+                    arg.get_type(self)?
                 };
                 if !check_types(&struct_arg.ty, &arg_type) {
                     self.print_error(self.type_to_error(SemanticError::StructTypeMismatch {
@@ -576,87 +590,98 @@ impl<'a> Analyzer<'a> {
                 }));
             }
         }
-        Type::Struct(struct_name.to_string())
+        Some(Type::Struct(struct_name.to_string()))
     }
 
-    fn check_struct_member(&mut self, base: &Box<Expr>, name: &String, expected_ty: &Type) -> Type {
-        let base = self.check_expr(base, expected_ty);
-        let base = self.ensure_monomorphized(&base);
+    fn check_struct_member(
+        &mut self,
+        base: &Box<Expr>,
+        name: &String,
+        expected_ty: &Type,
+    ) -> Option<Type> {
+        let base = self.check_expr(base, expected_ty)?;
+        let base = self.ensure_monomorphized(&base)?;
         match base {
             Type::Struct(struct_name) => {
                 let res = self.structs.borrow().get(&struct_name).cloned();
                 if let Some(struct_data) = res {
                     let name_res = struct_data.elements.get(name);
                     if let Some(arg) = name_res {
-                        return arg.ty.clone();
+                        return Some(arg.ty.clone());
                     } else {
                         self.print_error(self.type_to_error(SemanticError::StructNameNotFound {
                             struct_name,
                             got: name.clone(),
                         }));
-                        return Type::Unknown;
+                        None
                     }
                 } else {
                     self.print_error(
                         self.type_to_error(SemanticError::UndeclaredStruct(struct_name)),
                     );
-                    return Type::Unknown;
+                    None
                 }
             }
             _ => {
                 self.print_error(self.type_to_error(SemanticError::NotAStruct(base.clone())));
-                return Type::Unknown;
+                None
             }
         }
     }
 
-    fn check_deref(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Type {
-        let expr_ty = self.check_expr(expr, expected_ty);
+    fn check_deref(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Option<Type> {
+        let expr_ty = self.check_expr(expr, expected_ty)?;
         match expr_ty {
             Type::Pointer(ty) => {
-                return *ty.clone();
+                return Some(*ty.clone());
             }
             _ => {
                 self.print_error(self.type_to_error(SemanticError::NotAPointer(expr_ty)));
-                Type::Unknown
+                None
             }
         }
     }
 
-    fn check_addres_of(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Type {
-        let expr_ty = self.check_expr(expr, expected_ty);
-        return Type::Pointer(Box::new(expr_ty));
+    fn check_addres_of(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Option<Type> {
+        let expr_ty = self.check_expr(expr, expected_ty)?;
+        return Some(Type::Pointer(Box::new(expr_ty)));
     }
 
-    fn check_index(&mut self, base: &Box<Expr>, index: &Box<Expr>, expected_ty: &Type) -> Type {
-        let base_ty = self.check_expr(base, expected_ty);
-        let index_ty = self.check_expr(index, expected_ty);
+    fn check_index(
+        &mut self,
+        base: &Box<Expr>,
+        index: &Box<Expr>,
+        expected_ty: &Type,
+    ) -> Option<Type> {
+        let base_ty = self.check_expr(base, expected_ty)?;
+        let index_ty = self.check_expr(index, expected_ty)?;
 
         if !is_numeric(&index_ty) {
             self.print_error(
                 self.type_to_error(SemanticError::InvalidArrayIndex(index_ty.clone())),
             );
+            return None;
         }
 
         match base_ty {
-            Type::Array(arr_type, _size) => *arr_type.clone(),
-            Type::Pointer(ty) => *ty,
+            Type::Array(arr_type, _size) => Some(*arr_type.clone()),
+            Type::Pointer(ty) => Some(*ty),
             _ => {
                 self.print_error(self.type_to_error(SemanticError::NonArrayIndex(base_ty.clone())));
-                Type::Unknown
+                None
             }
         }
     }
 
-    fn check_array_init(&mut self, elements: &Vec<Expr>, expected_ty: &Type) -> Type {
+    fn check_array_init(&mut self, elements: &Vec<Expr>, expected_ty: &Type) -> Option<Type> {
         if elements.is_empty() {
             self.print_error(self.type_to_error(SemanticError::EmptyArray));
-            return Type::Unknown;
+            return None;
         }
 
         let first_ty = expected_ty;
         for elem in elements.iter().skip(1) {
-            let elem_ty = self.check_expr(elem, expected_ty);
+            let elem_ty = self.check_expr(elem, expected_ty)?;
             if !check_types(&first_ty, &elem_ty) {
                 self.print_error(self.type_to_error(SemanticError::TypeMismatch {
                     expected: first_ty.clone(),
@@ -665,7 +690,7 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Type::Array(Box::new(first_ty.clone()), elements.len())
+        Some(Type::Array(Box::new(first_ty.clone()), elements.len()))
     }
 
     fn check_size_of(&mut self, _expr: &Type) -> Type {
@@ -677,7 +702,7 @@ impl<'a> Analyzer<'a> {
         base: &String,
         value: &Vec<EnumExprField>,
         variant: &String,
-    ) -> Type {
+    ) -> Option<Type> {
         let enum_data = self
             .enums
             .borrow()
@@ -690,28 +715,28 @@ impl<'a> Analyzer<'a> {
             .expect(&format!("in struct: {} no variant {}", base, variant));
         for (index, arg) in variant_data.args.iter().enumerate() {
             let enum_field = &value[index];
-            if !check_types(&enum_field.expr.get_type(self), &arg.ty) {
+            if !check_types(&enum_field.expr.get_type(self)?, &arg.ty) {
                 dbg!(&enum_field.expr.get_type(self));
                 dbg!(&arg);
                 self::panic!("debil²")
             }
         }
-        Type::Enum(base.clone(), None)
+        Some(Type::Enum(base.clone(), None))
     }
 
-    fn check_cast(&mut self, expr: &Expr, ty: &Type) -> Type {
-        if expr.get_type(self) == *ty {
+    fn check_cast(&mut self, expr: &Expr, ty: &Type) -> Option<Type> {
+        if expr.get_type(self)? == *ty {
             self.print_error(self.type_to_error(SemanticError::CastError {
-                before: expr.get_type(self),
+                before: expr.get_type(self)?,
                 after: ty.clone(),
             }));
-            ty.clone()
+            Some(ty.clone())
         } else {
-            ty.clone()
+            Some(ty.clone())
         }
     }
 
-    pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
+    pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Option<Type> {
         match &expr.ty {
             ExprType::Number(num) => self.check_num(num, expected_ty),
             ExprType::Float(_num) => self::panic!("not implemented"),
@@ -736,9 +761,12 @@ impl<'a> Analyzer<'a> {
             ExprType::Deref(expr) => self.check_deref(expr, expected_ty),
             ExprType::Index { base, index } => self.check_index(base, index, expected_ty),
             ExprType::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
-            ExprType::SizeOf { ty } => self.check_size_of(ty),
+            ExprType::SizeOf { ty } => Some(self.check_size_of(ty)),
             ExprType::String { str } => {
-                return Type::Array(Box::new(Type::Primitive(TokenType::U8)), str.len() + 1);
+                return Some(Type::Array(
+                    Box::new(Type::Primitive(TokenType::U8)),
+                    str.len() + 1,
+                ));
             }
             ExprType::GetEnum {
                 base,

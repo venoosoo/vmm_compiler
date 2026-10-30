@@ -67,10 +67,8 @@ impl<'a> Parser<'a> {
     fn peek(&self, offset: usize) -> &Token {
         let pos: usize = self.m_index + offset;
         if self.m_index >= self.m_tokens.len() {
-            panic!(
-                "Trying to parse token more than token array has\nm_index: {}",
-                self.m_tokens.len()
-            );
+            self.error_at(format!("Unexpected EOF"), self.line, self.col);
+            std::process::exit(1);
         }
         &self.m_tokens[pos]
     }
@@ -100,16 +98,15 @@ impl<'a> Parser<'a> {
         if let Some(src_line) = self.get_source_line(&self.current_file, line) {
             let gutter = line.to_string();
             let pad = " ".repeat(gutter.len());
-
-            eprintln!(" {} \x1b[34;1m|\x1b[0m", pad);
+            eprintln!(" {}\x1b[34;1m|\x1b[0m", pad);
             eprintln!(
-                " \x1b[34;1m{}\x1b[0m \x1b[34;1m|\x1b[0m {}",
+                "\x1b[34;1m{}\x1b[0m \x1b[34;1m|\x1b[0m {}",
                 gutter, src_line
             );
             eprintln!(
-                " {} \x1b[34;1m|\x1b[0m {}\x1b[31;1m^\x1b[0m",
+                " {}\x1b[34;1m|\x1b[0m {}\x1b[31;1m^\x1b[0m",
                 pad,
-                " ".repeat(col.saturating_sub(1))
+                " ".repeat(col.saturating_sub(2))
             );
         }
 
@@ -121,12 +118,15 @@ impl<'a> Parser<'a> {
             let found = self.peek(0);
             self.error_at(
                 format!("Syntax error: expected {:?}, got {:?}", ty, found.token),
-                self.line,
-                self.col,
+                found.line,
+                found.col,
             );
             return None;
         }
-        self.consume();
+
+        let res = self.consume();
+        self.line = res.line;
+        self.col = res.col;
         Some(true)
     }
 
@@ -134,7 +134,18 @@ impl<'a> Parser<'a> {
         if self.m_index >= self.m_tokens.len() {
             panic!("Trying to consume more than m_src len");
         }
-        self.m_tokens.remove(0)
+        let res = self.m_tokens.remove(0);
+        self.col = res.col;
+        self.current_file = res.file.clone();
+        self.line = res.line;
+        res
+    }
+
+    pub fn unwrap_expect<T>(&self, smth: Option<T>) -> Option<T> {
+        if smth.is_none() {
+            self.error_at("Unexpected value".to_string(), self.line, self.col);
+        }
+        smth
     }
 
     fn is_struct(&self, var_name: &String) -> bool {
@@ -150,13 +161,6 @@ impl<'a> Parser<'a> {
         while !self.m_tokens.is_empty() {
             if let Some(stmt) = self.parse_stmt() {
                 self.expressions.push(stmt);
-            } else {
-                println!("tokens: {:?}", self.m_tokens);
-                panic!(
-                    "Unexpected token: {:?} at {}",
-                    self.peek(0).token,
-                    self.m_index
-                );
             }
         }
 

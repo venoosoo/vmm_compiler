@@ -3,41 +3,55 @@ use crate::Ir::stmt::{Declaration, StmtType};
 use super::*;
 
 impl<'a> Parser<'a> {
-    pub fn parse_args(&mut self) -> Vec<Declaration> {
+    pub fn parse_args(&mut self) -> Option<Vec<Declaration>> {
         let mut res: Vec<Declaration> = Vec::new();
-        self.consume(); // ( 
+        self.expect(TokenType::OpenParen);
         while self.peek(0).token != TokenType::CloseParen {
-            let arg = self.parse_declaration().unwrap();
+            let arg = match self.parse_declaration() {
+                Some(val) => val,
+                None => return Some(res),
+            };
             match arg.ty {
                 StmtType::Declaration(decl) => {
                     res.push(decl);
                 }
-                _ => self::panic!("wrong args"),
+                _ => self.error_at("strange args".to_string(), self.line, self.col),
             }
             if self.peek(0).token == TokenType::Coma {
-                self.consume();
+                self.expect(TokenType::Coma);
             }
         }
-        self.consume();
-        res
+        self.expect(TokenType::CloseParen);
+        Some(res)
     }
 
     pub fn parse_func_init(&mut self) -> Option<Stmt> {
-        self.expect(TokenType::Func); //keyword
+        self.expect(TokenType::Func);
         let name = self.consume().value.unwrap();
         let generics = self.parse_generic();
-        let args = self.parse_args();
+        let args = self.parse_args()?;
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
             self.expect(TokenType::Access);
             let pre_ptr = self.parse_ptr();
-            let ty = self.get_type();
-            let ty = self.parse_generic_types(ty);
+            let ty = self.get_type()?;
+            let ty = self.parse_generic_types(ty)?;
             let ty = self.parse_array(ty);
             let post_ptr = self.parse_ptr();
             let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
 
             ret_type = ty;
+        }
+        if self.peek(0).token != TokenType::OpenScope {
+            self.error_at(
+                format!(
+                    "Unexpected token at function init: {:?}",
+                    self.peek(0).token
+                ),
+                self.line,
+                self.col,
+            );
+            self.consume();
         }
         let data = Box::new(
             self.parse_stmt()

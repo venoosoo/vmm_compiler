@@ -18,6 +18,7 @@ use crate::{
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
     },
+    Parser::expr,
     shared::{check_module_name, check_types, is_number, substitute_type, type_name},
     tokenizer::TokenType,
 };
@@ -193,35 +194,35 @@ impl<'a> TypeContext for Analyzer<'a> {
         }
         let precomputed_args: Vec<(&Expr, Type)> = args
             .iter()
-            .map(|expr| (expr, expr.get_type(self)))
-            .collect();
+            .map(|expr| expr.get_type(self).map(|ty| (expr, ty)))
+            .collect::<Option<Vec<_>>>()?;
 
         let found_overload = vec_func_data.iter().enumerate().find(|(_, func)| {
             if func.args.len() != precomputed_args.len() {
                 return false;
             }
 
-            precomputed_args
+            let matches: Option<Vec<bool>> = precomputed_args
                 .iter()
                 .enumerate()
-                .all(|(i, (expr, expr_ty))| {
-                    let param_ty = &func.args[i].ty.clone();
+                .map(|(i, (expr, expr_ty))| {
+                    let param_ty = &func.args[i].ty;
 
-                    let (expr_ty_mapped, param_ty_mapped) = {
-                        let map = self.build_generic_map(&func.generic, generics);
-                        let e_ty: Type = self.generic_to_ty(expr_ty, &map);
-                        let p_ty = self.generic_to_ty(param_ty, &map);
-                        (e_ty, p_ty)
-                    };
+                    let map = self.build_generic_map(&func.generic, generics);
+                    let expr_ty_mapped = self.generic_to_ty(expr_ty, &map);
+                    let param_ty_mapped = self.generic_to_ty(param_ty, &map);
 
-                    let param_ty_mono = self.ensure_monomorphized(&param_ty_mapped);
-                    let expr_ty_mono = self.ensure_monomorphized(&expr_ty_mapped);
+                    let param_ty_mono = self.ensure_monomorphized(&param_ty_mapped)?;
+                    let expr_ty_mono = self.ensure_monomorphized(&expr_ty_mapped)?;
 
-                    match &expr.ty {
+                    Some(match &expr.ty {
                         ExprType::Number(_) => is_number(&param_ty_mono),
                         _ => check_types(&expr_ty_mono, &param_ty_mono),
-                    }
+                    })
                 })
+                .collect();
+
+            matches.is_some_and(|results| results.into_iter().all(|matches| matches))
         });
 
         match found_overload {
@@ -247,7 +248,7 @@ impl<'a> TypeContext for Analyzer<'a> {
         }
     }
 
-    fn monomorphize_struct(&self, def: &StructData, type_args: &Vec<Type>) -> Type {
+    fn monomorphize_struct(&self, def: &StructData, type_args: &Vec<Type>) -> Option<Type> {
         let mangled = format!(
             "{}__{}",
             def.name,
@@ -258,7 +259,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                 .join("_")
         );
         if self.structs.borrow().contains_key(&mangled) {
-            return Type::Struct(mangled.clone()); // already done
+            return Some(Type::Struct(mangled.clone()));
         }
 
         // substitute types in fields and recompute offsets
@@ -268,18 +269,20 @@ impl<'a> TypeContext for Analyzer<'a> {
             .iter()
             .map(|f| {
                 let concrete_ty = substitute_type(&f.1.ty, &def.generic_type, type_args);
-                let field_size = self.type_size(&concrete_ty);
+                let field_size = self.type_size(&concrete_ty)?;
+
                 let field = StructField {
                     name: f.1.name.clone(),
                     ty: concrete_ty,
                     offset,
                 };
-                offset += field_size;
-                field
-            })
-            .collect();
 
-        let size = self.compute_struct_size(&fields);
+                offset += field_size;
+                Some(field)
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        let size = self.compute_struct_size(&fields)?;
         self.structs.borrow_mut().insert(
             mangled.clone(),
             StructData {
@@ -289,18 +292,20 @@ impl<'a> TypeContext for Analyzer<'a> {
                 size, // total size
             },
         );
-        return Type::Struct(mangled);
+        return Some(Type::Struct(mangled));
     }
 
-    fn field_alignment(&self, ty: &Type) -> usize {
+    fn field_alignment(&self, ty: &Type) -> Option<usize> {
         match ty {
             Type::Struct(name) => {
                 let s = self.structs.borrow().get(name).cloned().unwrap();
-                s.elements
+                return s
+                    .elements
                     .values()
                     .map(|f| self.field_alignment(&f.ty))
-                    .max()
-                    .unwrap_or(1)
+                    .collect::<Option<Vec<_>>>()?
+                    .into_iter()
+                    .max();
             }
             Type::Enum(name, _) => {
                 let e = self.enums.borrow().get(name).cloned().unwrap();
@@ -309,15 +314,17 @@ impl<'a> TypeContext for Analyzer<'a> {
                     .values()
                     .flat_map(|v| v.args.iter())
                     .map(|f| self.field_alignment(&f.ty))
-                    .max()
-                    .unwrap_or(1);
-                8usize.max(variant_align)
+                    .collect::<Option<Vec<_>>>()?
+                    .into_iter()
+                    .max();
+
+                Some(8usize.max(variant_align?))
             }
             _ => self.type_size(ty), // primitives: size == alignment
         }
     }
 
-    fn monomorphize_enum(&self, def: &EnumData, type_args: &Vec<Type>) -> Type {
+    fn monomorphize_enum(&self, def: &EnumData, type_args: &Vec<Type>) -> Option<Type> {
         let mangled = format!(
             "{}__{}",
             def.name,
@@ -329,7 +336,7 @@ impl<'a> TypeContext for Analyzer<'a> {
         );
 
         if self.enums.borrow().contains_key(&mangled) {
-            return Type::Enum(mangled.clone(), None); // already done
+            return Some(Type::Enum(mangled.clone(), None));
         }
 
         let mut new_variants = HashMap::new();
@@ -363,40 +370,43 @@ impl<'a> TypeContext for Analyzer<'a> {
                 size: 0,
             },
         );
-        return Type::Enum(mangled, None);
+        return Some(Type::Enum(mangled, None));
     }
 
-    fn ensure_monomorphized(&self, ty: &Type) -> Type {
+    fn ensure_monomorphized(&self, ty: &Type) -> Option<Type> {
         match ty {
             Type::GenericInst(name, type_args) => {
                 let mangled = type_name(ty);
                 if self.structs.borrow().contains_key(&mangled) {
-                    return Type::Struct(mangled.clone());
+                    return Some(Type::Struct(mangled.clone()));
                 }
                 if self.enums.borrow().contains_key(&mangled) {
-                    return Type::Enum(mangled.clone(), None);
+                    return Some(Type::Enum(mangled.clone(), None));
                 }
 
                 let struct_def = self.structs.borrow().get(name).cloned();
                 let enum_def = self.enums.borrow().get(name).cloned();
 
                 if let Some(struct_def) = struct_def {
-                    return self.monomorphize_struct(&struct_def, type_args);
+                    return Some(self.monomorphize_struct(&struct_def, type_args)?);
                 } else if let Some(enum_def) = enum_def {
-                    return self.monomorphize_enum(&enum_def, type_args);
+                    return Some(self.monomorphize_enum(&enum_def, type_args)?);
                 } else {
-                    panic!("unknown generic type: {}", name);
+                    self.print_error(
+                        self.type_to_error(SemanticError::UnkownGeneric(name.clone())),
+                    );
+                    None
                 }
             }
             Type::Pointer(inner) => {
-                let ty = self.ensure_monomorphized(inner);
-                Type::Pointer(Box::new(ty))
+                let ty = self.ensure_monomorphized(inner)?;
+                Some(Type::Pointer(Box::new(ty)))
             }
             Type::Array(inner, size) => {
-                let ty = self.ensure_monomorphized(inner);
-                Type::Array(Box::new(ty), *size)
+                let ty = self.ensure_monomorphized(inner)?;
+                Some(Type::Array(Box::new(ty), *size))
             }
-            _ => ty.clone(),
+            _ => Some(ty.clone()),
         }
     }
 }
@@ -424,14 +434,14 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> usize {
+    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> Option<usize> {
         let mut offset = 0;
         let mut max_align = 1;
 
         for field in fields {
-            let ty = self.ensure_monomorphized(&field.ty);
-            let align = self.field_alignment(&ty);
-            let size = self.type_size(&ty);
+            let ty = self.ensure_monomorphized(&field.ty)?;
+            let align = self.field_alignment(&ty)?;
+            let size = self.type_size(&ty)?;
 
             offset = (offset + align - 1) & !(align - 1);
             offset += size;
@@ -441,21 +451,21 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        (offset + max_align - 1) & !(max_align - 1)
+        Some((offset + max_align - 1) & !(max_align - 1))
     }
 
     // this is just copy from gen
     // TODO: make this a trait so and expand it for gen and analyzer
-    pub fn type_size(&self, ty: &Type) -> usize {
+    pub fn type_size(&self, ty: &Type) -> Option<usize> {
         match ty {
             Type::Primitive(token) => match token {
-                TokenType::I8 | TokenType::U8 => 1,
-                TokenType::I16 | TokenType::U16 => 2,
-                TokenType::I32 | TokenType::U32 => 4,
-                TokenType::I64 | TokenType::U64 => 8,
+                TokenType::I8 | TokenType::U8 => Some(1),
+                TokenType::I16 | TokenType::U16 => Some(2),
+                TokenType::I32 | TokenType::U32 => Some(4),
+                TokenType::I64 | TokenType::U64 => Some(8),
                 _ => panic!("Unsupported primitive type: {:?}", token),
             },
-            Type::Pointer(_) => 8,
+            Type::Pointer(_) => Some(8),
             Type::Array(elem_type, _count) => self.type_size(elem_type),
             Type::Struct(name) => self.ensure_struct_sized(name),
             Type::Named(name) => {
@@ -470,10 +480,13 @@ impl<'a> Analyzer<'a> {
             Type::GenericInst(_str, _ty) => panic!("generic inst isnt monomorphized"),
             Type::GenericType(_name) => {
                 // TODO: make the self.generic the same as in gen and fix this
-                8
+                Some(8)
             }
             Type::Enum(name, _) => self.ensure_enum_sized(name),
             Type::Unknown => {
+                self.print_error(
+                    self.type_to_error(SemanticError::UnkownType("unkown type idk".to_string())),
+                );
                 panic!("unkown type")
             }
         }
@@ -530,18 +543,30 @@ impl<'a> Analyzer<'a> {
                 if func.args.len() != args.len() {
                     return false;
                 }
+
                 args.iter().enumerate().all(|(i, expr)| {
-                    let expr_ty = expr.get_type(self);
-                    let param_ty = &func.args[i].ty.clone();
-                    let (expr_ty, param_ty) = {
-                        let map = self.build_generic_map(&func.generic, generics);
-                        let expr_ty: Type = self.generic_to_ty(&expr_ty, &map);
-                        let param_ty = self.generic_to_ty(param_ty, &map);
-                        (expr_ty, param_ty)
+                    let expr_ty = match expr.get_type(self) {
+                        Some(ty) => ty,
+                        None => return false,
                     };
-                    let expr_ty = self.ensure_monomorphized(&expr_ty);
-                    let param_ty = self.ensure_monomorphized(&param_ty);
-                    let arg_matches = match &expr.ty {
+
+                    let param_ty = &func.args[i].ty;
+                    let map = self.build_generic_map(&func.generic, generics);
+
+                    let expr_ty = self.generic_to_ty(&expr_ty, &map);
+                    let param_ty = self.generic_to_ty(param_ty, &map);
+
+                    let expr_ty = match self.ensure_monomorphized(&expr_ty) {
+                        Some(ty) => ty,
+                        None => return false,
+                    };
+
+                    let param_ty = match self.ensure_monomorphized(&param_ty) {
+                        Some(ty) => ty,
+                        None => return false,
+                    };
+
+                    match &expr.ty {
                         ExprType::Number(_) => {
                             matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
                         }
@@ -554,22 +579,22 @@ impl<'a> Analyzer<'a> {
                         }
 
                         _ => check_types(&expr_ty, &param_ty),
-                    };
-                    arg_matches
+                    }
                 })
             })
             .map(|(pos, func)| (pos, func.clone()))
     }
 
-    fn ensure_struct_sized(&self, name: &str) -> usize {
+    fn ensure_struct_sized(&self, name: &str) -> Option<usize> {
         if let Some(existing) = self.structs.borrow().get(name) {
             if existing.size > 0 {
-                return existing.size;
+                return Some(existing.size);
             }
         }
 
         if self.computing.borrow().contains(name) {
-            panic!("recursive struct without indirection: {}", name);
+            self.print_error(self.type_to_error(SemanticError::RecursiveStruct(name.to_string())));
+            return None;
         }
         self.computing.borrow_mut().insert(name.to_string());
 
@@ -583,21 +608,21 @@ impl<'a> Analyzer<'a> {
             .cloned()
             .collect();
 
-        let size = self.compute_struct_size(&raw_fields);
+        let size = self.compute_struct_size(&raw_fields)?;
 
         let mut offset = 0;
         let mut computed_fields = Vec::new();
         for f in raw_fields {
-            let ty = self.ensure_monomorphized(&f.ty);
-            let align = self.field_alignment(&ty);
-            let field_size = self.type_size(&ty);
+            let ty = self.ensure_monomorphized(&f.ty)?;
+            let align = self.field_alignment(&ty)?;
+            let field_size = self.type_size(&ty)?;
             offset = (offset + align - 1) & !(align - 1);
             computed_fields.push(StructField { offset, ty, ..f });
             offset += field_size;
         }
         {
             let mut structs = self.structs.borrow_mut();
-            let entry = structs.get_mut(name).unwrap();
+            let entry = structs.get_mut(name)?;
             entry.elements = computed_fields
                 .iter()
                 .map(|f| (f.name.clone(), f.clone()))
@@ -606,23 +631,34 @@ impl<'a> Analyzer<'a> {
         }
 
         self.computing.borrow_mut().remove(name);
-        size
+        Some(size)
     }
 
-    fn ensure_enum_sized(&self, name: &str) -> usize {
+    fn check_generic_count(&self, got: usize, required: usize) -> Option<bool> {
+        if got != required {
+            self.print_error(
+                self.type_to_error(SemanticError::GenericArgCountMismtach { got, required }),
+            );
+            return None;
+        }
+        return Some(true);
+    }
+
+    fn ensure_enum_sized(&self, name: &str) -> Option<usize> {
         if let Some(existing) = self.enums.borrow().get(name) {
             if existing.size > 0 {
-                return existing.size;
+                return Some(existing.size);
             }
         }
 
         if self.computing.borrow().contains(name) {
-            panic!("recursive enum without indirection: {}", name);
+            self.print_error(self.type_to_error(SemanticError::RecursiveEnum(name.to_string())));
+            return None;
         }
         self.computing.borrow_mut().insert(name.to_string());
 
         let raw_variants: HashMap<String, EnumVariant> =
-            self.enums.borrow().get(name).unwrap().variants.clone();
+            self.enums.borrow().get(name)?.variants.clone();
 
         let mut max_size = TAG_SIZE; // tag size
         let mut computed_variants = HashMap::new();
@@ -630,7 +666,7 @@ impl<'a> Analyzer<'a> {
             let mut offset = TAG_SIZE;
             let mut computed_args = Vec::new();
             for arg in variant.args {
-                let field_size = self.type_size(&arg.ty);
+                let field_size = self.type_size(&arg.ty)?;
                 computed_args.push(StructField { offset, ..arg });
                 offset += field_size;
             }
@@ -650,13 +686,13 @@ impl<'a> Analyzer<'a> {
 
         {
             let mut enums = self.enums.borrow_mut();
-            let entry = enums.get_mut(name).unwrap();
+            let entry = enums.get_mut(name)?;
             entry.variants = computed_variants;
             entry.size = max_size;
         }
 
         self.computing.borrow_mut().remove(name);
-        max_size
+        Some(max_size)
     }
 
     pub fn reg_inits(&mut self, stmts: &Vec<Stmt>) {

@@ -48,7 +48,10 @@ pub enum SemanticError {
     UndeclaredField(String, String), // (struct_name, field_name)
     AlreadyDeclared(String),
     UnkownType(String),
+    RecursiveStruct(String),
+    RecursiveEnum(String),
     BreakOutsideOfLoop,
+    UnkownGeneric(String),
     FunctionArgsMismatch {
         func_name: String,
         expected: usize,
@@ -78,6 +81,10 @@ pub enum SemanticError {
     StructNameNotFound {
         struct_name: String,
         got: String,
+    },
+    GenericArgCountMismtach {
+        got: usize,
+        required: usize,
     },
     ReturnTypeMismatch {
         expected: Type,

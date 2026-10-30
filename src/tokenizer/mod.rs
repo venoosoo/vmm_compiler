@@ -118,7 +118,7 @@ impl Tokenizer {
             m_buf: String::new(),
             file: file_path,
             line: 1,
-            col: 0,
+            col: 1,
             m_res: Vec::new(),
         }
     }
@@ -147,16 +147,18 @@ impl Tokenizer {
             panic!("Trying to consume more than m_src len");
         }
         self.m_index += 1;
-        self.m_src[self.m_index - 1]
+        let ch = self.m_src[self.m_index - 1];
+        if ch == '\n' {
+            self.line += 1;
+            self.col = 1;
+        } else {
+            self.col += 1;
+        }
+        ch
     }
 
     pub fn tokenize(&mut self) {
         while self.m_index <= self.m_src.len() - 1 {
-            self.col += 1;
-            if self.peek(0) == '\n' {
-                self.line += 1;
-                self.col = 0;
-            }
             if self.peek(0).is_alphabetic() {
                 let v = self.consume();
                 self.m_buf.push(v);
@@ -292,10 +294,7 @@ impl Tokenizer {
                         if self.peek(0) == '/' {
                             let current_line = self.line;
                             while current_line == self.line {
-                                if self.consume() == '\n' {
-                                    self.line += 1;
-                                    self.col = 0;
-                                }
+                                self.consume();
                             }
                         } else {
                             self.push_token(TokenType::Div, Some('/'.to_string()))

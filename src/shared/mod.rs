@@ -447,3 +447,21 @@ pub fn check_nested_arg(args: &Vec<Expr>) -> bool {
     }
     false
 }
+
+pub fn can_start_expr(token: TokenType) -> bool {
+    matches!(
+        token,
+        TokenType::Var
+            | TokenType::Num
+            | TokenType::HexNum
+            | TokenType::OctalNum
+            | TokenType::CharValue
+            | TokenType::String
+            | TokenType::OpenParen
+            | TokenType::Sub
+            | TokenType::Not
+            | TokenType::BitNot
+            | TokenType::Address
+            | TokenType::Mul
+    )
+}

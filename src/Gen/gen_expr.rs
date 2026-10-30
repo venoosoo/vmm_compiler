@@ -26,62 +26,62 @@ impl Lookup for Gen {
             return Some(var.var_type.clone());
         }
     }
-    fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
+    fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Option<Type> {
         match op {
             UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => expr.get_type(self),
-            UnaryOp::Not => Type::Primitive(TokenType::U8), // boolean
-            UnaryOp::GetAddr => Type::Pointer(Box::new(expr.get_type(self))),
+            UnaryOp::Not => Some(Type::Primitive(TokenType::U8)), // boolean
+            UnaryOp::GetAddr => Some(Type::Pointer(Box::new(expr.get_type(self)?))),
         }
     }
-    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
-        let lty = left.get_type(self);
-        let rty = right.get_type(self);
+    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Option<Type> {
+        let lty = left.get_type(self)?;
+        let rty = right.get_type(self)?;
         match op {
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                Type::Primitive(TokenType::I64)
+                Some(Type::Primitive(TokenType::I64))
             }
             _ => match (&left.ty, &right.ty) {
-                (ExprType::Number(_), _) => rty,
-                (_, ExprType::Number(_)) => lty,
-                _ => coerce_numeric(&lty, &rty),
+                (ExprType::Number(_), _) => Some(rty),
+                (_, ExprType::Number(_)) => Some(lty),
+                _ => Some(coerce_numeric(&lty, &rty)),
             },
         }
     }
-    fn look_struct_init(&self, struct_name: &String) -> Type {
+    fn look_struct_init(&self, struct_name: &String) -> Option<Type> {
         if let Some(_struct_data) = self.structs.borrow().get(struct_name) {
-            Type::Struct(struct_name.clone())
+            Some(Type::Struct(struct_name.clone()))
         } else {
             self::panic!("Struct {} not found in get_type", struct_name);
         }
     }
-    fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
-        match ptr_expr.get_type(self) {
-            Type::Pointer(inner) => *inner,
+    fn look_deref(&self, ptr_expr: &Box<Expr>) -> Option<Type> {
+        match ptr_expr.get_type(self)? {
+            Type::Pointer(inner) => Some(*inner),
             _ => self::panic!(
                 "Cannot dereference a non-pointer: {:?}",
                 ptr_expr.get_type(self)
             ),
         }
     }
-    fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type {
-        let ty = var_expr.get_type(self);
-        Type::Pointer(Box::new(ty))
+    fn look_addres_of(&self, var_expr: &Box<Expr>) -> Option<Type> {
+        let ty = var_expr.get_type(self)?;
+        Some(Type::Pointer(Box::new(ty)))
     }
-    fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Type {
-        let base_ty = base.get_type(self);
-        let idx_ty = index.get_type(self);
+    fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Option<Type> {
+        let base_ty = base.get_type(self)?;
+        let idx_ty = index.get_type(self)?;
         if !is_numeric(&idx_ty) {
             self::panic!("Array index must be a number");
         }
         match base_ty {
-            Type::Array(elem_ty, _) => *elem_ty,
-            Type::Pointer(elem_ty) => *elem_ty,
-            _ => base_ty,
+            Type::Array(elem_ty, _) => Some(*elem_ty),
+            Type::Pointer(elem_ty) => Some(*elem_ty),
+            _ => Some(base_ty),
         }
     }
-    fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
-        let base_ty = base.get_type(self);
+    fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Option<Type> {
+        let base_ty = base.get_type(self)?;
         let base_ty = self.resolve_generic_inst(&base_ty);
         let struct_name = match &base_ty {
             Type::Struct(n) => n.clone(),
@@ -93,9 +93,9 @@ impl Lookup for Gen {
         };
         let struct_data = self.structs.borrow().get(&struct_name).cloned().unwrap();
         let field = struct_data.elements.get(name).unwrap();
-        field.ty.clone()
+        Some(field.ty.clone())
     }
-    fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Type {
+    fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Option<Type> {
         let func_name = name.clone();
 
         let vec_func_data: Vec<FuncData> = if generics.len() > 0 {
@@ -135,18 +135,18 @@ impl Lookup for Gen {
             }
         };
         let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
-        func_data.return_type.clone()
+        Some(func_data.return_type.clone())
     }
-    fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
+    fn look_array_init(&self, elements: &Vec<Expr>) -> Option<Type> {
         if elements.len() > 0 {
             return elements[0].get_type(self);
         } else {
-            Type::Unknown
+            None
         }
     }
 
-    fn look_get_enum(&self, base: &String, variant: &String) -> Type {
-        Type::Enum(base.clone(), Some(variant.clone()))
+    fn look_get_enum(&self, base: &String, variant: &String) -> Option<Type> {
+        Some(Type::Enum(base.clone(), Some(variant.clone())))
     }
 }
 
@@ -157,7 +157,7 @@ impl Gen {
         left_reg: &str,
         right_reg: &str,
         expected_type: &Type,
-    ) {
+    ) -> Option<()> {
         let is_unsigned = is_unsigned(expected_type);
         match op {
             BinOp::BitAnd => {
@@ -209,9 +209,9 @@ impl Gen {
                     self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
                     // SIGNED PATH
-                    if self.type_size(expected_type) == 8 {
+                    if self.type_size(expected_type)? == 8 {
                         self.emit_func_data("    cqo".to_string());
-                    } else if self.type_size(expected_type) == 4 {
+                    } else if self.type_size(expected_type)? == 4 {
                         self.emit_func_data("    cdq".to_string());
                     } else {
                         self.emit_func_data("    cwd".to_string());
@@ -233,9 +233,9 @@ impl Gen {
                     self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
                     // SIGNED PATH
-                    if self.type_size(expected_type) == 8 {
+                    if self.type_size(expected_type)? == 8 {
                         self.emit_func_data("    cqo".to_string());
-                    } else if self.type_size(expected_type) == 4 {
+                    } else if self.type_size(expected_type)? == 4 {
                         self.emit_func_data("    cdq".to_string());
                     } else {
                         self.emit_func_data("    cwd".to_string());
@@ -308,6 +308,7 @@ impl Gen {
                 }
             }
         }
+        return None;
     }
 
     fn push_result(&mut self) {
@@ -432,10 +433,10 @@ impl Gen {
         &mut self,
         data: (&BinOp, &Box<Expr>, &Box<Expr>),
         expected_type: &Type,
-    ) -> String {
+    ) -> Option<String> {
         let (op, left, right) = data;
-        let left_ty = left.get_type(self);
-        let right_ty = right.get_type(self);
+        let left_ty = left.get_type(self)?;
+        let right_ty = right.get_type(self)?;
 
         let left_is_number = matches!(&left.ty, ExprType::Number(_))
             || matches!(&left.ty, ExprType::Unary { op, expr: inner }
@@ -453,12 +454,12 @@ impl Gen {
             _ => left_ty.clone(),
         };
 
-        let left_reg = self.reg_for_size("rax", &op_ty).unwrap();
-        let right_reg = self.reg_for_size("rbx", &op_ty).unwrap();
+        let left_reg = self.reg_for_size("rax", &op_ty)?;
+        let right_reg = self.reg_for_size("rbx", &op_ty)?;
 
         let is_op_add = matches!(op, BinOp::Add);
-        let left_ty = self.ensure_monomorphized(&left_ty);
-        let right_ty = self.ensure_monomorphized(&right_ty);
+        let left_ty = self.ensure_monomorphized(&left_ty)?;
+        let right_ty = self.ensure_monomorphized(&right_ty)?;
 
         // the and exception
         if *op == BinOp::And {
@@ -471,13 +472,13 @@ impl Gen {
             self.emit_func_data(format!("    cmp {}, 0", right_reg));
             self.emit_func_data(format!("and_end_{id}:"));
 
-            return left_reg;
+            return Some(left_reg);
         }
 
         self.eval_expr(right, expected_type);
         if is_op_add {
             if let Type::Pointer(inner_ty) = &left_ty {
-                let inner_size = self.type_size(&inner_ty);
+                let inner_size = self.type_size(&inner_ty)?;
                 if inner_size > 1 {
                     self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
                 }
@@ -487,7 +488,7 @@ impl Gen {
         self.eval_expr(left, expected_type);
         if is_op_add {
             if let Type::Pointer(inner_ty) = &right_ty {
-                let inner_size = self.type_size(&inner_ty);
+                let inner_size = self.type_size(&inner_ty)?;
                 if inner_size > 1 {
                     self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
                 }
@@ -497,7 +498,7 @@ impl Gen {
 
         self.gen_expr_binop(op, &left_reg, &right_reg, expected_type);
 
-        left_reg
+        Some(left_reg)
     }
 
     fn gen_expr_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>, expected_type: &Type) -> String {
@@ -672,7 +673,7 @@ impl Gen {
         new_args: &Vec<Declaration>,
         is_rvo: bool,
         overload_pos: usize,
-    ) -> usize {
+    ) -> Option<usize> {
         let mut arg_index = self.arg_count(is_rvo, new_args);
         let nested_call = check_nested_arg(args);
         let mut space_taken = 0;
@@ -697,7 +698,7 @@ impl Gen {
 
                         let func_data = self.find_overload(funcs, args, generics).unwrap().1;
 
-                        self.ensure_monomorphized(&func_data.return_type)
+                        self.ensure_monomorphized(&func_data.return_type)?
                     } else {
                         let resolved_name = self.resolve_function_name(name).unwrap_or_else(|| {
                             panic!(
@@ -724,10 +725,10 @@ impl Gen {
 
                         self.generics.replace(saved_generics);
 
-                        self.ensure_monomorphized(&nested_ret_type)
+                        self.ensure_monomorphized(&nested_ret_type)?
                     };
 
-                    let ret_type_size = self.type_size(&ret_type);
+                    let ret_type_size = self.type_size(&ret_type)?;
 
                     if ret_type_size > 8 {
                         self.alloc(ret_type_size);
@@ -844,7 +845,7 @@ impl Gen {
             }
             self.stack_pos -= temp_size;
         }
-        return space_taken;
+        return Some(space_taken);
     }
 
     pub fn resolve_function_name(&self, name: &str) -> Option<String> {
@@ -1018,7 +1019,7 @@ impl Gen {
         overload_pos: usize,
         generics: &Vec<Type>,
         expected_type: &Type,
-    ) -> String {
+    ) -> Option<String> {
         let args = args.clone();
         let mut name = self.resolve_function_name(name).unwrap();
         let mut is_rvo = false; // return value optimization
@@ -1028,7 +1029,7 @@ impl Gen {
             self.prepare_generic_call(func_data, generics, overload_pos);
 
         let mut rvo_pos = 0;
-        match &self.ensure_monomorphized(&ret_type) {
+        match &self.ensure_monomorphized(&ret_type)? {
             Type::Struct(_) | Type::Enum(_, _) => {
                 is_rvo = true;
                 rvo_pos = self.stack_pos;
@@ -1038,7 +1039,7 @@ impl Gen {
 
         let stack_pos_save = self.stack_pos;
         let saved_ret_type = self.current_return_type.clone();
-        let space_taken = self.gen_args(&args, &new_args, is_rvo, overload_pos);
+        let space_taken = self.gen_args(&args, &new_args, is_rvo, overload_pos)?;
         self.stack_pos = 0;
 
         name = self.ensure_monomorphized_function(
@@ -1065,7 +1066,7 @@ impl Gen {
         self.stack_pos = stack_pos_save;
         self.current_return_type = saved_ret_type;
         self.generics.replace(map_copy);
-        return "rax".to_string();
+        return Some("rax".to_string());
     }
 
     pub fn generic_to_ty(&self, ty: &Type, type_map: &HashMap<String, Type>) -> Type {
@@ -1110,12 +1111,16 @@ impl Gen {
         }
     }
 
-    fn gen_generic_struct(&mut self, fields: &Vec<(String, Expr)>, struct_name: &String) -> String {
+    fn gen_generic_struct(
+        &mut self,
+        fields: &Vec<(String, Expr)>,
+        struct_name: &String,
+    ) -> Option<String> {
         let struct_data = self.structs.borrow().get(struct_name).unwrap().clone();
 
         let mut type_map: HashMap<String, Type> = HashMap::new();
         for (index, (_, field)) in struct_data.elements.iter().enumerate() {
-            let expr_ty = fields[index].1.get_type(self);
+            let expr_ty = fields[index].1.get_type(self)?;
             self.resolve_generic(&expr_ty, &field.ty, &mut type_map);
         }
 
@@ -1128,7 +1133,7 @@ impl Gen {
                 offset: offset,
                 name: field_data.name.clone(),
             };
-            offset += self.type_size(&ty);
+            offset += self.type_size(&ty)?;
             new_elements.insert(field_name.clone(), new_field);
         }
 
@@ -1140,7 +1145,7 @@ impl Gen {
         let name = format!("{}__{}", struct_data.name, type_args.join("_"));
 
         let fields: Vec<StructField> = new_elements.values().cloned().collect();
-        let size = self.compute_struct_size(&fields);
+        let size = self.compute_struct_size(&fields)?;
 
         // Register if not already monomorphized
         if !self.structs.borrow().contains_key(&name) {
@@ -1153,14 +1158,14 @@ impl Gen {
             self.structs.borrow_mut().insert(name.clone(), new_data);
         }
 
-        name
+        Some(name)
     }
 
     fn gen_expr_struct_init(
         &mut self,
         fields: &Vec<(String, Expr)>,
         struct_name: &String,
-    ) -> String {
+    ) -> Option<String> {
         let mut struct_data = self
             .structs
             .borrow()
@@ -1168,8 +1173,8 @@ impl Gen {
             .expect("Unknown struct")
             .clone();
         if struct_data.generic_type.len() > 0 {
-            let name = self.gen_generic_struct(fields, struct_name);
-            struct_data = self.structs.borrow().get(&name).unwrap().clone();
+            let name = self.gen_generic_struct(fields, struct_name)?;
+            struct_data = self.structs.borrow().get(&name)?.clone();
         }
         let base_pos = self.stack_pos;
         let mut offset = 0;
@@ -1188,7 +1193,7 @@ impl Gen {
             let sized_reg = self.reg_for_size("rax", field_type).unwrap();
             let size_word = self.get_word(field_type);
             let field_pos = base_pos - offset;
-            offset += self.type_size(field_type);
+            offset += self.type_size(field_type)?;
             // can break code
             match field_type {
                 Type::Array(..) => {}
@@ -1202,7 +1207,7 @@ impl Gen {
             }
         }
         self.stack_pos += stack_offset;
-        "rax".to_string()
+        Some("rax".to_string())
     }
 
     fn emit_typed_load(&mut self, mem_operand: &str, expected_type: &Type) {
@@ -1255,7 +1260,7 @@ impl Gen {
                 None
             }
             ExprType::StructMember { base, name } => {
-                let base_type = base.get_type(self);
+                let base_type = base.get_type(self)?;
                 let base_type = self.resolve_generic_inst(&base_type);
                 let struct_name = match &base_type {
                     Type::Struct(n) => n.clone(),
@@ -1280,8 +1285,8 @@ impl Gen {
         }
     }
 
-    fn gen_expr_struct_member(&mut self, base: &Box<Expr>, name: &String) -> String {
-        let base_type = base.get_type(self);
+    fn gen_expr_struct_member(&mut self, base: &Box<Expr>, name: &String) -> Option<String> {
+        let base_type = base.get_type(self)?;
         let base_type = self.resolve_generic_inst(&base_type);
         let struct_name = match &base_type {
             Type::Struct(n) => n.clone(),
@@ -1314,7 +1319,7 @@ impl Gen {
             },
         }
 
-        "rax".to_string()
+        Some("rax".to_string())
     }
 
     fn gen_expr_deref(&mut self, expr: &Box<Expr>, expected_type: &Type) -> String {
@@ -1323,7 +1328,7 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn gen_expr_addres_of(&mut self, expr: &Box<Expr>) -> String {
+    fn gen_expr_addres_of(&mut self, expr: &Box<Expr>) -> Option<String> {
         match &expr.ty {
             ExprType::Variable(name) => {
                 let var = self.lookup_var(name);
@@ -1332,18 +1337,18 @@ impl Gen {
                 } else {
                     self.emit_func_data(format!("    lea rax, [rbp - {}]", var.stack_pos));
                 }
-                "rax".to_string()
+                Some("rax".to_string())
             }
 
             ExprType::StructMember { base, name } => {
                 self.member_addr(base, name);
-                "rax".to_string()
+                Some("rax".to_string())
             }
 
             ExprType::Index { base, index } => {
-                let elem_type = expr.get_type(self);
-                let elem_size = self.type_size(&elem_type);
-                let base_type = base.get_type(self);
+                let elem_type = expr.get_type(self)?;
+                let elem_size = self.type_size(&elem_type)?;
+                let base_type = base.get_type(self)?;
 
                 // eval base first, push it
                 self.eval_expr(base, &base_type);
@@ -1356,12 +1361,12 @@ impl Gen {
                 // pop base, add scaled index
                 self.pop_into("rbx");
                 self.emit_func_data("    add rax, rbx".to_string());
-                "rax".to_string()
+                Some("rax".to_string())
             }
 
             ExprType::Deref(inner) => {
                 // &*ptr == ptr
-                let ptr_type = Type::Pointer(Box::new(expr.get_type(self)));
+                let ptr_type = Type::Pointer(Box::new(expr.get_type(self)?));
                 self.eval_expr(inner, &ptr_type)
             }
 
@@ -1374,25 +1379,25 @@ impl Gen {
         base: &Box<Expr>,
         index: &Box<Expr>,
         expected_type: &Type,
-    ) -> String {
-        let arr_ty = &base.get_type(self);
+    ) -> Option<String> {
+        let arr_ty = &base.get_type(self)?;
         self.eval_expr(base, arr_ty);
         self.push_result();
-        let index_reg = self.eval_expr(index, &Type::Primitive(TokenType::I64));
-        let elem_size = self.type_size(expected_type);
+        self.eval_expr(index, &Type::Primitive(TokenType::I64));
+        let elem_size = self.type_size(expected_type)?;
         self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
         self.pop_into("rbx");
         self.emit_func_data(format!("    add rax, rbx"));
         self.emit_typed_load("[rax]", expected_type);
-        "rax".to_string()
+        Some("rax".to_string())
     }
 
-    fn gen_array_init(&mut self, elements: &Vec<Expr>, expected_type: &Type) -> String {
+    fn gen_array_init(&mut self, elements: &Vec<Expr>, expected_type: &Type) -> Option<String> {
         let elem_type = match expected_type {
             Type::Array(elem_ty, _) => *elem_ty.clone(),
             _ => self::panic!("gen_array_init called with non-array type"),
         };
-        let elem_size = self.type_size(&elem_type);
+        let elem_size = self.type_size(&elem_type)?;
         let base_pos = self.stack_pos;
 
         for (i, elem) in elements.iter().enumerate() {
@@ -1407,14 +1412,14 @@ impl Gen {
             ));
         }
         self.emit_func_data(format!("    lea rax, [rbp - {}]", base_pos));
-        "rax".to_string()
+        Some("rax".to_string())
     }
 
-    fn gen_size_of(&mut self, stmt: &Type) -> String {
-        let ty = self.ensure_monomorphized(stmt);
-        let size = self.type_size(&ty);
+    fn gen_size_of(&mut self, stmt: &Type) -> Option<String> {
+        let ty = self.ensure_monomorphized(stmt)?;
+        let size = self.type_size(&ty)?;
         self.emit_func_data(format!("    mov rax, {}", size));
-        "rax".to_string()
+        Some("rax".to_string())
     }
 
     fn gen_string(&mut self, str: &String) -> String {
@@ -1424,13 +1429,13 @@ impl Gen {
         "rax".to_string()
     }
 
-    fn gen_cast(&mut self, expr: &Box<Expr>, target_ty: &Type) -> String {
-        let src_ty = expr.get_type(self);
-        let src_ty = self.ensure_monomorphized(&src_ty);
+    fn gen_cast(&mut self, expr: &Box<Expr>, target_ty: &Type) -> Option<String> {
+        let src_ty = expr.get_type(self)?;
+        let src_ty = self.ensure_monomorphized(&src_ty)?;
         self.eval_expr(expr, &src_ty);
 
-        let src_size = self.type_size(&src_ty);
-        let target_size = self.type_size(target_ty);
+        let src_size = self.type_size(&src_ty)?;
+        let target_size = self.type_size(target_ty)?;
         if src_size < target_size {
             let src_reg = self.reg_for_size("rax", &src_ty).unwrap();
             let target_reg = self.reg_for_size("rax", target_ty).unwrap();
@@ -1454,7 +1459,7 @@ impl Gen {
             }
         }
 
-        self.reg_for_size("rax", target_ty).unwrap()
+        self.reg_for_size("rax", target_ty)
     }
 
     pub fn resolve_generic_inst(&self, ty: &Type) -> Type {
@@ -1479,12 +1484,12 @@ impl Gen {
         enum_data: &EnumData,
         values: &Vec<EnumExprField>,
         variant: &String,
-    ) -> String {
+    ) -> Option<String> {
         let mut type_map: HashMap<String, Type> = HashMap::new();
         for (name, field) in enum_data.variants.iter() {
             if field.name == *variant {
                 for (index, enum_field) in field.args.iter().enumerate() {
-                    let expr_ty = values[index].expr.get_type(self);
+                    let expr_ty = values[index].expr.get_type(self)?;
                     self.resolve_generic(&expr_ty, &enum_field.ty, &mut type_map);
                 }
             }
@@ -1496,7 +1501,7 @@ impl Gen {
             .map(|param| type_map.get(param).map(type_name).unwrap_or(param.clone()))
             .collect();
         let name = format!("{}__{}", enum_data.name, type_args.join("_"));
-        name
+        Some(name)
     }
 
     // TODO: make this bettter
@@ -1506,7 +1511,7 @@ impl Gen {
         value: &Vec<EnumExprField>,
         variant: &String,
         expected_type: &Type,
-    ) -> String {
+    ) -> Option<String> {
         let mut concrete_base = base.clone();
 
         if let Type::Enum(expected_name, _) = expected_type {
@@ -1520,7 +1525,7 @@ impl Gen {
                 .clone();
 
             if base_enum_data.generic_type.len() > 0 {
-                concrete_base = self.handle_generic_enum(&base_enum_data, value, variant);
+                concrete_base = self.handle_generic_enum(&base_enum_data, value, variant)?;
             }
         }
 
@@ -1544,7 +1549,7 @@ impl Gen {
                 pos, variant_data.tag
             ));
             self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
-            return "rax".to_string();
+            return Some("rax".to_string());
         }
 
         self.emit_func_data(format!("    mov rax, {}", variant_data.tag));
@@ -1555,7 +1560,7 @@ impl Gen {
 
             let mut var_ty = var.ty.clone();
             if let Type::GenericType(_) = var.ty {
-                var_ty = res.expr.get_type(self);
+                var_ty = res.expr.get_type(self)?;
             }
 
             self.eval_expr(&res.expr, &var_ty);
@@ -1584,7 +1589,7 @@ impl Gen {
 
         self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
 
-        return "rax".to_string();
+        return Some("rax".to_string());
     }
 
     pub fn gen_get_enum(
@@ -1593,7 +1598,7 @@ impl Gen {
         value: &Vec<EnumExprField>,
         variant: &String,
         expected_type: &Type,
-    ) -> String {
+    ) -> Option<String> {
         let pos = self.stack_pos;
         let mut concrete_base = base.clone();
 
@@ -1608,7 +1613,7 @@ impl Gen {
                 .clone();
 
             if base_enum_data.generic_type.len() > 0 {
-                concrete_base = self.handle_generic_enum(&base_enum_data, value, variant);
+                concrete_base = self.handle_generic_enum(&base_enum_data, value, variant)?;
             }
         }
 
@@ -1634,7 +1639,7 @@ impl Gen {
 
                 match var.ty {
                     Type::GenericType(_) => {
-                        var_ty = res.expr.get_type(self);
+                        var_ty = res.expr.get_type(self)?;
                     }
                     _ => {}
                 }
@@ -1660,22 +1665,24 @@ impl Gen {
             }
             self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
         }
-        return "rax".to_string();
+        return Some("rax".to_string());
     }
 
-    pub fn eval_expr(&mut self, expr: &Expr, expected_type: &Type) -> String {
+    pub fn eval_expr(&mut self, expr: &Expr, expected_type: &Type) -> Option<String> {
         match &expr.ty {
             ExprType::ArrayInit { elements } => self.gen_array_init(elements, expected_type),
-            ExprType::Number(num) => self.gen_expr_num(num, expected_type),
+            ExprType::Number(num) => Some(self.gen_expr_num(num, expected_type)),
 
-            ExprType::Variable(var) => self.gen_expr_var(var, expected_type),
+            ExprType::Variable(var) => Some(self.gen_expr_var(var, expected_type)),
 
             ExprType::Binary { op, left, right } => {
-                let expr_ty = expr.get_type(self);
+                let expr_ty = expr.get_type(self)?;
                 self.gen_expr_binary((op, left, right), &expr_ty)
             }
 
-            ExprType::Unary { op, expr: inner } => self.gen_expr_unary(op, inner, expected_type),
+            ExprType::Unary { op, expr: inner } => {
+                Some(self.gen_expr_unary(op, inner, expected_type))
+            }
 
             ExprType::Call {
                 name,
@@ -1694,17 +1701,17 @@ impl Gen {
             }
 
             ExprType::Deref(inner) => {
-                let ty = expr.get_type(self);
-                if self.type_size(&ty) <= 8 {
-                    self.gen_expr_deref(inner, &ty)
+                let ty = expr.get_type(self)?;
+                if self.type_size(&ty)? <= 8 {
+                    Some(self.gen_expr_deref(inner, &ty))
                 } else {
-                    "rax".to_string()
+                    Some("rax".to_string())
                 }
             }
 
             ExprType::Index { base, index } => {
-                let ty = expr.get_type(self);
-                let ty = self.ensure_monomorphized(&ty);
+                let ty = expr.get_type(self)?;
+                let ty = self.ensure_monomorphized(&ty)?;
                 self.gen_expr_index(base, index, &ty)
             }
 
@@ -1722,7 +1729,7 @@ impl Gen {
 
             ExprType::SizeOf { ty } => self.gen_size_of(ty),
             ExprType::Float(_) => self::panic!("floats not implemented"),
-            ExprType::String { str } => self.gen_string(str),
+            ExprType::String { str } => Some(self.gen_string(str)),
             ExprType::GetEnum {
                 base,
                 value,

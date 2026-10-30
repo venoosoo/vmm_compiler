@@ -105,14 +105,14 @@ pub struct EnumExprField {
 
 pub trait Lookup {
     fn look_var(&self, name: &String) -> Option<Type>;
-    fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type;
-    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type;
-    fn look_struct_init(&self, struct_name: &String) -> Type;
-    fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type;
-    fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type;
-    fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Type;
-    fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type;
-    fn look_call(&self, name: &String, arg: &Vec<Expr>, generics: &Vec<Type>) -> Type;
-    fn look_array_init(&self, elements: &Vec<Expr>) -> Type;
-    fn look_get_enum(&self, base: &String, variant: &String) -> Type;
+    fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Option<Type>;
+    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Option<Type>;
+    fn look_struct_init(&self, struct_name: &String) -> Option<Type>;
+    fn look_deref(&self, ptr_expr: &Box<Expr>) -> Option<Type>;
+    fn look_addres_of(&self, var_expr: &Box<Expr>) -> Option<Type>;
+    fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Option<Type>;
+    fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Option<Type>;
+    fn look_call(&self, name: &String, arg: &Vec<Expr>, generics: &Vec<Type>) -> Option<Type>;
+    fn look_array_init(&self, elements: &Vec<Expr>) -> Option<Type>;
+    fn look_get_enum(&self, base: &String, variant: &String) -> Option<Type>;
 }

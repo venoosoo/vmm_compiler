@@ -3,7 +3,7 @@ use crate::Ir::expr::{Expr, ExprType};
 use crate::Ir::sem_analysis::Error;
 use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::*;
-use crate::shared::{transform_module_name, type_name};
+use crate::shared::{can_start_expr, transform_module_name, type_name};
 use crate::tokenizer;
 use crate::tokenizer::TokenType::Module;
 use core::panic;
@@ -92,13 +92,13 @@ impl<'a> Parser<'a> {
         self.consume(); //keyword
         let name = self.consume().value.unwrap();
         let _generics = self.parse_generic();
-        let args = self.parse_args();
+        let args = self.parse_args()?;
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
             self.expect(TokenType::Access);
             let pre_ptr = self.parse_ptr();
-            let ty = self.get_type();
-            let ty = self.parse_generic_types(ty);
+            let ty = self.get_type()?;
+            let ty = self.parse_generic_types(ty)?;
             let ty = self.parse_array(ty);
             let post_ptr = self.parse_ptr();
             let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
@@ -116,15 +116,15 @@ impl<'a> Parser<'a> {
         return Some(self.type_to_stmt(StmtType::ExternFn(data)));
     }
 
-    fn parse_match_field(&mut self) -> MatchLeftValue {
+    fn parse_match_field(&mut self) -> Option<MatchLeftValue> {
         let base = self.peek(0).value.clone().unwrap();
         if base == "_" {
             self.consume();
-            return MatchLeftValue::Enum {
+            return Some(MatchLeftValue::Enum {
                 base,
                 value: "_".to_string(),
                 args: Vec::new(),
-            };
+            });
         }
         if self.peek(1).token == TokenType::Colon {
             self.consume();
@@ -143,10 +143,10 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(TokenType::CloseParen);
             }
-            return MatchLeftValue::Enum { base, value, args };
+            return Some(MatchLeftValue::Enum { base, value, args });
         } else {
-            let left = self.parse_expr();
-            return MatchLeftValue::Expr { expr: left };
+            let left = self.parse_expr()?;
+            return Some(MatchLeftValue::Expr { expr: left });
         }
     }
 
@@ -176,14 +176,14 @@ impl<'a> Parser<'a> {
 
     fn parse_match(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Match);
-        let expr = self.parse_expr();
+        let expr = self.parse_expr()?;
         self.expect(TokenType::OpenScope);
         let mut variants: Vec<MatchField> = Vec::new();
         while self.peek(0).token != TokenType::CloseScope {
-            let left = self.parse_match_field();
+            let left = self.parse_match_field()?;
             self.expect(TokenType::Eq);
             self.expect(TokenType::More);
-            let stmt = self.parse_stmt().expect("in match expected stmt");
+            let stmt = self.parse_stmt()?;
             let res = MatchField { left, right: stmt };
             variants.push(res);
             if self.peek(0).token == TokenType::Coma {
@@ -194,24 +194,24 @@ impl<'a> Parser<'a> {
         return Some(self.type_to_stmt(StmtType::Match { expr, variants }));
     }
 
-    fn parse_enum_field(&mut self, tag: usize) -> EnumVariant {
+    fn parse_enum_field(&mut self, tag: usize) -> Option<EnumVariant> {
         let name = self.consume().value.unwrap();
         let mut args: Vec<StructField> = Vec::new();
 
         if self.peek(0).token == TokenType::Coma {
-            return EnumVariant {
+            return Some(EnumVariant {
                 name,
                 args,
                 tag,
                 size: 0,
-            };
+            });
         }
 
         self.expect(TokenType::OpenScope);
 
         while self.peek(0).token != TokenType::CloseScope {
-            let ty = self.get_type();
-            let ty = self.parse_generic_types(ty);
+            let ty = self.get_type()?;
+            let ty = self.parse_generic_types(ty)?;
             let index = self.parse_ptr();
             let name = self.consume().value.unwrap();
             let ty = self.parse_array(ty);
@@ -226,12 +226,12 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenType::CloseScope);
 
-        return EnumVariant {
+        return Some(EnumVariant {
             name,
             args,
             tag,
             size: 0, // placeholder real size computed lazily in Gen/Analyzer
-        };
+        });
     }
 
     pub fn parse_generic(&mut self) -> Vec<String> {
@@ -276,7 +276,7 @@ impl<'a> Parser<'a> {
         let mut variants: HashMap<String, EnumVariant> = HashMap::new();
         let mut tag = 0;
         while self.peek(0).token != TokenType::CloseScope {
-            let res: EnumVariant = self.parse_enum_field(tag);
+            let res: EnumVariant = self.parse_enum_field(tag)?;
             tag += 1;
             if self.peek(0).token == TokenType::Coma {
                 self.expect(TokenType::Coma);
@@ -359,9 +359,9 @@ impl<'a> Parser<'a> {
         ty
     }
 
-    pub fn get_type(&mut self) -> Type {
-        let token = self.consume();
-        if token.token == TokenType::Var {
+    pub fn get_type(&mut self) -> Option<Type> {
+        if self.peek(0).token == TokenType::Var {
+            let token = self.consume();
             // i will make parser error system one day
             //dbg!(&token);
             let value = token.value.unwrap();
@@ -370,30 +370,37 @@ impl<'a> Parser<'a> {
                 Some(good_name) => good_name,
                 None => {
                     self.print_error(self.type_to_error(SemanticError::UnkownType(value)));
-                    return Type::Unknown;
+                    return None;
                 }
             };
             if self.struct_table.get(name).is_some() {
-                return Type::Struct(name.to_string());
+                return Some(Type::Struct(name.to_string()));
             } else if self.enums_table.get(name).is_some() {
-                return Type::Enum(name.to_string(), None);
+                return Some(Type::Enum(name.to_string(), None));
             } else if self.generic.get(name).is_some() {
-                return Type::GenericType(name.clone());
+                return Some(Type::GenericType(name.clone()));
             } else {
-                return Type::Named(name.to_string());
+                return Some(Type::Named(name.to_string()));
             }
+        } else if self.is_type(self.peek(0)) {
+            return Some(Type::Primitive(self.consume().token));
         } else {
-            return Type::Primitive(token.token);
+            self.error_at(
+                format!("unkown type: {:?}", self.peek(0).token),
+                self.line,
+                self.col,
+            );
+            return None;
         };
     }
 
-    pub fn parse_generic_types(&mut self, ty: Type) -> Type {
+    pub fn parse_generic_types(&mut self, ty: Type) -> Option<Type> {
         if self.peek(0).token == TokenType::Less {
             self.expect(TokenType::Less);
             let mut res = Vec::new();
             while self.peek(0).token != TokenType::More {
                 let pre_ptr = self.parse_ptr();
-                let ty = self.get_type();
+                let ty = self.get_type()?;
                 let post_ptr = self.parse_ptr();
                 let ty = self.parse_array(ty);
                 let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
@@ -403,24 +410,25 @@ impl<'a> Parser<'a> {
                 }
             }
             self.expect(TokenType::More);
-            return Type::GenericInst(type_name(&ty), res);
+            return Some(Type::GenericInst(type_name(&ty), res));
         } else {
-            return ty;
+            return Some(ty);
         }
     }
 
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
         let pre_ptr = self.parse_ptr();
-        let ty = self.get_type();
-        let mut ty = self.parse_generic_types(ty);
+        let ty = self.get_type()?;
+        let mut ty = self.parse_generic_types(ty)?;
         let post_ptr = self.parse_ptr();
-        let var_name = self.consume();
+        let token = self.consume();
+        let var_name = self.unwrap_expect(token.value)?;
         ty = self.apply_ptr(ty, pre_ptr + post_ptr);
         ty = self.parse_array(ty);
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
             self.expect(TokenType::Eq);
-            let initializer = self.parse_expr();
+            let initializer = self.parse_expr()?;
             if let (Type::Array(inner, 0), ExprType::String { str: s }) = (&ty, &initializer.ty) {
                 if **inner == Type::Primitive(TokenType::U8) {
                     ty = Type::Array(Box::new(Type::Primitive(TokenType::U8)), s.len() + 1);
@@ -429,7 +437,7 @@ impl<'a> Parser<'a> {
             expr = Some(initializer);
         }
         return Some(self.type_to_stmt(StmtType::Declaration(Declaration {
-            name: var_name.value.unwrap(),
+            name: var_name,
             ty: ty,
             initializer: expr,
         })));
@@ -547,8 +555,8 @@ impl<'a> Parser<'a> {
 
         while self.peek(0).token != TokenType::CloseScope {
             let pre_ptr = self.parse_ptr();
-            let base_ty = self.get_type();
-            let mut ty = self.parse_generic_types(base_ty);
+            let base_ty = self.get_type()?;
+            let mut ty = self.parse_generic_types(base_ty)?;
             let post_ptr = self.parse_ptr();
             let field_name = self.consume().value.unwrap();
 
@@ -644,7 +652,6 @@ impl<'a> Parser<'a> {
 
         let var_name = self.consume().value.unwrap();
         let mut lvalue = LValue::Variable(var_name);
-
         loop {
             match self.peek(0).token {
                 TokenType::Dot => {
@@ -666,7 +673,7 @@ impl<'a> Parser<'a> {
 
                 TokenType::OpenBracket => {
                     self.expect(TokenType::OpenBracket);
-                    let index = self.parse_expr();
+                    let index = self.parse_expr()?;
                     self.expect(TokenType::CloseBracket);
 
                     lvalue = LValue::Index {
@@ -678,13 +685,11 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-
         for _ in 0..pointer_depth {
             lvalue = LValue::Deref(Box::new(lvalue));
         }
         self.expect(TokenType::Eq);
-
-        let value = self.parse_expr();
+        let value = self.parse_expr()?;
 
         Some(self.type_to_stmt(StmtType::Assignment {
             target: lvalue,
@@ -707,6 +712,7 @@ impl<'a> Parser<'a> {
                 Some(good_stmt) => {
                     stmts.push(good_stmt);
                 }
+                // stmt itself already gave error
                 None => {}
             }
         }
@@ -716,7 +722,15 @@ impl<'a> Parser<'a> {
 
     fn parse_if(&mut self) -> Option<Stmt> {
         self.expect(TokenType::If);
-        let condition = self.parse_expr();
+        if !can_start_expr(self.peek(0).token) {
+            self.error_at(
+                "Expected expression after 'if'".to_string(),
+                self.line,
+                self.col,
+            );
+            return None;
+        }
+        let condition = self.parse_expr()?;
         let if_block = Box::new(self.parse_stmt().unwrap()); // should be block
         let mut else_block: Option<Box<Stmt>> = None;
         if self.peek(0).token == TokenType::Else {
@@ -733,8 +747,8 @@ impl<'a> Parser<'a> {
 
     fn parse_while(&mut self) -> Option<Stmt> {
         self.expect(TokenType::While);
-        let condition = self.parse_expr();
-        let body = Box::new(self.parse_stmt().unwrap());
+        let condition = self.parse_expr()?;
+        let body = Box::new(self.parse_stmt()?);
         return Some(self.type_to_stmt(StmtType::While { condition, body }));
     }
 
@@ -743,13 +757,13 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::OpenParen); // (
 
         let init = if self.is_type(&self.peek(0)) {
-            Some(Box::new(self.parse_declaration().unwrap()))
+            Some(Box::new(self.parse_declaration()?))
         } else {
             None
         };
         self.expect(TokenType::Semi);
         let condition = if self.peek(0).token != TokenType::Semi {
-            Some(self.parse_expr())
+            self.parse_expr()
         } else {
             None
         };
@@ -786,8 +800,7 @@ impl<'a> Parser<'a> {
     fn parse_ret(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Return); // the keyword itself
         let expr = if self.peek(0).token != TokenType::Semi {
-            let res = Some(self.parse_expr());
-            res
+            self.parse_expr()
         } else {
             None
         };
@@ -808,7 +821,7 @@ impl<'a> Parser<'a> {
             );
             return None;
         }
-        let expr = self.parse_expr();
+        let expr = self.parse_expr()?;
         self.expect(TokenType::Semi);
         Some(self.type_to_stmt(StmtType::ExprStmt(expr)))
     }
