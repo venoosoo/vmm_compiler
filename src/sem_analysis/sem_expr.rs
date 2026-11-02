@@ -143,7 +143,7 @@ impl<'a> Lookup for Analyzer<'a> {
             self.functions.get(&func_name).unwrap().clone()
         };
 
-        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
+        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics,name)?;
 
         Some(func_data.return_type.clone())
     }
@@ -485,7 +485,7 @@ impl<'a> Analyzer<'a> {
         if self.functions.contains_key(name) {
             return Some(name.to_string());
         }
-
+        self.print_error(self.type_to_error(SemanticError::UndeclaredFunction(name.to_string())));
         None
     }
 
@@ -496,7 +496,7 @@ impl<'a> Analyzer<'a> {
         _expected_ty: &Type,
         generics: &Vec<Type>,
     ) -> Option<Type> {
-        let name = &self.resolve_function_name(name).unwrap();
+        let name = &self.resolve_function_name(name)?;
         let (func_data, _func_index) = {
             let data = self.resolve_call(name, args, generics);
             if data.is_none() {

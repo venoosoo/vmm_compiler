@@ -48,7 +48,7 @@ module proc {
     
     fn run_cmd_no_wait(u8* path, u8** args) -> u64 {
         Result<u64, Errno> res = fork();
-        u64 pid = unwrap<u64, Errno>(res);
+        u64 pid = std~unwrap<u64, Errno>(res);
     
         if pid == 0 {
             u8* env[1]; 

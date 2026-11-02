@@ -154,13 +154,13 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::Module);
         let mut names = Vec::new();
         loop {
-            if self.peek(0).token == TokenType::Dot {
-                self.expect(TokenType::Dot);
+            if self.peek(0).token == TokenType::BitNot {
+                self.expect(TokenType::BitNot);
             }
             let name = self.consume().value.unwrap();
             names.push(name);
 
-            if self.peek(0).token != TokenType::Dot {
+            if self.peek(0).token != TokenType::BitNot {
                 break;
             }
         }
@@ -385,10 +385,11 @@ impl<'a> Parser<'a> {
         } else if self.is_type(self.peek(0)) {
             return Some(Type::Primitive(self.consume().token));
         } else {
+            let token = self.peek(0);
             self.error_at(
-                format!("unkown type: {:?}", self.peek(0).token),
-                self.line,
-                self.col,
+                format!("unkown type: {:?}", token.token),
+                token.line,
+                token.col,
             );
             return None;
         };

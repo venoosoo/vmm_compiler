@@ -9,13 +9,17 @@ impl<'a> Parser<'a> {
         while self.peek(0).token != TokenType::CloseParen {
             let arg = match self.parse_declaration() {
                 Some(val) => val,
-                None => return Some(res),
+                None => {
+                    self.consume_until(&[TokenType::Access]);
+                    return Some(res);
+                }
             };
+
             match arg.ty {
                 StmtType::Declaration(decl) => {
                     res.push(decl);
                 }
-                _ => self.error_at("strange args".to_string(), self.line, self.col),
+                _ => self.error_at("strange args".to_string(), self.line, self.col)?,
             }
             if self.peek(0).token == TokenType::Coma {
                 self.expect(TokenType::Coma);
@@ -43,15 +47,12 @@ impl<'a> Parser<'a> {
             ret_type = ty;
         }
         if self.peek(0).token != TokenType::OpenScope {
+            let token = self.consume();
             self.error_at(
-                format!(
-                    "Unexpected token at function init: {:?}",
-                    self.peek(0).token
-                ),
-                self.line,
-                self.col,
+                format!("Unexpected token at function init: {:?}", token.token),
+                token.line,
+                token.col,
             );
-            self.consume();
         }
         let data = Box::new(
             self.parse_stmt()

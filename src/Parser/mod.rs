@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
             .cloned()
     }
 
-    fn error_at(&self, msg: String, line: usize, col: usize) {
+    fn error_at(&self, msg: String, line: usize, col: usize) -> Option<()> {
         eprintln!("\x1b[31;1merror\x1b[0m: \x1b[1m{}\x1b[0m", msg);
         eprintln!(
             "  \x1b[34;1m-->\x1b[0m {}:{}:{}",
@@ -111,6 +111,13 @@ impl<'a> Parser<'a> {
         }
 
         self.had_error.set(true);
+        return None;
+    }
+
+    pub fn consume_until(&mut self, ty: &[TokenType]) {
+        while !ty.contains(&self.peek(0).token) {
+            self.consume();
+        }
     }
 
     pub fn expect(&mut self, ty: TokenType) -> Option<bool> {

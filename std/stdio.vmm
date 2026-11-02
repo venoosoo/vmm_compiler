@@ -30,7 +30,7 @@ module std~io {
     
     fn input(u8* message, u8* buffer, u64 max_length) {
         std~print(message);
-        Result<u64, Errno> res = std~read(0, buffer, max_length - 1);
+        Result<u64, Errno> res = read(0, buffer, max_length - 1);
         
         u64 bytes_read = std~unwrap<u64, Errno>(&res);
     

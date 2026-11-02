@@ -535,8 +535,9 @@ impl<'a> Analyzer<'a> {
         vec_func_data: &Vec<FuncData>,
         args: &Vec<Expr>,
         generics: &Vec<Type>,
+        name: &String,
     ) -> Option<(usize, FuncData)> {
-        vec_func_data
+        let res = vec_func_data
             .iter()
             .enumerate()
             .find(|(_, func)| {
@@ -566,6 +567,8 @@ impl<'a> Analyzer<'a> {
                         None => return false,
                     };
 
+        
+
                     match &expr.ty {
                         ExprType::Number(_) => {
                             matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
@@ -580,9 +583,14 @@ impl<'a> Analyzer<'a> {
 
                         _ => check_types(&expr_ty, &param_ty),
                     }
-                })
+                }
+                )
             })
-            .map(|(pos, func)| (pos, func.clone()))
+            .map(|(pos, func)| (pos, func.clone()));
+        if res.is_none() {
+            self.print_error(self.type_to_error(SemanticError::NoFoundFuncOverload(name.clone())));
+        }
+        return res;
     }
 
     fn ensure_struct_sized(&self, name: &str) -> Option<usize> {

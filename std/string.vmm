@@ -53,8 +53,8 @@ module string {
         return str;
     }
 
-    fn strlen(u8* str) -> i64 {
-        i64 i = 0;
+    fn strlen(u8* str) -> u64 {
+        u64 i = 0;
         while str[i] != 0 {
             i = i + 1;
         }
@@ -111,6 +111,21 @@ module string {
     fn to_string(i32 num) -> u8* {
         return to_string(num as i64);
     }
+
+    fn new(u8* source) -> String* {
+        u64 length = string~strlen(source);
+    
+        String* str = std~malloc(sizeof(String));
+        u8* str_data = std~malloc(length + 1);
+    
+        std~memcpy(str_data, source, (length + 1) as i64);
+    
+        str->data = str_data;
+        str->length = length as i64;
+        str->capacity = (length + 1) as i64;
+    
+        return str;
+    }
     
     fn new() -> String* {
     
@@ -136,7 +151,7 @@ module string {
     fn from_c_string(u8* c_str) -> String* {
         String* s = std~malloc(sizeof(String)) ;
         
-        s->length = strlen(c_str);
+        s->length = strlen(c_str) as i64;
         s->capacity = s->length + 1;
         
         s->data = std~malloc(s->capacity) as u8*;

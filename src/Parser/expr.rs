@@ -527,7 +527,8 @@ impl<'a> Parser<'a> {
 
                 TokenType::Access => {
                     self.consume();
-                    let name = self.consume().value.unwrap();
+                    let temp = self.consume();
+                    let name = self.unwrap_expect(temp.value)?;
                     let base = Box::new(Expr {
                         ty: ExprType::Deref(Box::new(expr)),
                         file: self.current_file.clone(),
