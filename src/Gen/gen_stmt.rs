@@ -835,20 +835,23 @@ impl Gen {
     fn gen_global(&mut self, global: Box<Stmt>) -> Option<()> {
         match &global.ty {
             StmtType::Declaration(decl_data) => {
-                if let Some(_) = decl_data.initializer {
-                    self::panic!("global cant have expr");
-                }
+                let mut expr_value = 0;
+                if let Some(expr_data) = &decl_data.initializer {
+                    if let ExprType::Number(number) = expr_data.ty {
+                        expr_value = number;
+                    }
+                };
                 match &decl_data.ty {
                     Type::Array(ty, _size) => {
                         self.emit_bss(format!(
-                            "{} {} 0",
+                            "{} {} {expr_value}",
                             decl_data.name,
                             self.size_directive(&ty)?
                         ));
                     }
                     _ => {
                         self.emit_data(format!(
-                            "{} {} 0",
+                            "{} {} {expr_value}",
                             decl_data.name,
                             self.type_to_data_directive(&decl_data.ty)?
                         ));
