@@ -454,8 +454,6 @@ impl<'a> Analyzer<'a> {
         Some((offset + max_align - 1) & !(max_align - 1))
     }
 
-    // this is just copy from gen
-    // TODO: make this a trait so and expand it for gen and analyzer
     pub fn type_size(&self, ty: &Type) -> Option<usize> {
         match ty {
             Type::Primitive(token) => match token {
@@ -567,8 +565,6 @@ impl<'a> Analyzer<'a> {
                         None => return false,
                     };
 
-        
-
                     match &expr.ty {
                         ExprType::Number(_) => {
                             matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
@@ -583,8 +579,7 @@ impl<'a> Analyzer<'a> {
 
                         _ => check_types(&expr_ty, &param_ty),
                     }
-                }
-                )
+                })
             })
             .map(|(pos, func)| (pos, func.clone()));
         if res.is_none() {

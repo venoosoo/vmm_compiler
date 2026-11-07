@@ -63,13 +63,6 @@ module vector {
         }
         T* dest = vec->data + element_pos;
         
-        // Using memcpy completely bypasses any compiler assignment bugs!
         std~memcpy(dest, &element, vec->element_size);
     }
-}
-
-
-
-fn main() {
-    std~println("loha lox");
 }

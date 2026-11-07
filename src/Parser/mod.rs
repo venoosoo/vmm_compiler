@@ -9,8 +9,8 @@ use crate::Ir::stmt::{EnumData, Stmt, StmtType, StructDef, Type};
 use std::cell::{Cell, RefCell};
 pub mod expr;
 pub mod function;
-pub mod stmt;
 pub mod generic;
+pub mod stmt;
 
 pub struct Parser<'a> {
     m_tokens: Vec<Token>,

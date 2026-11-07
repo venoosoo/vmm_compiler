@@ -57,6 +57,9 @@ enum Option<T> {
     None,
 }
 
+global void* NULL = 0;
+
+
 module std {
     
     fn exit(i32 code) {
@@ -95,7 +98,7 @@ module std {
         }
     
         i64* curr = malloc_list_head;
-        i64* prev = 0 as i64*;
+        i64* prev = NULL;
         while curr as i64 != 0 {
             i64 c_size = curr[0];
             i64 c_free = curr[1];

@@ -2,6 +2,11 @@
 import "std.vmm"
 
 
+
+struct Stdout {
+    i32 stdout;
+}
+
 module std~io {
     fn open(u8* path, i64 flags, i64 mode) -> Result<u64, Errno> {
         u64 fd = std~syscall(2, path as i64, flags, mode, 0, 0) as u64;
@@ -27,6 +32,12 @@ module std~io {
         u32 res = std~syscall(83, path as i64, mode, 0, 0, 0) as u32;
         return std~handle_error<u32>(res);
     }
+
+    fn stdout() -> Stdout {
+        return Stdout {
+            stdout: 1,
+        };
+    }
     
     fn input(u8* message, u8* buffer, u64 max_length) {
         std~print(message);
@@ -35,5 +46,100 @@ module std~io {
         u64 bytes_read = std~unwrap<u64, Errno>(&res);
     
         buffer[bytes_read] = 0;
+    }
+}
+
+
+module std {
+    
+
+    fn print(Stdout stdout, u8* str) -> Stdout { 
+        print(str); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, u8* str) -> Stdout { 
+        println(str); 
+        return stdout; 
+    }
+
+    // --- Signed Integers ---
+    fn print(Stdout stdout, i64 num) -> Stdout { 
+        print(num); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, i64 num) -> Stdout { 
+        println(num); 
+        return stdout; 
+    }
+
+    fn print(Stdout stdout, i32 num) -> Stdout { 
+        print(num as i64); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, i32 num) -> Stdout { 
+        println(num as i64); 
+        return stdout; 
+    }
+
+    fn print(Stdout stdout, i16 num) -> Stdout { 
+        print(num as i64); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, i16 num) -> Stdout { 
+        println(num as i64); 
+        return stdout; 
+    }
+
+    fn print(Stdout stdout, i8 num) -> Stdout { 
+        print(num as i64); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, i8 num) -> Stdout { 
+        println(num as i64); 
+        return stdout; 
+    }
+
+    // --- Unsigned Integers ---
+    fn print(Stdout stdout, u64 num) -> Stdout { 
+        print(num); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, u64 num) -> Stdout { 
+        println(num); 
+        return stdout; 
+    }
+
+    fn print(Stdout stdout, u32 num) -> Stdout { 
+        print(num as u64); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, u32 num) -> Stdout { 
+        println(num as u64); 
+        return stdout; 
+    }
+
+    fn print(Stdout stdout, u16 num) -> Stdout { 
+        print(num as u64); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, u16 num) -> Stdout { 
+        println(num as u64); 
+        return stdout; 
+    }
+
+    fn print(Stdout stdout, u8 num) -> Stdout { 
+        print(num as u64); 
+        return stdout; 
+    }
+    fn println(Stdout stdout, u8 num) -> Stdout { 
+        println(num as u64); 
+        return stdout; 
+    }
+
+    // --- Utilities ---
+    // Allows chaining a standalone newline: stdout().print("Done").println();
+    fn println(Stdout stdout) -> Stdout {
+        std~print_newline();
+        return stdout;
     }
 }

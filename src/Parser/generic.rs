@@ -1,8 +1,9 @@
-use crate::{Ir::expr::{Expr, ExprType}, shared::type_name};
+use crate::{
+    Ir::expr::{Expr, ExprType},
+    shared::type_name,
+};
 
 use super::*;
-
-
 
 impl<'a> Parser<'a> {
     pub fn parse_generic(&mut self) -> Vec<String> {

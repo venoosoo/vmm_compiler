@@ -215,7 +215,6 @@ impl<'a> Parser<'a> {
         });
     }
 
-
     fn parse_enum(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Enum);
         let name = self.consume().value.unwrap();
@@ -256,7 +255,6 @@ impl<'a> Parser<'a> {
         return Some(self.type_to_stmt(StmtType::GlobalDecl(Box::new(stmt))));
     }
 
-
     pub fn apply_ptr(&mut self, ty: Type, index: u32) -> Type {
         let mut ty = ty.clone();
         for _i in 0..index {
@@ -287,8 +285,6 @@ impl<'a> Parser<'a> {
         ty
     }
 
-
-
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
         let pre_ptr = self.parse_ptr();
         let ty = self.get_type()?;
@@ -315,7 +311,6 @@ impl<'a> Parser<'a> {
             initializer: expr,
         })));
     }
-
 
     fn parse_import(&mut self) {
         self.expect(TokenType::Import);
@@ -432,7 +427,6 @@ impl<'a> Parser<'a> {
         self.struct_table.insert(struct_name.clone(), def.clone());
         Some(self.type_to_stmt(StmtType::InitStruct(def)))
     }
-
 
     fn parse_assignment_no_semi(&mut self) -> Option<Stmt> {
         let mut pointer_depth = 0;

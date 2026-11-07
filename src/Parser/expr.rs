@@ -3,7 +3,8 @@ use std::dbg;
 use super::*;
 
 use crate::{
-    Ir::expr::*, shared::{gen_module_func_name, is_bin_op, precedence, transform_module_name},
+    Ir::expr::*,
+    shared::{gen_module_func_name, is_bin_op, precedence, transform_module_name},
 };
 
 impl<'a> Parser<'a> {
@@ -235,7 +236,6 @@ impl<'a> Parser<'a> {
             _ => self::panic!("in expr_to_ident got wrong type of expr: {:?}", expr),
         }
     }
-
 
     fn parse_unary(&mut self) -> Option<Expr> {
         match self.peek(0).token {
@@ -551,7 +551,6 @@ impl<'a> Parser<'a> {
         Some(expr)
     }
 
-
     fn parse_call(&mut self, expr: Expr) -> Option<Expr> {
         self.expect(TokenType::OpenParen);
         let mut args: Vec<Expr> = Vec::new();
@@ -585,7 +584,6 @@ impl<'a> Parser<'a> {
             col: self.col,
         })
     }
-
 
     pub fn parse_expr(&mut self) -> Option<Expr> {
         self.parse_binary(0)

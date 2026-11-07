@@ -3,8 +3,10 @@ use std::{collections::HashMap, dbg, env, format, matches, path::PathBuf};
 
 use crate::{
     Ir::{
-        expr::{BinOp, Expr, ExprType}, stmt::{LValue, Type},
-    }, tokenizer::TokenType,
+        expr::{BinOp, Expr, ExprType},
+        stmt::{LValue, Type},
+    },
+    tokenizer::TokenType,
 };
 
 pub fn substitute_type(ty: &Type, params: &Vec<String>, args: &Vec<Type>) -> Type {
@@ -502,7 +504,6 @@ pub fn is_bin_op(ty: TokenType) -> Option<BinOp> {
         _ => None,
     }
 }
-
 
 pub fn resolve_global_import(filename: &str) -> Option<PathBuf> {
     let mut search_paths: Vec<PathBuf> = Vec::new();

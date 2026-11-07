@@ -280,7 +280,7 @@ impl Gen {
 
     pub fn reg_for_size(&self, base: &str, ty: &Type) -> Option<String> {
         let base = to_base_reg(base);
-        let size = match ty {
+        let mut size = match ty {
             Type::Primitive(token) => match token {
                 TokenType::I8 | TokenType::U8 => 1,
                 TokenType::I16 | TokenType::U16 => 2,
@@ -302,9 +302,9 @@ impl Gen {
             | Type::Array(_, _)
             | Type::Struct(_)
             | Type::Enum(..)
-            | Type::Named(..) => 8,
+            | Type::Named(..) => self.type_size(ty)?,
         };
-
+        if size > 8 { size = 8};
         match (base, size) {
             ("rax", 8) => Some("rax".into()),
             ("rax", 4) => Some("eax".into()),

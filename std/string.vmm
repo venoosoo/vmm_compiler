@@ -113,7 +113,7 @@ module string {
     }
 
     fn new(u8* source) -> String* {
-        u64 length = string~strlen(source);
+        u64 length = strlen(source);
     
         String* str = std~malloc(sizeof(String));
         u8* str_data = std~malloc(length + 1);
@@ -315,7 +315,15 @@ module string {
         s->length = 0;
     }
     
+
     
+    fn to_c_string(String* str) -> u8* {
+        return str->data;
+    }
+
+}
+
+module std {
     fn print(String* str) {
         for (i64 i = 0; i < str->length; i = i + 1) {
             std~print_char(str->data[i]);
@@ -325,14 +333,15 @@ module string {
     fn println(String* str) {
         print(str);
         std~print_newline();
-    
     }
-    
-    
-    fn to_c_string(String* str) -> u8* {
-        return str->data;
+    fn print(Stdout stdout, String* str) -> Stdout { 
+        print(str); 
+        return stdout; 
     }
-
+    fn println(Stdout stdout, String* str) -> Stdout { 
+        println(str); 
+        return stdout; 
+    }
 }
 
 // Helpers outside the string module

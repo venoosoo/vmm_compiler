@@ -424,8 +424,9 @@ impl Gen {
                     struct_name_ty: _,
                     fields: _,
                 } => {
-                    self.alloc(self.type_size(&ret_type)?);
-                    self.eval_expr(ret_expr, &ret_type);
+                    let pos = self.alloc(self.type_size(&ret_type)?);
+                    let arg = self.eval_expr(ret_expr, &ret_type)?;
+                    self.emit_func_data(format!("    lea {}, [rbp - {}]", arg, pos));
                 }
                 ExprType::Number(_) => {
                     self.eval_expr(ret_expr, &ret_type);

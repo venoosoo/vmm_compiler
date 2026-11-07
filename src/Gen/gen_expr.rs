@@ -650,7 +650,6 @@ impl Gen {
         }
 
         self.eval_expr(expr, ty);
-
         if preserve {
             for &reg in ARG_REGS.iter().rev() {
                 self.emit_func_data(format!("    pop {}", reg));
@@ -721,14 +720,17 @@ impl Gen {
 
                     let ret_type_size = self.type_size(&ret_type)?;
 
-                    if ret_type_size > 8 {
+                    if ret_type_size > 8 || is_rvo {
                         self.alloc(ret_type_size);
                         temp_size += ret_type_size;
                     }
+                    self.gen_expr_preserving_arg_regs(arg, &arg_type, nested_call);
                 }
-                _ => {}
+                _ => {
+                    self.eval_expr(arg, &arg_type);
+                }
             }
-            self.gen_expr_preserving_arg_regs(arg, &arg_type, nested_call);
+
             match arg_type {
                 Type::Enum(ref name, _) => {
                     let enum_data = self.enums.borrow().get(name).cloned().unwrap();
@@ -782,7 +784,8 @@ impl Gen {
                     if struct_data.size <= 8 {
                         self.emit_func_data(format!("    mov rax, [rax]"));
                         arg_index -= 1;
-                        self.push_arg(arg_index, &arg_type, "rax");
+                        let reg = self.reg_for_size("rax", &arg_type)?;
+                        self.push_arg(arg_index, &arg_type, &reg);
                     } else if struct_data.size <= 16 && arg_index < 6 && arg_index >= 1 {
                         self.emit_func_data(format!("    mov r10, rax"));
                         self.emit_func_data(format!("    mov rax, [r10 + 8]"));
@@ -1023,6 +1026,7 @@ impl Gen {
         match &self.ensure_monomorphized(&ret_type)? {
             Type::Struct(_) | Type::Enum(_, _) => {
                 is_rvo = true;
+                self.alloc_type(&self.ensure_monomorphized(&ret_type)?);
                 rvo_pos = self.stack_pos;
             }
             _ => {}
@@ -1198,6 +1202,7 @@ impl Gen {
             }
         }
         self.stack_pos += stack_offset;
+
         Some("rax".to_string())
     }
 

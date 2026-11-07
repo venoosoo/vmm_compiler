@@ -3,7 +3,9 @@ use std::vec;
 use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
 use crate::Ir::sem_analysis::SemanticError::{self, UndeclaredField};
 use crate::Ir::stmt::Declaration;
-use crate::shared::{build_generic_map, coerce_numeric, is_number, is_numeric, same_signedness};
+use crate::shared::{
+    build_generic_map, coerce_numeric, gen_module_func_name, is_number, is_numeric, same_signedness,
+};
 use crate::{
     Ir::{
         expr::{BinOp, Expr, UnaryOp},
@@ -107,7 +109,6 @@ impl<'a> Lookup for Analyzer<'a> {
     }
     fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Option<Type> {
         let func_name = name.clone();
-
         let vec_func_data: Vec<FuncData> = if generics.len() > 0 {
             let new_name = self.transform_generic_name(&func_name, generics);
             if let Some(existing) = self.functions.get(&new_name) {
@@ -140,10 +141,16 @@ impl<'a> Lookup for Analyzer<'a> {
                 }]
             }
         } else {
-            self.functions.get(&func_name).unwrap().clone()
+            let res = self.functions.get(&func_name);
+            if res.is_some() {
+                self.get_function(&func_name)
+            } else {
+                let new_name = check_module_name(&self.current_module, &func_name);
+                self.get_function(&new_name)
+            }
         };
 
-        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics,name)?;
+        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics, name)?;
 
         Some(func_data.return_type.clone())
     }
