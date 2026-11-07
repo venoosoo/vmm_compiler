@@ -766,4 +766,11 @@ impl Gen {
             self.gen_stmt(i);
         }
     }
+
+    fn push_result(&mut self) {
+        self.emit_func_data("    push rax".to_string());
+    }
+    fn pop_into(&mut self, reg: &str) {
+        self.emit_func_data(format!("    pop {}", reg));
+    }
 }

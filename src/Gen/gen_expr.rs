@@ -311,13 +311,6 @@ impl Gen {
         return None;
     }
 
-    fn push_result(&mut self) {
-        self.emit_func_data("    push rax".to_string());
-    }
-    fn pop_into(&mut self, reg: &str) {
-        self.emit_func_data(format!("    pop {}", reg));
-    }
-
     fn gen_expr_num(&mut self, num: &i64, expected_type: &Type) -> String {
         let expected_type = match expected_type {
             Type::GenericType(name) => {
@@ -373,7 +366,6 @@ impl Gen {
         "rax".to_string()
     }
 
-    // TODO: make this better
     fn var_return_addr(&mut self, var_data: &VarData, expected_type: &Type) {
         match &var_data.var_type {
             Type::Primitive(_) => {
@@ -408,7 +400,6 @@ impl Gen {
         }
     }
 
-    // TODO: make this better
     pub fn gen_expr_var_addr(&mut self, var_name: &String, expected_type: &Type) -> String {
         let var_data = self.lookup_var(var_name).clone();
         if var_data.global_flag {

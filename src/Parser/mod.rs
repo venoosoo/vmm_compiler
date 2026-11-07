@@ -2,13 +2,15 @@ use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::Ir::sem_analysis::{Error, SemanticError};
 use crate::tokenizer::{Token, TokenType};
 
-use crate::Ir::stmt::{EnumData, Stmt, StructDef, Type};
+use crate::Ir::stmt::{EnumData, Stmt, StmtType, StructDef, Type};
 use std::cell::{Cell, RefCell};
 pub mod expr;
 pub mod function;
 pub mod stmt;
+pub mod generic;
 
 pub struct Parser<'a> {
     m_tokens: Vec<Token>,
@@ -216,6 +218,26 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn type_to_error(&self, error_ty: SemanticError) -> Error {
+        Error {
+            ty: error_ty,
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
+        }
+    }
+
+    pub fn print_error(&self, err: Error) {
+        eprintln!("\x1b[31;1merror\x1b[0m: \x1b[1m{}\x1b[0m", err.ty);
+
+        eprintln!(
+            "  \x1b[34;1m-->\x1b[0m {}:{}:{}",
+            err.file, err.line, err.col
+        );
+
+        self.had_error.set(true);
+    }
+
     fn get_custom_type(&mut self, name: &String) -> Option<Type> {
         if self.types.contains(name) {
             if self.struct_table.contains_key(name) {
@@ -227,5 +249,125 @@ impl<'a> Parser<'a> {
             }
         }
         None
+    }
+    fn check_assignment_start(&self) -> bool {
+        let mut i = 0;
+
+        // allow leading *
+        while self.peek(i).token == TokenType::Mul {
+            i += 1;
+        }
+
+        // must start with identifier
+        if self.peek(i).token != TokenType::Var {
+            return false;
+        }
+
+        i += 1;
+
+        loop {
+            match self.peek(i).token {
+                TokenType::Dot => {
+                    i += 1;
+                    if self.peek(i).token != TokenType::Var {
+                        return false;
+                    }
+                    i += 1;
+                }
+                TokenType::Access => {
+                    i += 1;
+                    if self.peek(i).token != TokenType::Var {
+                        return false;
+                    }
+                    i += 1;
+                }
+
+                TokenType::OpenBracket => {
+                    i += 1;
+
+                    // skip until closing bracket
+                    let mut depth = 1;
+                    while depth > 0 {
+                        match self.peek(i).token {
+                            TokenType::OpenBracket => depth += 1,
+                            TokenType::CloseBracket => depth -= 1,
+                            _ => {}
+                        }
+                        i += 1;
+                    }
+                }
+
+                TokenType::Eq => {
+                    return true;
+                }
+
+                _ => {
+                    return false;
+                }
+            }
+        }
+    }
+    pub fn get_type(&mut self) -> Option<Type> {
+        if self.peek(0).token == TokenType::Var {
+            let token = self.consume();
+            // i will make parser error system one day
+            //dbg!(&token);
+            let value = token.value.unwrap();
+            let name = self.types.get(&value);
+            let name = match name {
+                Some(good_name) => good_name,
+                None => {
+                    self.print_error(self.type_to_error(SemanticError::UnkownType(value)));
+                    return None;
+                }
+            };
+            if self.struct_table.get(name).is_some() {
+                return Some(Type::Struct(name.to_string()));
+            } else if self.enums_table.get(name).is_some() {
+                return Some(Type::Enum(name.to_string(), None));
+            } else if self.generic.get(name).is_some() {
+                return Some(Type::GenericType(name.clone()));
+            } else {
+                return Some(Type::Named(name.to_string()));
+            }
+        } else if self.is_type(self.peek(0)) {
+            return Some(Type::Primitive(self.consume().token));
+        } else {
+            let token = self.peek(0);
+            self.error_at(
+                format!("unkown type: {:?}", token.token),
+                token.line,
+                token.col,
+            );
+            return None;
+        };
+    }
+    pub fn is_type(&self, token: &Token) -> bool {
+        match token.token {
+            TokenType::I8
+            | TokenType::I16
+            | TokenType::I32
+            | TokenType::I64
+            | TokenType::U8
+            | TokenType::U16
+            | TokenType::U32
+            | TokenType::U64 => true,
+            TokenType::Void => true,
+            TokenType::Var => {
+                if let Some(name) = &token.value {
+                    self.types.contains(name)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+    pub fn type_to_stmt(&self, stmt: StmtType) -> Stmt {
+        Stmt {
+            ty: stmt,
+            line: self.line,
+            file: self.current_file.clone(),
+        }
     }
 }

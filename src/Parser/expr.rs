@@ -3,8 +3,7 @@ use std::dbg;
 use super::*;
 
 use crate::{
-    Ir::expr::*,
-    shared::{gen_module_func_name, transform_module_name},
+    Ir::expr::*, shared::{gen_module_func_name, is_bin_op, precedence, transform_module_name},
 };
 
 impl<'a> Parser<'a> {
@@ -230,27 +229,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expr_to_ident(&self, expr: Expr) -> String {
+    pub fn expr_to_ident(&self, expr: Expr) -> String {
         match expr.ty {
             ExprType::Variable(var) => var,
             _ => self::panic!("in expr_to_ident got wrong type of expr: {:?}", expr),
         }
     }
 
-    fn precedence(op: &BinOp) -> u8 {
-        match op {
-            BinOp::Mul | BinOp::Div | BinOp::Mod => 10,
-            BinOp::Add | BinOp::Sub => 8,
-            BinOp::ShiftLeft | BinOp::ShiftRight => 7,
-            BinOp::BitAnd => 6,
-            BinOp::BitXor => 5,
-            BinOp::BitOr => 4,
-            BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => 3,
-            BinOp::Eq | BinOp::Neq => 3,
-            BinOp::And => 2,
-            BinOp::Or => 1,
-        }
-    }
 
     fn parse_unary(&mut self) -> Option<Expr> {
         match self.peek(0).token {
@@ -308,33 +293,6 @@ impl<'a> Parser<'a> {
                 });
             }
             _ => self.parse_postfix_chain(),
-        }
-    }
-
-    fn is_generic_call_lookahead(&mut self) -> bool {
-        let mut i = 1;
-        let mut depth = 1;
-
-        loop {
-            let kind = self.peek(i).token;
-            match kind {
-                TokenType::Less => depth += 1, // Handle nested generics like Map<String, Vector<u8>>
-                TokenType::More => {
-                    depth -= 1;
-                    if depth == 0 {
-                        // We found the closing '>'.
-                        // If the very next token is '(', it's definitely a generic function call!
-                        // (We also check for '{' in case you support generic struct initialization)
-                        let next_kind = self.peek(i + 1).token;
-                        return next_kind == TokenType::OpenParen
-                            || next_kind == TokenType::OpenScope;
-                    }
-                }
-                // If we hit a semicolon or EOF before finding '>', it's just a math expression
-                TokenType::Semi => return false,
-                _ => {}
-            }
-            i += 1;
         }
     }
 
@@ -593,47 +551,6 @@ impl<'a> Parser<'a> {
         Some(expr)
     }
 
-    fn parse_generic_call(&mut self, expr: Expr) -> Option<Expr> {
-        let mut generics = Vec::new();
-        self.expect(TokenType::Less);
-        while self.peek(0).token != TokenType::More {
-            let bef_ptr = self.parse_ptr();
-            let ty = self.get_type()?;
-            let aft_ptr = self.parse_ptr();
-            let ty = self.parse_array(ty);
-            let ty = self.apply_ptr(ty, bef_ptr + aft_ptr);
-            generics.push(ty);
-            if self.peek(0).token == TokenType::Coma {
-                self.consume();
-            }
-        }
-        self.expect(TokenType::More);
-        let mut args: Vec<Expr> = Vec::new();
-        if self.peek(0).token != TokenType::CloseParen {
-            self.expect(TokenType::OpenParen);
-            loop {
-                if self.peek(0).token == TokenType::CloseParen {
-                    break;
-                }
-                args.push(self.parse_expr()?);
-                if self.peek(0).token == TokenType::Coma {
-                    self.expect(TokenType::Coma);
-                }
-            }
-        }
-        self.expect(TokenType::CloseParen);
-        let expr_ty = ExprType::Call {
-            generics,
-            name: self.expr_to_ident(expr),
-            args,
-        };
-        Some(Expr {
-            ty: expr_ty,
-            file: self.current_file.clone(),
-            line: self.line,
-            col: self.col,
-        })
-    }
 
     fn parse_call(&mut self, expr: Expr) -> Option<Expr> {
         self.expect(TokenType::OpenParen);
@@ -669,29 +586,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn is_bin_op(ty: TokenType) -> Option<BinOp> {
-        match ty {
-            TokenType::Add => Some(BinOp::Add),
-            TokenType::Sub => Some(BinOp::Sub),
-            TokenType::Mul => Some(BinOp::Mul),
-            TokenType::Div => Some(BinOp::Div),
-            TokenType::AsertEq => Some(BinOp::Eq),
-            TokenType::NotEq => Some(BinOp::Neq),
-            TokenType::LessThan => Some(BinOp::Lte),
-            TokenType::Less => Some(BinOp::Lt),
-            TokenType::More => Some(BinOp::Gt),
-            TokenType::MoreThan => Some(BinOp::Gte),
-            TokenType::And => Some(BinOp::And),
-            TokenType::Or => Some(BinOp::Or),
-            TokenType::Remainder => Some(BinOp::Mod),
-            TokenType::Address => Some(BinOp::BitAnd),
-            TokenType::BitOr => Some(BinOp::BitOr),
-            TokenType::BitXor => Some(BinOp::BitXor),
-            TokenType::LeftShift => Some(BinOp::ShiftLeft),
-            TokenType::RightShift => Some(BinOp::ShiftRight),
-            _ => None,
-        }
-    }
 
     pub fn parse_expr(&mut self) -> Option<Expr> {
         self.parse_binary(0)
@@ -703,12 +597,12 @@ impl<'a> Parser<'a> {
             return Some(left);
         }
         loop {
-            let op = match Parser::is_bin_op(self.peek(0).token) {
+            let op = match is_bin_op(self.peek(0).token) {
                 Some(op) => op,
                 None => break,
             };
 
-            let prec = Parser::precedence(&op);
+            let prec = precedence(&op);
 
             if prec < min_prec {
                 break;

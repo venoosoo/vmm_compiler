@@ -1,12 +1,10 @@
 use core::panic;
-use std::{collections::HashMap, dbg, format, matches};
+use std::{collections::HashMap, dbg, env, format, matches, path::PathBuf};
 
 use crate::{
     Ir::{
-        expr::{Expr, ExprType},
-        stmt::{LValue, Type},
-    },
-    tokenizer::TokenType,
+        expr::{BinOp, Expr, ExprType}, stmt::{LValue, Type},
+    }, tokenizer::TokenType,
 };
 
 pub fn substitute_type(ty: &Type, params: &Vec<String>, args: &Vec<Type>) -> Type {
@@ -464,4 +462,70 @@ pub fn can_start_expr(token: TokenType) -> bool {
             | TokenType::Address
             | TokenType::Mul
     )
+}
+
+pub fn precedence(op: &BinOp) -> u8 {
+    match op {
+        BinOp::Mul | BinOp::Div | BinOp::Mod => 10,
+        BinOp::Add | BinOp::Sub => 8,
+        BinOp::ShiftLeft | BinOp::ShiftRight => 7,
+        BinOp::BitAnd => 6,
+        BinOp::BitXor => 5,
+        BinOp::BitOr => 4,
+        BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => 3,
+        BinOp::Eq | BinOp::Neq => 3,
+        BinOp::And => 2,
+        BinOp::Or => 1,
+    }
+}
+
+pub fn is_bin_op(ty: TokenType) -> Option<BinOp> {
+    match ty {
+        TokenType::Add => Some(BinOp::Add),
+        TokenType::Sub => Some(BinOp::Sub),
+        TokenType::Mul => Some(BinOp::Mul),
+        TokenType::Div => Some(BinOp::Div),
+        TokenType::AsertEq => Some(BinOp::Eq),
+        TokenType::NotEq => Some(BinOp::Neq),
+        TokenType::LessThan => Some(BinOp::Lte),
+        TokenType::Less => Some(BinOp::Lt),
+        TokenType::More => Some(BinOp::Gt),
+        TokenType::MoreThan => Some(BinOp::Gte),
+        TokenType::And => Some(BinOp::And),
+        TokenType::Or => Some(BinOp::Or),
+        TokenType::Remainder => Some(BinOp::Mod),
+        TokenType::Address => Some(BinOp::BitAnd),
+        TokenType::BitOr => Some(BinOp::BitOr),
+        TokenType::BitXor => Some(BinOp::BitXor),
+        TokenType::LeftShift => Some(BinOp::ShiftLeft),
+        TokenType::RightShift => Some(BinOp::ShiftRight),
+        _ => None,
+    }
+}
+
+
+pub fn resolve_global_import(filename: &str) -> Option<PathBuf> {
+    let mut search_paths: Vec<PathBuf> = Vec::new();
+
+    if let Ok(env_path) = env::var("VMM_LIB_PATH") {
+        search_paths.push(PathBuf::from(env_path));
+    }
+
+    if let Some(home_dir) = env::var_os("HOME") {
+        let mut home_path = PathBuf::from(home_dir);
+        home_path.push(".vmm");
+        home_path.push("lib");
+        search_paths.push(home_path);
+    }
+
+    search_paths.push(PathBuf::from("/usr/local/lib/vmm/"));
+
+    for mut path in search_paths {
+        path.push(filename);
+        if path.exists() {
+            return Some(path.canonicalize().unwrap());
+        }
+    }
+
+    None
 }

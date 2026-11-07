@@ -3,7 +3,7 @@ use crate::Ir::expr::{Expr, ExprType};
 use crate::Ir::sem_analysis::Error;
 use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::*;
-use crate::shared::{can_start_expr, transform_module_name, type_name};
+use crate::shared::{can_start_expr, resolve_global_import, transform_module_name, type_name};
 use crate::tokenizer;
 use crate::tokenizer::TokenType::Module;
 use core::panic;
@@ -54,25 +54,6 @@ impl<'a> Parser<'a> {
                 return self.parse_expr_stmt();
             }
         };
-    }
-    pub fn type_to_error(&self, error_ty: SemanticError) -> Error {
-        Error {
-            ty: error_ty,
-            file: self.current_file.clone(),
-            line: self.line,
-            col: self.col,
-        }
-    }
-
-    pub fn print_error(&self, err: Error) {
-        eprintln!("\x1b[31;1merror\x1b[0m: \x1b[1m{}\x1b[0m", err.ty);
-
-        eprintln!(
-            "  \x1b[34;1m-->\x1b[0m {}:{}:{}",
-            err.file, err.line, err.col
-        );
-
-        self.had_error.set(true);
     }
 
     fn parse_break(&mut self) -> Option<Stmt> {
@@ -234,38 +215,6 @@ impl<'a> Parser<'a> {
         });
     }
 
-    pub fn parse_generic(&mut self) -> Vec<String> {
-        let mut generic = Vec::new();
-        if self.peek(0).token == TokenType::Less {
-            self.expect(TokenType::Less);
-            while self.peek(0).token != TokenType::More {
-                let generic_ty_name = {
-                    let token = self.consume();
-                    if let Some(token_name) = token.value {
-                        token_name
-                    } else {
-                        type_name(&Type::Primitive(token.token))
-                    }
-                };
-                if self.peek(0).token == TokenType::Coma {
-                    self.consume();
-                }
-                self.types.insert(generic_ty_name.clone());
-                self.generic.insert(generic_ty_name.clone());
-                generic.push(generic_ty_name);
-            }
-            self.expect(TokenType::More);
-        }
-        generic
-    }
-
-    pub fn type_to_stmt(&self, stmt: StmtType) -> Stmt {
-        Stmt {
-            ty: stmt,
-            line: self.line,
-            file: self.current_file.clone(),
-        }
-    }
 
     fn parse_enum(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Enum);
@@ -307,27 +256,6 @@ impl<'a> Parser<'a> {
         return Some(self.type_to_stmt(StmtType::GlobalDecl(Box::new(stmt))));
     }
 
-    pub fn is_type(&self, token: &Token) -> bool {
-        match token.token {
-            TokenType::I8
-            | TokenType::I16
-            | TokenType::I32
-            | TokenType::I64
-            | TokenType::U8
-            | TokenType::U16
-            | TokenType::U32
-            | TokenType::U64 => true,
-            TokenType::Void => true,
-            TokenType::Var => {
-                if let Some(name) = &token.value {
-                    self.types.contains(name)
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        }
-    }
 
     pub fn apply_ptr(&mut self, ty: Type, index: u32) -> Type {
         let mut ty = ty.clone();
@@ -359,63 +287,7 @@ impl<'a> Parser<'a> {
         ty
     }
 
-    pub fn get_type(&mut self) -> Option<Type> {
-        if self.peek(0).token == TokenType::Var {
-            let token = self.consume();
-            // i will make parser error system one day
-            //dbg!(&token);
-            let value = token.value.unwrap();
-            let name = self.types.get(&value);
-            let name = match name {
-                Some(good_name) => good_name,
-                None => {
-                    self.print_error(self.type_to_error(SemanticError::UnkownType(value)));
-                    return None;
-                }
-            };
-            if self.struct_table.get(name).is_some() {
-                return Some(Type::Struct(name.to_string()));
-            } else if self.enums_table.get(name).is_some() {
-                return Some(Type::Enum(name.to_string(), None));
-            } else if self.generic.get(name).is_some() {
-                return Some(Type::GenericType(name.clone()));
-            } else {
-                return Some(Type::Named(name.to_string()));
-            }
-        } else if self.is_type(self.peek(0)) {
-            return Some(Type::Primitive(self.consume().token));
-        } else {
-            let token = self.peek(0);
-            self.error_at(
-                format!("unkown type: {:?}", token.token),
-                token.line,
-                token.col,
-            );
-            return None;
-        };
-    }
 
-    pub fn parse_generic_types(&mut self, ty: Type) -> Option<Type> {
-        if self.peek(0).token == TokenType::Less {
-            self.expect(TokenType::Less);
-            let mut res = Vec::new();
-            while self.peek(0).token != TokenType::More {
-                let pre_ptr = self.parse_ptr();
-                let ty = self.get_type()?;
-                let post_ptr = self.parse_ptr();
-                let ty = self.parse_array(ty);
-                let ty = self.apply_ptr(ty, pre_ptr + post_ptr);
-                res.push(ty);
-                if self.peek(0).token == TokenType::Coma {
-                    self.expect(TokenType::Coma);
-                }
-            }
-            self.expect(TokenType::More);
-            return Some(Type::GenericInst(type_name(&ty), res));
-        } else {
-            return Some(ty);
-        }
-    }
 
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
         let pre_ptr = self.parse_ptr();
@@ -444,31 +316,6 @@ impl<'a> Parser<'a> {
         })));
     }
 
-    fn resolve_global_import(&self, filename: &str) -> Option<PathBuf> {
-        let mut search_paths: Vec<PathBuf> = Vec::new();
-
-        if let Ok(env_path) = env::var("VMM_LIB_PATH") {
-            search_paths.push(PathBuf::from(env_path));
-        }
-
-        if let Some(home_dir) = env::var_os("HOME") {
-            let mut home_path = PathBuf::from(home_dir);
-            home_path.push(".vmm");
-            home_path.push("lib");
-            search_paths.push(home_path);
-        }
-
-        search_paths.push(PathBuf::from("/usr/local/lib/vmm/"));
-
-        for mut path in search_paths {
-            path.push(filename);
-            if path.exists() {
-                return Some(path.canonicalize().unwrap());
-            }
-        }
-
-        None
-    }
 
     fn parse_import(&mut self) {
         self.expect(TokenType::Import);
@@ -489,7 +336,7 @@ impl<'a> Parser<'a> {
 
             self.expect(TokenType::More);
 
-            self.resolve_global_import(&file_name)
+            resolve_global_import(&file_name)
                 .expect(&format!("Cannot find global import: {}", file_name))
         } else {
             panic!(
@@ -586,63 +433,6 @@ impl<'a> Parser<'a> {
         Some(self.type_to_stmt(StmtType::InitStruct(def)))
     }
 
-    fn check_assignment_start(&self) -> bool {
-        let mut i = 0;
-
-        // allow leading *
-        while self.peek(i).token == TokenType::Mul {
-            i += 1;
-        }
-
-        // must start with identifier
-        if self.peek(i).token != TokenType::Var {
-            return false;
-        }
-
-        i += 1;
-
-        loop {
-            match self.peek(i).token {
-                TokenType::Dot => {
-                    i += 1;
-                    if self.peek(i).token != TokenType::Var {
-                        return false;
-                    }
-                    i += 1;
-                }
-                TokenType::Access => {
-                    i += 1;
-                    if self.peek(i).token != TokenType::Var {
-                        return false;
-                    }
-                    i += 1;
-                }
-
-                TokenType::OpenBracket => {
-                    i += 1;
-
-                    // skip until closing bracket
-                    let mut depth = 1;
-                    while depth > 0 {
-                        match self.peek(i).token {
-                            TokenType::OpenBracket => depth += 1,
-                            TokenType::CloseBracket => depth -= 1,
-                            _ => {}
-                        }
-                        i += 1;
-                    }
-                }
-
-                TokenType::Eq => {
-                    return true;
-                }
-
-                _ => {
-                    return false;
-                }
-            }
-        }
-    }
 
     fn parse_assignment_no_semi(&mut self) -> Option<Stmt> {
         let mut pointer_depth = 0;
