@@ -3,9 +3,6 @@ import "std.vmm"
 
 
 
-struct Stdout {
-    i32 stdout;
-}
 
 module std~io {
     fn open(u8* path, i64 flags, i64 mode) -> Result<u64, Errno> {

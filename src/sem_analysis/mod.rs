@@ -180,16 +180,9 @@ impl<'a> TypeContext for Analyzer<'a> {
         args: &Vec<Expr>,
         generics: &Vec<Type>,
     ) -> Option<(FuncData, usize)> {
-        if generics.len() > 0 {
-            let vec_func_data = self.get_function(name);
-            if vec_func_data.len() < 1 {
-                return None;
-            }
-            return Some((vec_func_data[0].clone(), 0));
-        }
-
         let vec_func_data = self.get_function(name);
         if vec_func_data.len() < 1 {
+            self.print_error(self.type_to_error(SemanticError::UndeclaredFunction(name.clone())));
             return None;
         }
         let precomputed_args: Vec<(&Expr, Type)> = args
@@ -197,6 +190,16 @@ impl<'a> TypeContext for Analyzer<'a> {
             .map(|expr| expr.get_type(self).map(|ty| (expr, ty)))
             .collect::<Option<Vec<_>>>()?;
 
+        if generics.len() > 0 {
+            let vec_func_data = self.get_function(name);
+            if vec_func_data.len() < 1 {
+                self.print_error(
+                    self.type_to_error(SemanticError::UndeclaredFunction(name.clone())),
+                );
+                return None;
+            }
+            return Some((vec_func_data[0].clone(), 0));
+        }
         let found_overload = vec_func_data.iter().enumerate().find(|(_, func)| {
             if func.args.len() != precomputed_args.len() {
                 return false;
@@ -208,7 +211,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                 .map(|(i, (expr, expr_ty))| {
                     let param_ty = &func.args[i].ty;
 
-                    let map = self.build_generic_map(&func.generic, generics);
+                    let map = self.build_generic_map(&func.generic, generics)?;
                     let expr_ty_mapped = self.generic_to_ty(expr_ty, &map);
                     let param_ty_mapped = self.generic_to_ty(param_ty, &map);
 
@@ -504,28 +507,24 @@ impl<'a> Analyzer<'a> {
         &self,
         generic_names: &Vec<String>,
         concrete_types: &Vec<Type>,
-    ) -> HashMap<String, Type> {
+    ) -> Option<HashMap<String, Type>> {
         if generic_names.len() > concrete_types.len() {
-            dbg!(generic_names);
-            dbg!(concrete_types);
-            panic!(
-                "Generic argument mismatch: expected at least {} arguments, found {}",
-                generic_names.len(),
-                concrete_types.len()
-            );
+            return None;
         }
 
         let existing_map = self.generics.borrow();
 
-        generic_names
-            .iter()
-            .cloned()
-            .zip(
-                concrete_types
-                    .iter()
-                    .map(|t| self.generic_to_ty(t, &existing_map)),
-            )
-            .collect()
+        Some(
+            generic_names
+                .iter()
+                .cloned()
+                .zip(
+                    concrete_types
+                        .iter()
+                        .map(|t| self.generic_to_ty(t, &existing_map)),
+                )
+                .collect(),
+        )
     }
 
     pub fn find_overload(
@@ -551,7 +550,11 @@ impl<'a> Analyzer<'a> {
 
                     let param_ty = &func.args[i].ty;
                     let map = self.build_generic_map(&func.generic, generics);
-
+                    let map = if map.is_none() {
+                        return false;
+                    } else {
+                        map.unwrap()
+                    };
                     let expr_ty = self.generic_to_ty(&expr_ty, &map);
                     let param_ty = self.generic_to_ty(param_ty, &map);
 
@@ -763,9 +766,27 @@ impl<'a> Analyzer<'a> {
                     .or_insert_with(Vec::new)
                     .push(func_data);
             }
-            StmtType::ExternFn(data) => {
-                self.check_init(data);
-            }
+            StmtType::ExternFn(data) => match &data.ty {
+                StmtType::InitFunc {
+                    name,
+                    generic_types,
+                    args,
+                    ret_type,
+                    data,
+                } => {
+                    let func_data = FuncData {
+                        args: args.clone(),
+                        generic: Vec::new(),
+                        current_module: self.current_module.clone(),
+                        return_type: ret_type.clone(),
+                    };
+                    self.functions
+                        .entry(name.clone())
+                        .or_insert_with(Vec::new)
+                        .push(func_data);
+                }
+                _ => {}
+            },
             StmtType::InitStruct(data) => {
                 // register shape only — no size computation yet
                 let fields = data

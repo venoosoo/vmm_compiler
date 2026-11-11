@@ -304,7 +304,9 @@ impl Gen {
             | Type::Enum(..)
             | Type::Named(..) => self.type_size(ty)?,
         };
-        if size > 8 { size = 8};
+        if size > 8 {
+            size = 8
+        };
         match (base, size) {
             ("rax", 8) => Some("rax".into()),
             ("rax", 4) => Some("eax".into()),
@@ -342,28 +344,24 @@ impl Gen {
         &self,
         generic_names: &Vec<String>,
         concrete_types: &Vec<Type>,
-    ) -> HashMap<String, Type> {
+    ) -> Option<HashMap<String, Type>> {
         if generic_names.len() > concrete_types.len() {
-            dbg!(generic_names);
-            dbg!(concrete_types);
-            panic!(
-                "Generic argument mismatch: expected at least {} arguments, found {}",
-                generic_names.len(),
-                concrete_types.len()
-            );
+            return None;
         }
 
         let existing_map = self.generics.borrow();
 
-        generic_names
-            .iter()
-            .cloned()
-            .zip(
-                concrete_types
-                    .iter()
-                    .map(|t| self.generic_to_ty(t, &existing_map)),
-            )
-            .collect()
+        Some(
+            generic_names
+                .iter()
+                .cloned()
+                .zip(
+                    concrete_types
+                        .iter()
+                        .map(|t| self.generic_to_ty(t, &existing_map)),
+                )
+                .collect(),
+        )
     }
 
     pub fn find_overload(
@@ -388,6 +386,11 @@ impl Gen {
                     let param_ty = &func.args[i].ty;
 
                     let map = self.build_generic_map(&func.generic, generics);
+                    let map = if map.is_none() {
+                        return false;
+                    } else {
+                        map.unwrap()
+                    };
                     let expr_ty = self.generic_to_ty(&expr_ty, &map);
                     let param_ty = self.generic_to_ty(param_ty, &map);
 

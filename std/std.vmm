@@ -40,6 +40,9 @@ enum Errno {
     ENOSYS,        // 38: Function not implemented
 }
 
+struct Stdout {
+    i32 stdout;
+}
 
 enum Result<T,E> {
     Ok{

@@ -11,7 +11,6 @@ use crate::Ir::sem_analysis::Analyzer;
 mod Gen;
 mod Ir;
 mod Parser;
-// mod llvm_gen;
 mod sem_analysis;
 mod shared;
 mod tokenizer;

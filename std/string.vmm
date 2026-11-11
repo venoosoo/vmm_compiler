@@ -119,7 +119,7 @@ module string {
         u8* str_data = std~malloc(length + 1);
     
         std~memcpy(str_data, source, (length + 1) as i64);
-    
+        
         str->data = str_data;
         str->length = length as i64;
         str->capacity = (length + 1) as i64;
@@ -131,6 +131,7 @@ module string {
     
         String* str = std~malloc(sizeof(String));
         u8* str_data = std~malloc(16);
+        str_data[15] = 0;
         str->data = str_data;
         str->length = 0;
         str->capacity = 16;
@@ -281,11 +282,12 @@ module string {
     }
     
     fn realloc(String* s) {
-        u8* str_data = std~malloc(s->capacity * 2);
+        u8* str_data = std~malloc((s->capacity * 2) + 1);
         std~memcpy(str_data as void*, s->data as void*, s->capacity);
         std~free(s->data as void*);
         s->data = str_data;
         s->capacity = s->capacity * 2;
+        s->data[s->capacity + 1] = 0;
     }
     
     fn push(String* s, u8 c) {
@@ -333,14 +335,6 @@ module std {
     fn println(String* str) {
         print(str);
         std~print_newline();
-    }
-    fn print(Stdout stdout, String* str) -> Stdout { 
-        print(str); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, String* str) -> Stdout { 
-        println(str); 
-        return stdout; 
     }
 }
 

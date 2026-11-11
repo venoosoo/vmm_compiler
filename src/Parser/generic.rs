@@ -1,6 +1,6 @@
 use crate::{
     Ir::expr::{Expr, ExprType},
-    shared::type_name,
+    shared::{is_number, type_name},
 };
 
 use super::*;
@@ -99,20 +99,25 @@ impl<'a> Parser<'a> {
         loop {
             let kind = self.peek(i).token;
             match kind {
-                TokenType::Less => depth += 1, // Handle nested generics like Map<String, Vector<u8>>
+                TokenType::Less => depth += 1,
                 TokenType::More => {
                     depth -= 1;
                     if depth == 0 {
-                        // We found the closing '>'.
-                        // If the very next token is '(', it's a generic function call
-                        let next_kind = self.peek(i + 1).token;
-                        return next_kind == TokenType::OpenParen
-                            || next_kind == TokenType::OpenScope;
+                        let next = self.peek(i + 1).token;
+                        return next == TokenType::OpenParen || next == TokenType::OpenScope;
                     }
                 }
-                // If we hit a semicolon or EOF before finding '>', it's just a math expression
-                TokenType::Semi => return false,
-                _ => {}
+                t if is_number(&Type::Primitive(t)) => {}
+                TokenType::Var
+                | TokenType::Coma
+                | TokenType::Mul
+                | TokenType::Address
+                | TokenType::OpenBracket
+                | TokenType::CloseBracket
+                | TokenType::Num => {}
+                // Anything else (Access, OpenScope, CloseScope, Semi, operators, EOF...)
+                // means this is a comparison, not generics.
+                _ => return false,
             }
             i += 1;
         }

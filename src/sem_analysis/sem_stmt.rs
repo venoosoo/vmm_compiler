@@ -33,9 +33,10 @@ impl<'a> Analyzer<'a> {
         if self.lookup(&data.name).is_some() {
             self.print_error(self.type_to_error(SemanticError::AlreadyDeclared(data.name.clone())));
         }
-
+        self.add_var(data.name.clone(), data.ty.clone());
         if let Some(expr) = &data.initializer {
             let expr_ty = self.check_expr(expr, &ty)?;
+            let expr_ty = self.generic_to_ty(&expr_ty, &self.generics.borrow());
             let expr_ty = self.ensure_monomorphized(&expr_ty)?;
             if !check_types(&ty, &expr_ty) {
                 self.print_error(self.type_to_error(SemanticError::TypeMismatch {
@@ -53,7 +54,6 @@ impl<'a> Analyzer<'a> {
                 }
             }
         }
-        self.add_var(data.name.clone(), data.ty.clone());
         return Some(());
     }
 
@@ -202,10 +202,6 @@ impl<'a> Analyzer<'a> {
         ),
     ) -> Option<()> {
         let (name, args, ret_type, body, _generic_types) = data;
-        let name = check_module_name(&self.current_module, name);
-        if self.functions.get(&name).is_none() {
-            println!("something strange inside check_init_func");
-        }
 
         // save outer scopes FIRST before adding any args
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
@@ -283,9 +279,87 @@ impl<'a> Analyzer<'a> {
         let expr_ty = self.ensure_monomorphized(&expr_ty)?;
 
         match expr_ty.clone() {
-            Type::Enum(_, _) | Type::Primitive(_) => {
+            Type::Enum(enum_base_name, _) => {
+                // Retrieve the full enum definition to check variants and payloads
+                let enum_data = self
+                    .enums
+                    .borrow()
+                    .get(&enum_base_name)
+                    .cloned()
+                    .expect(&format!("Match on unknown enum: {}", enum_base_name));
+
+                for var in variants {
+                    if let MatchLeftValue::Enum {
+                        base,
+                        value: variant_name,
+                        args,
+                    } = &var.left
+                    {
+                        // 1. Ensure the match arm's base matches the expression's base type
+                        if base != "_" && base != &enum_base_name {
+                            self.print_error(self.type_to_error(
+                                SemanticError::MatchTypeMismatch {
+                                    expected: expr_ty.clone(),
+                                    got: Type::Enum(base.clone(), None),
+                                },
+                            ));
+                            continue;
+                        }
+
+                        // Handle wildcard match arm
+                        if base == "_" {
+                            let _right = self.check_stmt(&var.right);
+                            continue;
+                        }
+
+                        // 2. Look up the specific variant in the enum definition
+                        let variant_data = enum_data.variants.get(variant_name).expect(&format!(
+                            "Variant {} not found in enum {}",
+                            variant_name, enum_base_name
+                        ));
+
+                        // 3. Verify the number of captured arguments matches the variant's payload
+                        if args.len() != variant_data.args.len() {
+                            self::panic!(
+                                "Match arm for {}::{} expected {} arguments, but got {}",
+                                base,
+                                variant_name,
+                                variant_data.args.len(),
+                                args.len()
+                            );
+                        }
+
+                        // 4. Temporarily push the captured variables into the current scope
+                        self.scopes.push(HashMap::new());
+                        for (i, arg_name) in args.iter().enumerate() {
+                            let expected_type = &variant_data.args[i].ty;
+
+                            // Register the variable so `check_stmt` knows its type
+
+                            let scope = self.scopes.last_mut().unwrap();
+                            scope.insert(arg_name.clone(), expected_type.clone());
+                        }
+
+                        // 5. Check the right-hand side statement with the new variables in scope
+                        let _right = self.check_stmt(&var.right);
+
+                        // Pop the variables out of scope after checking the match arm
+                        self.scopes.pop();
+                    } else {
+                        self::panic!("Expected Enum match arm for Enum type");
+                    }
+                }
+            }
+
+            Type::Primitive(_) => {
                 for var in variants {
                     let left_ty = self.get_match_left_value_type(&var.left)?;
+
+                    // Temporarily push wildcard scope if needed, then check right
+
+                    self.scopes.push(HashMap::new());
+                    let _right = self.check_stmt(&var.right);
+                    self.scopes.pop();
 
                     if !check_types(&left_ty, &expr_ty) {
                         if let Type::Enum(name, _) = &left_ty {
@@ -293,7 +367,6 @@ impl<'a> Analyzer<'a> {
                                 continue;
                             }
                         }
-
                         if is_number(&left_ty) && is_number(&expr_ty) {
                             continue;
                         }
@@ -305,14 +378,13 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
-
             _ => {
                 self.print_error(
                     self.type_to_error(SemanticError::MatchExprUnsuported(expr_ty.clone())),
                 );
             }
         }
-        return Some(());
+        Some(())
     }
 
     fn check_break(&self) -> Option<()> {

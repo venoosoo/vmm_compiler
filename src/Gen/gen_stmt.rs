@@ -319,7 +319,9 @@ impl Gen {
         let (condition, if_block, else_block) = data;
 
         self.eval_expr(condition, &Type::Primitive(TokenType::I64));
-        self.emit_func_data(format!("    cmp rax, 0"));
+        let expr_ty = condition.get_type(self).unwrap();
+        let reg = self.reg_for_size("rax", &expr_ty).unwrap();
+        self.emit_func_data(format!("    cmp {}, 0", reg));
 
         let id = self.get_id();
 
@@ -685,13 +687,23 @@ impl Gen {
             .unwrap()
             .iter()
             .position(|func| {
-                func.args.len() == args.len()
-                    && args
-                        .iter()
-                        .enumerate()
-                        .all(|(i, decl)| func.args[i].ty == decl.ty)
+                if func.args.len() != args.len() {
+                    return false;
+                }
+
+                args.iter().enumerate().all(|(i, stmt)| {
+                    let stmt_ty = stmt.ty.clone();
+
+                    let param_ty = &func.args[i].ty;
+                    let Some(mono_stmt_ty) = self.ensure_monomorphized(&stmt_ty) else {
+                        return false;
+                    };
+
+                    check_types(&mono_stmt_ty, &param_ty)
+                })
             })
-            .expect(&format!("no matching overload for '{}'", name));
+            .unwrap_or_else(|| panic!("no matching overload for '{}'", name));
+
         if self.functions.get(name).unwrap().len() > 1 {
             self.emit_func_header(format!("{}___{}:", name, overload_pos));
         } else {

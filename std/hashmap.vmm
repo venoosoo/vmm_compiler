@@ -28,7 +28,7 @@ module hashmap {
         return hash_value;
     }
 
-    fn create_hashmap<K,V>() -> HashMap<K,V>* {
+    fn new<K,V>() -> HashMap<K,V>* {
         u64 starting_capacity = 16;
         HashMapPair<K,V>** data = std~malloc(sizeof(HashMapPair<K,V>*) * starting_capacity);
 
@@ -170,7 +170,7 @@ module hashmap {
         std~free(old_data as void*);
     }
 
-    fn hash_map_insert<K,V>(HashMap<K,V>* hash_map, K key, V value) {
+    fn insert<K,V>(HashMap<K,V>* hash_map, K key, V value) {
         u8* key_str = string~to_string(key);
         u64 hash = hash64(key_str);
         u64 pos = hash & (hash_map->capacity - 1);
@@ -183,7 +183,7 @@ module hashmap {
         hashmap_check_resize<K,V>(hash_map);
     }
 
-    fn hash_map_get_move<K,V>(HashMap<K,V>* hash_map, u8* key_str, u64 pos, u64 distance) -> u64 {
+    fn get_move<K,V>(HashMap<K,V>* hash_map, u8* key_str, u64 pos, u64 distance) -> u64 {
         pos = pos & (hash_map->capacity - 1);
         HashMapPair<K,V>* pair = hash_map->data[pos];
 
@@ -196,15 +196,15 @@ module hashmap {
         if string~strcmp(pair->key_str, key_str) {
             return pos;
         } else {
-            return hash_map_get_move<K,V>(hash_map, key_str, pos + 1, distance + 1);
+            return get_move<K,V>(hash_map, key_str, pos + 1, distance + 1);
         }
     }
 
-    fn hash_map_get<K,V>(HashMap<K,V>* hash_map, K key) -> V {
+    fn get<K,V>(HashMap<K,V>* hash_map, K key) -> V {
         u8* key_str = string~to_string(key);
         u64 hash = hash64(key_str);
         u64 pos = hash & (hash_map->capacity - 1);
-        u64 final_pos = hash_map_get_move<K,V>(hash_map, key_str, pos, 0);
+        u64 final_pos = get_move<K,V>(hash_map, key_str, pos, 0);
 
         HashMapPair<K,V>* pair = hash_map->data[final_pos];
         V value = pair->value;
@@ -213,11 +213,11 @@ module hashmap {
         return value;
     }
 
-    fn hash_map_set<K,V>(HashMap<K,V>* hash_map, K key, V new_val) {
+    fn set<K,V>(HashMap<K,V>* hash_map, K key, V new_val) {
         u8* key_str = string~to_string(key);
         u64 hash = hash64(key_str);
         u64 pos = hash & (hash_map->capacity - 1);
-        u64 final_pos = hash_map_get_move<K,V>(hash_map, key_str, pos, 0);
+        u64 final_pos = get_move<K,V>(hash_map, key_str, pos, 0);
 
         HashMapPair<K,V>* pair = hash_map->data[final_pos];
         pair->value = new_val;
@@ -228,11 +228,11 @@ module hashmap {
 
 fn main() {
     // Basic insert/get plus repeated growth and probing collisions.
-    HashMap<i32, i32>* map = hashmap~create_hashmap<i32, i32>();
+    HashMap<i32, i32>* map = hashmap~new<i32, i32>();
 
     i32 i = 0;
     while i < 200 {
-        hashmap~hash_map_insert<i32, i32>(map, i, i * 7 + 3);
+        hashmap~insert<i32, i32>(map, i, i * 7 + 3);
         i = i + 1;
     }
 
@@ -249,7 +249,7 @@ fn main() {
     i = 0;
     while i < 200 {
         i32 expected = i * 7 + 3;
-        i32 actual = hashmap~hash_map_get<i32, i32>(map, i);
+        i32 actual = hashmap~get<i32, i32>(map, i);
 
         if actual != expected {
             std~print("FAIL: wrong value for key ");
@@ -261,41 +261,41 @@ fn main() {
     }
 
     // Insert an existing key: update the value without increasing length.
-    hashmap~hash_map_insert<i32, i32>(map, 42, 12345);
+    hashmap~insert<i32, i32>(map, 42, 12345);
 
     if map->length != 200 {
         std~println("FAIL: inserting an existing key changed length");
         std~exit(1);
     }
-    if hashmap~hash_map_get<i32, i32>(map, 42) != 12345 {
+    if hashmap~get<i32, i32>(map, 42) != 12345 {
         std~println("FAIL: insert did not replace an existing value");
         std~exit(1);
     }
     // Test the explicit set operation.
-    hashmap~hash_map_set<i32, i32>(map, 99, -999);
-    if hashmap~hash_map_get<i32, i32>(map, 99) != -999 {
-        std~println("FAIL: hash_map_set did not replace the value");
+    hashmap~set<i32, i32>(map, 99, -999);
+    if hashmap~get<i32, i32>(map, 99) != -999 {
+        std~println("FAIL: set did not replace the value");
         std~exit(1);
     }
 
     if map->length != 200 {
-        std~println("FAIL: hash_map_set changed length");
+        std~println("FAIL: set changed length");
         std~exit(1);
     }
 
     // A second specialization checks that independent generic instances work.
-    HashMap<i32, u64>* wide_map = hashmap~create_hashmap<i32, u64>();
+    HashMap<i32, u64>* wide_map = hashmap~new<i32, u64>();
 
     i = 0;
     while i < 80 {
-        hashmap~hash_map_insert<i32, u64>(wide_map, i, (i * 1000) as u64);
+        hashmap~insert<i32, u64>(wide_map, i, (i * 1000) as u64);
         i = i + 1;
     }
 
     i = 0;
     while i < 80 {
         u64 expected = (i * 1000) as u64;
-        u64 actual = hashmap~hash_map_get<i32, u64>(wide_map, i);
+        u64 actual = hashmap~get<i32, u64>(wide_map, i);
 
         if actual != expected {
             std~print("FAIL: wrong u64 value for key ");

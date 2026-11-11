@@ -22,7 +22,13 @@ impl<'a> Lookup for Analyzer<'a> {
         if self.structs.borrow().get(name).is_some() {
             return Some(Type::Struct(name.clone()));
         } else {
-            self.lookup(name)
+            let res = self.lookup(name);
+            if res.is_none() {
+                self.print_error(
+                    self.type_to_error(SemanticError::UndeclaredVariable(name.clone())),
+                )
+            }
+            return res;
         }
     }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Option<Type> {
@@ -504,14 +510,11 @@ impl<'a> Analyzer<'a> {
         generics: &Vec<Type>,
     ) -> Option<Type> {
         let name = &self.resolve_function_name(name)?;
-        let (func_data, _func_index) = {
-            let data = self.resolve_call(name, args, generics);
-            if data.is_none() {
-                return None;
-            } else {
-                data.unwrap()
-            }
-        };
+        let (func_data, _func_index) = self.resolve_call(name, args, generics)?;
+        for (index,arg) in args.iter().enumerate() {
+            let arg_ty = arg.get_type(self)?;
+            self.check_expr(arg, &arg_ty);
+        }
         self.check_generic_count(generics.len(), func_data.generic.len())?;
         for (index, generic) in func_data.generic.iter().enumerate() {
             self.generics
@@ -602,11 +605,11 @@ impl<'a> Analyzer<'a> {
 
     fn check_struct_member(
         &mut self,
-        base: &Box<Expr>,
+        base2: &Box<Expr>,
         name: &String,
         expected_ty: &Type,
     ) -> Option<Type> {
-        let base = self.check_expr(base, expected_ty)?;
+        let base = self.check_expr(base2, expected_ty)?;
         let base = self.ensure_monomorphized(&base)?;
         match base {
             Type::Struct(struct_name) => {
@@ -716,18 +719,27 @@ impl<'a> Analyzer<'a> {
             .get(base)
             .cloned()
             .expect(&format!("no enums with name: {}\n{:?}", base, self.enums));
+
         let variant_data = enum_data
             .variants
             .get(variant)
             .expect(&format!("in struct: {} no variant {}", base, variant));
+
         for (index, arg) in variant_data.args.iter().enumerate() {
             let enum_field = &value[index];
-            if !check_types(&enum_field.expr.get_type(self)?, &arg.ty) {
-                dbg!(&enum_field.expr.get_type(self));
+
+            let expr_ty = enum_field.expr.get_type(self)?;
+            let is_valid =
+                check_types(&expr_ty, &arg.ty) || (is_number(&expr_ty) && is_number(&arg.ty));
+
+            if !is_valid {
+                dbg!(&expr_ty);
+                dbg!(&enum_field.expr);
                 dbg!(&arg);
                 self::panic!("debil²")
             }
         }
+
         Some(Type::Enum(base.clone(), None))
     }
 

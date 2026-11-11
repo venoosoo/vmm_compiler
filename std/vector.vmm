@@ -58,7 +58,7 @@ module vector {
     
     fn set_element<T>(Vector<T>* vec, i64 element_pos, T element) {
         if vec->length <= element_pos {
-            println("Error: Vector set out of bounds");
+            std~println("Error: Vector set out of bounds");
             std~exit(1);
         }
         T* dest = vec->data + element_pos;
