@@ -698,8 +698,11 @@ impl Gen {
                     let Some(mono_stmt_ty) = self.ensure_monomorphized(&stmt_ty) else {
                         return false;
                     };
+                    let Some(mono_param_ty) = self.ensure_monomorphized(&param_ty) else {
+                        return false;
+                    };
 
-                    check_types(&mono_stmt_ty, &param_ty)
+                    check_types(&mono_stmt_ty, &mono_param_ty)
                 })
             })
             .unwrap_or_else(|| panic!("no matching overload for '{}'", name));

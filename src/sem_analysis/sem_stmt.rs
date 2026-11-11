@@ -275,8 +275,13 @@ impl<'a> Analyzer<'a> {
     }
 
     fn check_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) -> Option<()> {
-        let expr_ty = expr.get_type(self)?;
-        let expr_ty = self.ensure_monomorphized(&expr_ty)?;
+        let raw_ty = expr.get_type(self)?;
+        let raw_base_name = match &raw_ty {
+            Type::Enum(name, _) => Some(name.clone()),
+            Type::GenericInst(name, _) => Some(name.clone()),
+            _ => None,
+        };
+        let expr_ty = self.ensure_monomorphized(&raw_ty)?;
 
         match expr_ty.clone() {
             Type::Enum(enum_base_name, _) => {
@@ -295,8 +300,11 @@ impl<'a> Analyzer<'a> {
                         args,
                     } = &var.left
                     {
-                        // 1. Ensure the match arm's base matches the expression's base type
-                        if base != "_" && base != &enum_base_name {
+                        if base == "_" {
+                            let _right = self.check_stmt(&var.right);
+                            continue;
+                        }
+                        if base != "_" && base != &enum_base_name && *base != raw_base_name.clone().unwrap_or("".to_string()) {
                             self.print_error(self.type_to_error(
                                 SemanticError::MatchTypeMismatch {
                                     expected: expr_ty.clone(),
@@ -306,13 +314,7 @@ impl<'a> Analyzer<'a> {
                             continue;
                         }
 
-                        // Handle wildcard match arm
-                        if base == "_" {
-                            let _right = self.check_stmt(&var.right);
-                            continue;
-                        }
 
-                        // 2. Look up the specific variant in the enum definition
                         let variant_data = enum_data.variants.get(variant_name).expect(&format!(
                             "Variant {} not found in enum {}",
                             variant_name, enum_base_name
