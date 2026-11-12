@@ -1,0 +1,733 @@
+import <"std.vmm">
+import <"string.vmm">
+import <"vector.vmm">
+import <"stdio.vmm">
+import <"hashmap.vmm">
+
+struct JsonPair {
+    String key;
+    JsonValue value;
+}
+
+enum JsonValue {
+    null,
+    bool {
+        u8 value;
+    },
+    number {
+        i64 value;
+    },
+    string {
+        String* value;
+    },
+    array {
+        Vector<JsonValue>* value;
+    },
+    object {
+        HashMap<String*,JsonValue>* value;
+    },
+}
+
+struct JsonParser {
+    u8* buffer;
+    u64 len;
+    u64 pos;
+}
+
+module json {
+    
+    fn parse_string(JsonParser* parser) -> JsonValue {
+        String* str = parse_string_normal(parser);
+        JsonValue res = JsonValue::string(value: str);
+        return JsonValue::string(value: str);
+    }
+    
+    fn parse_string_normal(JsonParser* parser) -> String* {
+        parser->pos = parser->pos + 1;
+        u64 string_start = parser->pos;
+        while parser->buffer[parser->pos] != '"' {
+            parser->pos = parser->pos + 1;
+        }
+        u64 string_end = parser->pos;
+        u64 str_length = string_end - string_start;
+        parser->pos = parser->pos + 1;
+        String* str = string~new();
+        u64 i = 0;
+        while i < str_length {
+            str.string~push(parser->buffer[string_start + i]);
+            i = i + 1;
+        }
+        str.string~push(0);
+        return str;
+    }
+    
+    fn skip_white_space(JsonParser* parser) {
+        while parser->pos < parser->len and 
+             (parser->buffer[parser->pos] == 10 or parser->buffer[parser->pos] == 32) {
+            parser->pos = parser->pos + 1;
+        }
+    }
+    
+    fn next_token(JsonParser* parser) {
+        parser.skip_white_space();
+        parser->pos = parser->pos + 1;
+        parser.skip_white_space();
+    }
+    
+    
+    fn parse_array(JsonParser* parser) -> JsonValue {
+        parser->pos = parser->pos + 1; 
+        parser.skip_white_space();
+    
+        Vector<JsonValue>* res = vector~new<JsonValue>();
+        
+        if parser->buffer[parser->pos] == ']' {
+            parser->pos = parser->pos + 1;
+            return JsonValue::array(value: res);
+        }
+        
+        while 1 {
+            JsonValue val = parser.parse_object();
+            res.vector~push<JsonValue>(val);
+            
+            parser.skip_white_space();
+            
+            if parser->buffer[parser->pos] == ']' {
+                parser->pos = parser->pos + 1;
+                break;
+            } else if parser->buffer[parser->pos] == ',' {
+                parser->pos = parser->pos + 1;
+                parser.skip_white_space();
+                
+                if parser->buffer[parser->pos] == ']' {
+                    std~println("Parse Error: Trailing commas detected in array");
+                    std~exit(1);
+                }
+            } else {
+                std~println("Parse Error: Expected ',' or ']' in array");
+                std~exit(1);
+            }
+        }
+        
+        return JsonValue::array(value: res);
+    }
+    
+    fn parse_number(JsonParser* parser) -> JsonValue {
+        i64 result = 0;
+        i64 is_negative = 0;
+    
+        if parser->buffer[parser->pos] == '-' {
+            is_negative = 1;
+            parser->pos = parser->pos + 1;
+        }
+    
+        while 1 {
+            u8 c = parser->buffer[parser->pos];
+    
+            if c >= '0' and c <= '9' {
+                i64 digit = (c as i64) - 48;
+    
+                result = (result * 10) + digit;
+    
+                parser->pos = parser->pos + 1;
+            } else {
+                break;
+            }
+        }
+    
+        if is_negative == 1 {
+            result = 0 - result;
+        }
+        return JsonValue::number(value: result);
+    }
+    
+    fn parse_object(JsonParser* parser) -> JsonValue {
+        parser.skip_white_space();
+        
+        if parser->pos < parser->len {
+            match parser->buffer[parser->pos] {
+                '{' => {
+                    parser->pos = parser->pos + 1;
+    
+                    HashMap<String*,JsonValue>* res = hashmap~new<String*,JsonValue>();
+                    parser.skip_white_space();
+                    
+                    if parser->buffer[parser->pos] == '}' {
+                        parser->pos = parser->pos + 1;
+                        return JsonValue::object(value: res);
+                    }
+                    while 1 {
+                        String* key = parse_string_normal(parser);
+                        parser.skip_white_space();
+                        if parser->buffer[parser->pos] != ':' {
+                            std~println("Parse Error: Expected ':' after key in object");
+                            std~exit(1);
+                        }
+                        parser->pos = parser->pos + 1;
+                        
+                        parser.skip_white_space();
+                        JsonValue right = parse_object(parser);
+                        res.hashmap~insert<String*,JsonValue>(key, right);
+                        parser.skip_white_space();
+                        if parser->buffer[parser->pos] == '}' {
+                            parser->pos = parser->pos + 1;
+                            break;
+                        } else if parser->buffer[parser->pos] == ',' {
+                            parser->pos = parser->pos + 1;
+                            parser.skip_white_space();
+    
+                            if parser->buffer[parser->pos] == '}' {
+                                std~println("Parse Error: Trailing commas detected in object");
+                                std~exit(1);
+                            }
+                        } else {
+                            std~println("Parse Error: Expected ',' or '}' in object");
+                            std~exit(1);
+                        }
+                    }
+                    JsonValue result = JsonValue::object(value:res);
+                    return result;
+                }
+                '[' => {
+                    return parse_array(parser);
+                }
+                '"' => {
+                    return parse_string(parser);
+                }
+                't' => {
+                    parser->pos = parser->pos + 4;
+                    return JsonValue::bool(value: 1);
+                }
+                'f' => {
+                    parser->pos = parser->pos + 5;
+                    return JsonValue::bool(value: 0);
+                }
+                'n' => {
+                    parser->pos = parser->pos + 4;
+                    return JsonValue::null;
+                }
+                _ => {
+                    return parse_number(parser);
+                }
+            }
+        }
+    
+        std~println("Parse Error: Unexpected end of file");
+        std~exit(1);
+    }
+    
+    
+    
+    fn parse(u8* file_name) -> JsonValue {
+    
+        u8 buffer[4096];
+        u64 fd = std~io~open(file_name, 0, 0).std~unwrap<u64,Errno>();
+        u64 bytes_read = std~io~read(fd as u32, buffer, 4096).std~unwrap<u64,Errno>();
+        JsonParser parser = JsonParser {
+            buffer: buffer,
+            len: bytes_read,
+            pos: 0,
+        };
+        JsonValue result = parse_object(&parser);
+        return result;
+    }
+    
+    fn get(JsonValue val, u8* path) -> JsonValue {
+        i64 pos = 0;
+    
+        while path[pos] != 0 {
+            // 1. Skip dots
+            if path[pos] == '.' {
+                pos = pos + 1;
+            }
+            
+            if path[pos] == 0 {
+                break;
+            }
+    
+            // 2. ARRAY INDEXING MODE
+            if path[pos] == '[' {
+                pos = pos + 1; // Consume '['
+                i64 index = 0;
+                
+                // Read digits
+                while path[pos] >= '0' and path[pos] <= '9' {
+                    index = (index * 10) + ((path[pos] as i64) - 48);
+                    pos = pos + 1;
+                }
+                
+                if path[pos] == ']' {
+                    pos = pos + 1; // Consume ']'
+                } else {
+                    std~println("JSON Get Error: Expected ']' in path");
+                    std~exit(1);
+                }
+                
+                // Extract from Vector! (Strictly using 'value')
+                match val {
+                    JsonValue::array(value) => {
+                        val = value.vector~get_element<JsonValue>(index);
+                    }
+                    _ => {
+                        return JsonValue::null;
+                    }
+                }
+            } else {
+                // 3. OBJECT KEY MODE
+                i64 start = pos;
+                
+                while path[pos] != 0 and path[pos] != '.' and path[pos] != '[' {
+                    pos = pos + 1;
+                }
+                
+                i64 len = pos - start;
+                u8* segment = std~malloc(len + 1) as u8*;
+                i64 i = 0;
+                while i < len {
+                    segment[i] = path[start + i];
+                    i = i + 1;
+                }
+                segment[len] = 0;
+                
+                // Extract from HashMap! (Strictly using 'value' and method syntax)
+                match val {
+                    JsonValue::object(value) => {
+                        String* key = segment.string~new();
+                        val = value.hashmap~get<String*, JsonValue>(key);
+                    }
+                    _ => {
+                        return JsonValue::null;
+                    }
+                }
+            }
+        }
+    
+        return val;
+    }
+    
+    
+    
+    
+    
+    
+    fn as_number(JsonValue val) -> i64 {
+        match val {
+            JsonValue::number(value) => { return value; }
+            _ => { 
+                std~println("JSON Error: Expected number"); 
+                std~exit(1); 
+            }
+        }
+    }
+    
+    fn as_string(JsonValue val) -> String* {
+        match val {
+            JsonValue::string(value) => { return value; }
+            _ => { 
+                std~println("JSON Error: Expected string"); 
+                std~exit(1); 
+            }
+        }
+    }
+    
+    fn as_bool(JsonValue val) -> u8 {
+        match val {
+            JsonValue::bool(value) => { return value; }
+            _ => { 
+                std~println("JSON Error: Expected boolean"); 
+                std~exit(1); 
+            }
+        }
+    }
+    
+    fn as_array(JsonValue val) -> Vector<JsonValue>* {
+        match val {
+            JsonValue::array(value) => { return value; }
+            _ => { 
+                std~println("JSON Error: Expected array"); 
+                std~exit(1); 
+            }
+        }
+    }
+    
+    fn as_object(JsonValue val) -> HashMap<String*, JsonValue>* {
+        match val {
+            JsonValue::object(value) => { return value; }
+            _ => { 
+                std~println("JSON Error: Expected object"); 
+                std~exit(1); 
+            }
+        }
+    }
+    
+    
+    fn get_number(JsonValue val, u8* path) -> i64 {
+        JsonValue res = val.get(path);
+        return res.as_number();
+    }
+    
+    fn get_string(JsonValue val, u8* path) -> String* {
+        JsonValue res = val.get(path);
+        return res.as_string();
+    }
+    
+    fn get_bool(JsonValue val, u8* path) -> u8 {
+        JsonValue res = val.get(path);
+        return res.as_bool();
+    }
+    
+    fn get_array(JsonValue val, u8* path) -> Vector<JsonValue>* {
+        JsonValue res = val.get(path);
+        return res.as_array();
+    }
+    
+    fn get_object(JsonValue val, u8* path) -> HashMap<String*, JsonValue>* {
+        JsonValue res = val.get(path);
+        return res.as_object();
+    }
+    
+    
+    // --- STRING BUILDER HELPERS ---
+    
+    fn push_str(String* str_obj, u8* raw_str) {
+        i64 i = 0;
+        while raw_str[i] != 0 {
+            str_obj.string~push(raw_str[i]);
+            i = i + 1;
+        }
+    }
+    
+    fn push_number(String* str_obj, i64 num) {
+        if num == 0 {
+            str_obj.string~push('0');
+            return;
+        }
+        
+        if num < 0 {
+            str_obj.string~push('-');
+            num = 0 - num;
+        }
+        
+        // Reverse the digits to print them left-to-right
+        i64 temp = num;
+        i64 divisor = 1;
+        while (temp / 10) > 0 {
+            divisor = divisor * 10;
+            temp = temp / 10;
+        }
+        
+        while divisor > 0 {
+            i64 digit = num / divisor;
+            str_obj.string~push(((digit as u8) + 48) as u8);
+            num = num - (digit * divisor);
+            divisor = divisor / 10;
+        }
+    }
+    
+    // --- RECURSIVE SERIALIZER ---
+    
+    fn stringify(JsonValue val, String* buffer, i64 indent) {
+        match val {
+            JsonValue::null => {
+                push_str(buffer, "null");
+            }
+            JsonValue::bool(value) => {
+                if value {
+                    push_str(buffer, "true");
+                } else {
+                    push_str(buffer, "false");
+                }
+            }
+            JsonValue::number(value) => {
+                push_number(buffer, value);
+            }
+            JsonValue::string(value) => {
+                buffer.string~push('"');
+                push_str(buffer, value->data);
+                buffer.string~push('"');
+            }
+            JsonValue::array(value) => {
+                if value->length == 0 {
+                    push_str(buffer, "[]");
+                } else {
+                    buffer.string~push('[');
+                    buffer.string~push(10); // Newline
+                    
+                    for (i64 i = 0; i < value->length; i = i + 1) {
+                        push_indent(buffer, indent + 1);
+                        
+                        JsonValue el = value.vector~get_element<JsonValue>(i);
+                        stringify(el, buffer, indent + 1);
+                        
+                        // Add comma if it's not the last element
+                        if i < (value->length - 1) {
+                            buffer.string~push(',');
+                        }
+                        buffer.string~push(10); // Newline
+                    }
+                    
+                    push_indent(buffer, indent);
+                    buffer.string~push(']');
+                }
+            }
+            JsonValue::object(value) => {
+                if value->length == 0 {
+                    push_str(buffer, "{}");
+                } else {
+                    buffer.string~push('{');
+                    buffer.string~push(10); // Newline
+                    i64 items_added = 0;
+                    
+                    for (i64 i = 0; i < value->capacity as i64; i = i + 1) {
+                        HashMapPair<String*, JsonValue>* pair = value->data[i];
+                        
+                        if pair as i64 != 0 {
+                            push_indent(buffer, indent + 1);
+                            buffer.string~push('"');
+                            push_str(buffer, pair->key_str);
+                            buffer.string~push('"');
+                            buffer.string~push(':');
+                            buffer.string~push(' ');
+                            
+                            stringify(pair->value, buffer, indent + 1);
+                            
+                            items_added = items_added + 1;
+                            if items_added < value->length as i64 {
+                                buffer.string~push(',');
+                            }
+                            buffer.string~push(10);
+                        }
+                    }
+                    
+                    push_indent(buffer, indent);
+                    buffer.string~push('}');
+                }
+            }
+        }
+    }
+    
+    fn push_indent(String* buffer, i64 level) {
+        i64 i = 0;
+        i64 spaces = level * 2;
+        while i < spaces {
+            buffer.string~push(' ');
+            i = i + 1;
+        }
+    }
+    
+    // --- FILE IO ---
+    
+    fn write_to_file(JsonValue val, u8* file_name) {
+        String* buffer = string~new();
+        stringify(val, buffer, 0);
+        
+        // Add null terminator so we can accurately measure the length
+        buffer.string~push(0);
+        u8* raw_data = string~to_string(buffer);
+        
+        u64 len = 0;
+        while raw_data[len] != 0 {
+            len = len + 1;
+        }
+        // Linux syscall flags: O_WRONLY (1) | O_CREAT (64) | O_TRUNC (512) = 577
+        // Permissions: 0644 (rw-r--r--) = 420
+        u64 fd = std~io~open(file_name, 577, 420).std~unwrap<u64, Errno>();
+        // Write the actual bytes to disk
+        std~io~write(fd as u32, raw_data, len).std~unwrap<u64, Errno>();
+        
+        // Close the file descriptor
+        std~io~close(fd as u32);
+    }
+    
+    
+    fn set_value(JsonValue val, u8* path, JsonValue new_val) {
+        JsonValue current = val;
+        i64 pos = 0;
+        while path[pos] != 0 {
+            if path[pos] == '.' {
+                pos = pos + 1;
+            }
+            
+            if path[pos] == 0 {
+                break;
+            }
+    
+            // --- ARRAY MODE ---
+            if path[pos] == '[' {
+                pos = pos + 1; 
+                i64 index = 0;
+                
+                while path[pos] >= '0' and path[pos] <= '9' {
+                    index = (index * 10) + ((path[pos] as i64) - 48);
+                    pos = pos + 1;
+                }
+                
+                if path[pos] == ']' {
+                    pos = pos + 1; 
+                } else {
+                    std~println("JSON Set Error: Expected ']'");
+                    std~exit(1);
+                }
+                
+                // Is this the end of the path?
+                if path[pos] == 0 {
+                    match current {
+                        JsonValue::array(value) => {
+                            value.vector~set_element<JsonValue>(index, new_val);
+                            return;
+                        }
+                        _ => { return; }
+                    }
+                } else {
+                    // Not the end, keep digging deeper
+                    match current {
+                        JsonValue::array(value) => {
+                            current = value.vector~get_element<JsonValue>(index);
+                        }
+                        _ => { return; }
+                    }
+                }
+            } else {
+                // --- OBJECT MODE ---
+                i64 start = pos;
+                
+                while path[pos] != 0 and path[pos] != '.' and path[pos] != '[' {
+                    pos = pos + 1;
+                }
+                
+                i64 len = pos - start;
+                u8* segment = std~malloc(len + 1) as u8*;
+                i64 i = 0;
+                while i < len {
+                    segment[i] = path[start + i];
+                    i = i + 1;
+                }
+                segment[len] = 0;
+                
+                // Is this the end of the path?
+                if path[pos] == 0 {
+                    match current {
+                        JsonValue::object(value) => {
+                            String* key = segment.string~new();
+                            value.hashmap~set<String*, JsonValue>(key, new_val);
+                            
+                            return;
+                        }
+                        _ => { return; }
+                    }
+                } else {
+                    // Not the end, keep digging deeper
+                    //std~println(path);
+                    match current {
+                        JsonValue::object(value) => {
+                            String* key = segment.string~new();
+                            current = value.hashmap~get<String*, JsonValue>(key);
+                        }
+                        _ => { return; }
+                    }
+                }
+            }
+        }
+    }
+    
+    fn change_string(JsonValue val, u8* path, String* str_val) {
+        JsonValue nv = JsonValue::string(value: str_val);
+        val.set_value(path, nv);
+    }
+    
+    fn change_number(JsonValue val, u8* path, i64 num) {
+        JsonValue nv = JsonValue::number(value: num);
+        val.set_value(path, nv);
+    }
+    
+    fn change_bool(JsonValue val, u8* path, u8 bool_val) {
+        JsonValue nv = JsonValue::bool(value: bool_val);
+        val.set_value(path, nv);
+    }
+}
+
+module std {
+    
+    fn println<K,V>(HashMap<K,V>* map) {
+        std~print("pointer to the data: ");
+        std~println(map->data as u64);
+        std~print("length: ");
+        std~println(map->length);
+        std~print("capacity: ");
+        std~println(map->capacity);
+    }
+    
+    fn println<K,V>(HashMapPair<K,V>* pair) {
+        std~print("key: ");
+        std~println(pair->key);
+        std~print("key_str: ");
+        std~println(pair->key_str);
+        std~print("distance: ");
+        std~println(pair->distanse);
+        std~print("value22: ");
+        std~println(pair->value);
+    }
+    fn println(JsonValue val) {
+        
+        match val {
+            JsonValue::null => { std~println("null"); }
+            JsonValue::number(value) => { std~println(value); }
+            JsonValue::string(value) => { std~println(value); }
+            JsonValue::bool(value) => {
+                if value {
+                    std~println("true");
+                } else {
+                    std~println("false");
+                }
+            }
+            JsonValue::array(value) => {
+                std~println("array: [");
+                for (i64 i = 0; i < value->length; i = i + 1) {
+                    JsonValue res = value.vector~get_element<JsonValue>(i);
+                    println(res);
+                }
+                std~println("]");
+            }
+            JsonValue::object(value) => { std~println("some object value"); }
+    
+    
+        }
+    
+    }
+}
+
+
+fn main() -> u8 {
+    std~println("--- Starting JSON Library Tests ---");
+
+    // 1. Test Parsing
+    std~println("1. Testing json~parse()...");
+    JsonValue data = json~parse("./test.json");
+    // 2. Test Data Extraction (Getters)
+    std~println("2. Testing data extraction...");
+    
+    // Using UFCS (Uniform Function Call Syntax) resolving to json~get_number
+    i64 id = data.json~get_number("complex_combo[0].id");
+    String* tag = data.json~get_string("complex_combo[0].tags[2]");
+    
+    std~print("   Extracted ID: ");
+    std~println(id);
+
+    std~print("   Extracted Tag: ");
+    std~println(string~to_string(tag));
+
+    // 3. Test Data Modification (Setters)
+    std~println("3. Testing data modification...");
+    data.json~change_string("string_simple", "string is not simple".string~new());
+    data.json~change_bool("boolean_false", 1);
+    data.json~change_number("complex_combo[0].id", 9999);
+
+
+
+    // 5. Test File Writing
+    std~println("5. Testing file write to output.json...");
+    json~write_to_file(data, "./output.json");
+
+    std~println("--- JSON Tests Completed Successfully ---");
+    return 0;
+}

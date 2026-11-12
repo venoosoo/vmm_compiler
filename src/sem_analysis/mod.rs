@@ -198,7 +198,6 @@ impl<'a> TypeContext for Analyzer<'a> {
                 );
                 return None;
             }
-            return Some((vec_func_data[0].clone(), 0));
         }
         let found_overload = vec_func_data.iter().enumerate().find(|(_, func)| {
             if func.args.len() != precomputed_args.len() {
@@ -217,7 +216,6 @@ impl<'a> TypeContext for Analyzer<'a> {
 
                     let param_ty_mono = self.ensure_monomorphized(&param_ty_mapped)?;
                     let expr_ty_mono = self.ensure_monomorphized(&expr_ty_mapped)?;
-
                     Some(match &expr.ty {
                         ExprType::Number(_) => is_number(&param_ty_mono),
                         _ => check_types(&expr_ty_mono, &param_ty_mono),
@@ -455,6 +453,31 @@ impl<'a> Analyzer<'a> {
         }
 
         Some((offset + max_align - 1) & !(max_align - 1))
+    }
+    fn arg_matches_param(
+        &self,
+        expr: &Expr,
+        param_ty: &Type,
+        map: &HashMap<String, Type>,
+    ) -> Option<Result<(), (Type, Type)>> {
+        let expr_ty = expr.get_type(self)?;
+        let expr_ty = self.generic_to_ty(&expr_ty, map);
+        let param_ty = self.generic_to_ty(param_ty, map);
+
+        let expr_ty = self.ensure_monomorphized(&expr_ty)?;
+        let param_ty = self.ensure_monomorphized(&param_ty)?;
+
+        let ok = match &expr.ty {
+            ExprType::Number(_) => matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty),
+            ExprType::Unary { op, expr: inner }
+                if matches!(op, UnaryOp::Neg) && matches!(&inner.ty, ExprType::Number(_)) =>
+            {
+                matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
+            }
+            _ => check_types(&expr_ty, &param_ty),
+        };
+
+        Some(if ok { Ok(()) } else { Err((param_ty, expr_ty)) })
     }
 
     pub fn type_size(&self, ty: &Type) -> Option<usize> {

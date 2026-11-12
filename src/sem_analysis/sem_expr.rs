@@ -511,9 +511,35 @@ impl<'a> Analyzer<'a> {
     ) -> Option<Type> {
         let name = &self.resolve_function_name(name)?;
         let (func_data, _func_index) = self.resolve_call(name, args, generics)?;
-        for (index,arg) in args.iter().enumerate() {
-            let arg_ty = arg.get_type(self)?;
-            self.check_expr(arg, &arg_ty);
+        for (index, expr) in args.iter().enumerate() {
+            if args.len() != func_data.args.len() {
+                self.print_error(self.type_to_error(SemanticError::FunctionArgsMismatch {
+                    func_name: name.clone(),
+                    expected: func_data.args.len(),
+                    got: args.len(),
+                }));
+                return None;
+            }
+
+            let map = self.build_generic_map(&func_data.generic, &generics)?;
+
+            for (index, expr) in args.iter().enumerate() {
+                let expr_ty = expr.get_type(self)?;
+                self.check_expr(expr, &expr_ty);
+
+                let param_ty = &func_data.args[index].ty;
+                match self.arg_matches_param(expr, param_ty, &map)? {
+                    Ok(()) => {}
+                    Err((expected, got)) => {
+                        self.print_error(self.type_to_error(SemanticError::FuncArgTypeMismatch {
+                            index,
+                            expected,
+                            got,
+                        }));
+                        panic!("dbg");
+                    }
+                }
+            }
         }
         self.check_generic_count(generics.len(), func_data.generic.len())?;
         for (index, generic) in func_data.generic.iter().enumerate() {

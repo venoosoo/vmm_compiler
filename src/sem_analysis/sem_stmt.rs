@@ -304,7 +304,10 @@ impl<'a> Analyzer<'a> {
                             let _right = self.check_stmt(&var.right);
                             continue;
                         }
-                        if base != "_" && base != &enum_base_name && *base != raw_base_name.clone().unwrap_or("".to_string()) {
+                        if base != "_"
+                            && base != &enum_base_name
+                            && *base != raw_base_name.clone().unwrap_or("".to_string())
+                        {
                             self.print_error(self.type_to_error(
                                 SemanticError::MatchTypeMismatch {
                                     expected: expr_ty.clone(),
@@ -313,7 +316,6 @@ impl<'a> Analyzer<'a> {
                             ));
                             continue;
                         }
-
 
                         let variant_data = enum_data.variants.get(variant_name).expect(&format!(
                             "Variant {} not found in enum {}",

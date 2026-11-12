@@ -52,6 +52,11 @@ pub enum SemanticError {
     RecursiveEnum(String),
     BreakOutsideOfLoop,
     UnkownGeneric(String),
+    FuncArgTypeMismatch {
+        index: usize,
+        expected: Type,
+        got: Type,
+    },
     FunctionArgsMismatch {
         func_name: String,
         expected: usize,
