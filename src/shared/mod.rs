@@ -455,6 +455,7 @@ pub fn can_start_expr(token: TokenType) -> bool {
             | TokenType::Num
             | TokenType::HexNum
             | TokenType::OctalNum
+            | TokenType::CompTimeFn
             | TokenType::CharValue
             | TokenType::String
             | TokenType::OpenParen

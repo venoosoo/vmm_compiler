@@ -1,6 +1,7 @@
 use clap::Parser as CliParser;
 use std::{
     collections::HashSet,
+    env,
     fs::File,
     io::{Read, Write},
     path::Path,
@@ -28,6 +29,9 @@ struct Cli {
     )]
     output: Option<String>,
 
+    #[arg(long, help = "choose the targeted os")]
+    target: Option<String>,
+
     #[arg(long, help = "print the lexer output")]
     dump_tokens: bool,
 
@@ -39,6 +43,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli: Cli = Cli::parse();
     let mut file = File::open(cli.file.clone())?;
     let mut contents = String::new();
+    let target_os = if cli.target.is_none() {
+        env::consts::OS.to_string()
+    } else {
+        cli.target.unwrap()
+    };
     file.read_to_string(&mut contents)?;
 
     let mut tokenizer = tokenizer::Tokenizer::new(contents, cli.file.clone());
@@ -64,12 +73,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             File::create("parser_result.txt").expect("Failed to create parser_result.txt");
         write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
     }
-    let mut analyzer = Analyzer::new(&res);
+    let mut analyzer = Analyzer::new(&res, target_os.clone());
     analyzer.check_code();
     if analyzer.had_error.get() {
         std::process::exit(1);
     } else {
-        let mut generator = crate::Ir::r#gen::Gen::new(res);
+        let mut generator = crate::Ir::r#gen::Gen::new(res, target_os);
         let asm = generator.gen_asm()?;
         let res_name = match cli.output {
             Some(name) => name,

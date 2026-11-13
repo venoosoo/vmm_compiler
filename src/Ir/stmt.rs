@@ -56,7 +56,7 @@ pub enum StmtType {
         if_block: Box<Stmt>,
         else_block: Option<Box<Stmt>>,
     },
-
+    Comptime(Box<Stmt>),
     While {
         condition: Expr,
         body: Box<Stmt>,

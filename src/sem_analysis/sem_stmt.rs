@@ -466,6 +466,7 @@ impl<'a> Analyzer<'a> {
                 ret_type: _,
                 data: _,
             } => None,
+            StmtType::Comptime(comptime) => self.check_comptime(comptime),
             StmtType::InitEnum { .. } => None,
             StmtType::Match { expr, variants } => self.check_match(expr, variants),
         }

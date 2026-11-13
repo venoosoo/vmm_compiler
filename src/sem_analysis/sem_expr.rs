@@ -1,6 +1,6 @@
 use std::vec;
 
-use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
+use crate::Ir::expr::{ComptimeFn, EnumExprField, ExprType, Lookup};
 use crate::Ir::sem_analysis::SemanticError::{self, UndeclaredField};
 use crate::Ir::stmt::Declaration;
 use crate::shared::{
@@ -781,6 +781,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Option<Type> {
         match &expr.ty {
             ExprType::Number(num) => self.check_num(num, expected_ty),
@@ -806,7 +807,7 @@ impl<'a> Analyzer<'a> {
             ExprType::Deref(expr) => self.check_deref(expr, expected_ty),
             ExprType::Index { base, index } => self.check_index(base, index, expected_ty),
             ExprType::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
-            ExprType::SizeOf { ty } => Some(self.check_size_of(ty)),
+            ExprType::ComptimeFn(comp_time) => self.check_comp_time(comp_time),
             ExprType::String { str } => {
                 return Some(Type::Array(
                     Box::new(Type::Primitive(TokenType::U8)),

@@ -17,6 +17,7 @@ use crate::shared::{
 };
 use crate::tokenizer::TokenType;
 
+mod comptime;
 mod gen_expr;
 mod gen_stmt;
 
@@ -232,7 +233,7 @@ impl Expr {
             ExprType::Deref(expr) => helper.look_deref(expr),
             ExprType::Index { base, index } => helper.look_index(base, index),
             ExprType::ArrayInit { elements } => helper.look_array_init(elements),
-            ExprType::SizeOf { ty: _ } => Some(Type::Primitive(TokenType::I64)),
+            ExprType::ComptimeFn(_) => todo!(),
             ExprType::String { str } => {
                 return Some(Type::Array(
                     Box::new(Type::Primitive(TokenType::U8)),
@@ -250,7 +251,7 @@ impl Expr {
 }
 
 impl Gen {
-    pub fn new(stmts: Vec<Stmt>) -> Gen {
+    pub fn new(stmts: Vec<Stmt>, target_os: String) -> Gen {
         Gen {
             stmts,
             current_return_type: Type::Primitive(TokenType::Void),
@@ -267,11 +268,13 @@ impl Gen {
             current_module: None,
             generics: RefCell::new(HashMap::new()),
             highest_stack_pos: 0,
+            data_table: HashSet::new(),
             bss_code: Vec::new(),
             func_header: String::new(),
             func_out: String::new(),
             generic_func: HashMap::new(),
             func_data: String::new(),
+            target_os,
             global_vars: HashMap::new(),
             enums: RefCell::new(HashMap::new()),
             id: 0,
@@ -469,7 +472,10 @@ impl Gen {
     }
 
     fn emit_data(&mut self, s: String) {
-        self.data_code.push(s);
+        if !self.data_table.contains(&s) {
+            self.data_code.push(s.clone());
+            self.data_table.insert(s);
+        }
     }
 
     fn emit_all(&mut self, s: Vec<String>) {
@@ -535,91 +541,116 @@ impl Gen {
         self::panic!("couldnt find the var with name: {}", name);
     }
 
-    pub fn reg_inits(&mut self, stmt: &Vec<Stmt>) {
-        for i in stmt.iter() {
-            match &i.ty {
-                StmtType::Module { name, code } => {
-                    // the nested modules are not allowed
-                    self.current_module = Some(name.clone());
-                    if let StmtType::Block(stmts) = &code.ty {
-                        self.reg_inits(stmts);
-                    }
-                    self.current_module = None;
+    pub fn reg_init(&mut self, stmt: &Stmt) {
+        match &stmt.ty {
+            StmtType::Module { name, code } => {
+                // the nested modules are not allowed
+                self.current_module = Some(name.clone());
+                if let StmtType::Block(stmts) = &code.ty {
+                    self.reg_inits(stmts);
                 }
-                StmtType::InitFunc {
-                    name,
-                    args,
-                    ret_type,
-                    data: _,
-                    generic_types: _,
-                } => {
-                    let func_data = FuncData {
-                        args: args.clone(),
-                        generic: Vec::new(),
-                        current_module: self.current_module.clone(),
-                        return_type: ret_type.clone(),
-                    };
-                    let name = check_module_name(&self.current_module, name);
-                    self.functions
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(func_data);
-                }
-                StmtType::GenericInitFunc {
-                    name,
-                    generic_types,
-                    args,
-                    ret_type,
-                    data: _,
-                } => {
-                    let func_data = FuncData {
-                        args: args.clone(),
-                        generic: generic_types.clone(),
-                        current_module: self.current_module.clone(),
-                        return_type: ret_type.clone(),
-                    };
-                    let name = check_module_name(&self.current_module, name);
-                    self.functions
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(func_data);
-                    self.generic_func
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(i.clone());
-                }
-                StmtType::InitStruct(data) => {
-                    self.structs.borrow_mut().insert(
-                        data.name.clone(),
-                        StructData {
-                            name: data.name.clone(),
-                            generic_type: data.generic_type.clone(),
-                            elements: data
-                                .fields
-                                .iter()
-                                .map(|f| (f.name.clone(), f.clone()))
-                                .collect(),
-                            size: 0, // placeholder
-                        },
-                    );
-                }
-                StmtType::InitEnum {
-                    name,
-                    variants,
-                    generic_types,
-                } => {
-                    self.enums.borrow_mut().insert(
-                        name.clone(),
-                        EnumData {
-                            name: name.clone(),
-                            generic_type: generic_types.clone(),
-                            variants: variants.clone(),
-                            size: 0, // placeholder
-                        },
-                    );
-                }
-                _ => {}
+                self.current_module = None;
             }
+            StmtType::InitFunc {
+                name,
+                args,
+                ret_type,
+                data: _,
+                generic_types: _,
+            } => {
+                let func_data = FuncData {
+                    args: args.clone(),
+                    generic: Vec::new(),
+                    current_module: self.current_module.clone(),
+                    return_type: ret_type.clone(),
+                };
+                let name = check_module_name(&self.current_module, name);
+                self.functions
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(func_data);
+            }
+            StmtType::Comptime(comp_time) => {
+                if let StmtType::If {
+                    condition,
+                    if_block,
+                    else_block,
+                } = &comp_time.ty
+                {
+                    if let StmtType::Block(inside) = &if_block.ty {
+                        for i in inside {
+                            self.reg_init(i);
+                        }
+                    }
+                    if let Some(el_block) = else_block {
+                        if let StmtType::Block(inside) = &el_block.ty {
+                            for i in inside {
+                                self.reg_init(i);
+                            }
+                        }
+                    }
+                }
+            }
+            StmtType::GenericInitFunc {
+                name,
+                generic_types,
+                args,
+                ret_type,
+                data: _,
+            } => {
+                let func_data = FuncData {
+                    args: args.clone(),
+                    generic: generic_types.clone(),
+                    current_module: self.current_module.clone(),
+                    return_type: ret_type.clone(),
+                };
+                let name = check_module_name(&self.current_module, name);
+                self.functions
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(func_data);
+                self.generic_func
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(stmt.clone());
+            }
+            StmtType::InitStruct(data) => {
+                self.structs.borrow_mut().insert(
+                    data.name.clone(),
+                    StructData {
+                        name: data.name.clone(),
+                        generic_type: data.generic_type.clone(),
+                        elements: data
+                            .fields
+                            .iter()
+                            .map(|f| (f.name.clone(), f.clone()))
+                            .collect(),
+                        size: 0, // placeholder
+                    },
+                );
+            }
+            StmtType::InitEnum {
+                name,
+                variants,
+                generic_types,
+            } => {
+                self.enums.borrow_mut().insert(
+                    name.clone(),
+                    EnumData {
+                        name: name.clone(),
+                        generic_type: generic_types.clone(),
+                        variants: variants.clone(),
+                        size: 0, // placeholder
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    pub fn reg_inits(&mut self, stmts: &Vec<Stmt>) {
+        for stmt in stmts.iter() {
+            self.reg_init(stmt);
         }
 
         let struct_names: Vec<String> = self.structs.borrow().keys().cloned().collect();

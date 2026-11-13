@@ -21,6 +21,7 @@ pub struct Analyzer<'a> {
     pub functions: HashMap<String, Vec<FuncData>>,
     pub enums: RefCell<HashMap<String, EnumData>>,
     pub break_stack: Vec<String>,
+    pub target_os: String,
     pub contniue_stack: Vec<String>,
     pub current_module: Option<String>,
     pub generic_func: HashMap<String, Stmt>,
@@ -50,6 +51,9 @@ pub enum SemanticError {
     UnkownType(String),
     RecursiveStruct(String),
     RecursiveEnum(String),
+    CompTimeNotAnIf,
+    UnsuportedUnaryCompTime,
+    CompTimeNotCompTime,
     BreakOutsideOfLoop,
     UnkownGeneric(String),
     FuncArgTypeMismatch {
@@ -101,6 +105,7 @@ pub enum SemanticError {
     NotAStruct(Type),
     InvalidArrayIndex(Type),
     NonArrayIndex(Type),
+    InvalidUnaryCompTime,
     MatchTypeMismatch {
         expected: Type,
         got: Type,

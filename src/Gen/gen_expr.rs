@@ -1,9 +1,10 @@
 use std::fmt::format;
 use std::{dbg, format, vec};
 
+use clap::builder::Str;
 use indexmap::IndexMap;
 
-use crate::Ir::expr::{self, BinOp, EnumExprField, Expr, ExprType, Lookup, UnaryOp};
+use crate::Ir::expr::{self, BinOp, ComptimeFn, EnumExprField, Expr, ExprType, Lookup, UnaryOp};
 use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
@@ -1419,13 +1420,6 @@ impl Gen {
         Some("rax".to_string())
     }
 
-    fn gen_size_of(&mut self, stmt: &Type) -> Option<String> {
-        let ty = self.ensure_monomorphized(stmt).unwrap();
-        let size = self.type_size(&ty).unwrap();
-        self.emit_func_data(format!("    mov rax, {}", size));
-        Some("rax".to_string())
-    }
-
     fn gen_string(&mut self, str: &String) -> String {
         let id = self.get_id();
         self.emit_data(format!("str_{}: db \"{}\", 0", id, str));
@@ -1676,6 +1670,7 @@ impl Gen {
         return Some("rax".to_string());
     }
 
+
     pub fn eval_expr(&mut self, expr: &Expr, expected_type: &Type) -> Option<String> {
         match &expr.ty {
             ExprType::ArrayInit { elements } => self.gen_array_init(elements, expected_type),
@@ -1734,8 +1729,7 @@ impl Gen {
                 fields,
                 struct_name_ty,
             } => self.gen_expr_struct_init(fields, struct_name_ty),
-
-            ExprType::SizeOf { ty } => self.gen_size_of(ty),
+            ExprType::ComptimeFn(comp_time) => self.gen_comptime_fn(comp_time),
             ExprType::Float(_) => self::panic!("floats not implemented"),
             ExprType::String { str } => Some(self.gen_string(str)),
             ExprType::GetEnum {

@@ -54,7 +54,8 @@ pub enum TokenType {
     Colon,
     Import,
     Global,
-    SizeOf,
+    CompTimeFn,
+    CompTime, // the stmt for logic
     Enum,
     As,
     Match,
@@ -182,6 +183,7 @@ impl Tokenizer {
                     "while" => self.push_token(TokenType::While, None),
                     "for" => self.push_token(TokenType::For, None),
                     "void" => self.push_token(TokenType::Void, None),
+                    "comptime" => self.push_token(TokenType::CompTime, None),
                     "return" => self.push_token(TokenType::Return, None),
                     "struct" => self.push_token(TokenType::Struct, None),
                     "asm" => self.push_token(TokenType::Asm, None),
@@ -189,7 +191,6 @@ impl Tokenizer {
                     "import" => self.push_token(TokenType::Import, None),
                     "global" => self.push_token(TokenType::Global, None),
                     "module" => self.push_token(TokenType::Module, None),
-                    "sizeof" => self.push_token(TokenType::SizeOf, None),
                     "break" => self.push_token(TokenType::Break, None),
                     "continue" => self.push_token(TokenType::Continue, None),
                     "enum" => self.push_token(TokenType::Enum, None),
@@ -254,6 +255,9 @@ impl Tokenizer {
                             panic!("trying to get ascii of unkown value");
                         }
                         self.consume();
+                    }
+                    '@' => {
+                        self.push_token(TokenType::CompTimeFn, None);
                     }
                     '.' => {
                         self.push_token(TokenType::Dot, None);

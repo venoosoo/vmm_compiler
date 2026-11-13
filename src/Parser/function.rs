@@ -10,7 +10,7 @@ impl<'a> Parser<'a> {
             let arg = match self.parse_declaration() {
                 Some(val) => val,
                 None => {
-                    self.consume_until(&[TokenType::Access]);
+                    self.consume_until(&[TokenType::Access, TokenType::CloseParen]);
                     return Some(res);
                 }
             };

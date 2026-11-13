@@ -31,6 +31,7 @@ impl<'a> Parser<'a> {
             TokenType::Enum => return self.parse_enum(),
             TokenType::Match => return self.parse_match(),
             TokenType::Break => return self.parse_break(),
+            TokenType::CompTime => return self.parse_comptime(),
             TokenType::Continue => return self.parse_continue(),
             TokenType::ExternFn => return self.parse_extern(),
             TokenType::Import => {
@@ -54,6 +55,17 @@ impl<'a> Parser<'a> {
                 return self.parse_expr_stmt();
             }
         };
+    }
+
+    pub fn parse_comptime(&mut self) -> Option<Stmt> {
+        self.expect(TokenType::CompTime);
+        let stmt = self.parse_if()?;
+        let stmt_ty = StmtType::Comptime(Box::new(stmt));
+        return Some(Stmt {
+            ty: stmt_ty,
+            line: self.line,
+            file: self.current_file.clone(),
+        });
     }
 
     fn parse_break(&mut self) -> Option<Stmt> {
@@ -505,7 +517,7 @@ impl<'a> Parser<'a> {
         return Some(self.type_to_stmt(StmtType::Block(stmts)));
     }
 
-    fn parse_if(&mut self) -> Option<Stmt> {
+    pub fn parse_if(&mut self) -> Option<Stmt> {
         self.expect(TokenType::If);
         if !can_start_expr(self.peek(0).token) {
             self.error_at(

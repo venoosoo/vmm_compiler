@@ -10,10 +10,10 @@ struct Vector<T> {
 
 module vector {
     fn new<T>() -> *Vector<T> {
-        i32 el_size = sizeof(T);
+        i32 el_size = @sizeof(T);
         i64 base_capacity = 8;
         T* memory = std~malloc(el_size * base_capacity) as T*;
-        Vector<T>* res = std~malloc(sizeof(Vector<T>));
+        Vector<T>* res = std~malloc(@sizeof(Vector<T>));
         res->data = memory;
         res->length = 0;
         res->capacity = base_capacity;

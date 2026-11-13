@@ -30,7 +30,7 @@ module hashmap {
 
     fn new<K,V>() -> HashMap<K,V>* {
         u64 starting_capacity = 16;
-        HashMapPair<K,V>** data = std~malloc(sizeof(HashMapPair<K,V>*) * starting_capacity);
+        HashMapPair<K,V>** data = std~malloc(@sizeof(HashMapPair<K,V>*) * starting_capacity);
 
         u64 i = 0;
         while i < starting_capacity {
@@ -38,7 +38,7 @@ module hashmap {
             i = i + 1;
         }
 
-        HashMap<K,V>* hash_map = std~malloc(sizeof(HashMap<K,V>));
+        HashMap<K,V>* hash_map = std~malloc(@sizeof(HashMap<K,V>));
         hash_map->data = data;
         hash_map->capacity = starting_capacity;
         hash_map->length = 0;
@@ -69,7 +69,7 @@ module hashmap {
         u8 status = check_hashmap_pos<K,V>(hash_map, pos, key_str);
 
         if status == 1 {
-            HashMapPair<K,V>* pair = std~malloc(sizeof(HashMapPair<K,V>));
+            HashMapPair<K,V>* pair = std~malloc(@sizeof(HashMapPair<K,V>));
             pair->key = key;
             pair->key_str = key_str;
             pair->value = value;
@@ -144,7 +144,7 @@ module hashmap {
         u64 old_capacity = hash_map->capacity;
         HashMapPair<K,V>** old_data = hash_map->data;
         u64 new_capacity = old_capacity * 2;
-        HashMapPair<K,V>** new_data = std~malloc(sizeof(HashMapPair<K,V>*) * new_capacity);
+        HashMapPair<K,V>** new_data = std~malloc(@sizeof(HashMapPair<K,V>*) * new_capacity);
 
         u64 i = 0;
         while i < new_capacity {

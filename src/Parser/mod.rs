@@ -307,6 +307,17 @@ impl<'a> Parser<'a> {
             }
         }
     }
+    fn parse_type(&mut self) -> Option<(String, Type)> {
+        let pre_ptr = self.parse_ptr();
+        let ty = self.get_type()?;
+        let mut ty = self.parse_generic_types(ty)?;
+        let post_ptr = self.parse_ptr();
+        let token = self.consume();
+        let var_name = self.unwrap_expect(token.value)?;
+        ty = self.apply_ptr(ty, pre_ptr + post_ptr);
+        ty = self.parse_array(ty);
+        return Some((var_name, ty));
+    }
     pub fn get_type(&mut self) -> Option<Type> {
         if self.peek(0).token == TokenType::Var {
             let token = self.consume();

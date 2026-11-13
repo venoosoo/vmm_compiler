@@ -169,31 +169,6 @@ impl<'a> Parser<'a> {
                 })
             }
 
-            TokenType::SizeOf => {
-                let token = self.consume();
-                self.expect(TokenType::OpenParen);
-                // Use your unified type parsing logic!
-                let pre_ptr = self.parse_ptr();
-                let base_ty = self.get_type()?;
-                let mut ty = self.parse_generic_types(base_ty)?;
-                let post_ptr = self.parse_ptr();
-
-                ty = self.apply_ptr(ty, pre_ptr + post_ptr);
-                ty = self.parse_array(ty);
-
-                self.expect(TokenType::CloseParen);
-
-                // Store the actual Type instead of a Stmt
-                let expr_ty = ExprType::SizeOf { ty };
-
-                return Some(Expr {
-                    ty: expr_ty,
-                    file: token.file.clone(),
-                    line: token.line,
-                    col: token.col,
-                });
-            }
-
             TokenType::String => {
                 let token = self.consume();
                 let str_value = token.value.unwrap();
@@ -211,6 +186,47 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr()?;
                 self.expect(TokenType::CloseParen);
                 return Some(expr);
+            }
+
+            TokenType::CompTimeFn => {
+                self.expect(TokenType::CompTimeFn);
+                if self.peek(0).token != TokenType::Var {
+                    let token = self.consume();
+                    self.error_at(
+                        format!("Unexpected token at compile time fn: {:?}", token.token,),
+                        token.line,
+                        token.col,
+                    );
+                }
+                let name = self.consume();
+                let name_name = name.value.unwrap();
+                self.expect(TokenType::OpenParen);
+                let comptimefn = match &name_name.as_str() {
+                    &"sizeof" => {
+                        let pre_ptr = self.parse_ptr();
+                        let ty = self.get_type()?;
+                        let mut ty = self.parse_generic_types(ty)?;
+                        let post_ptr = self.parse_ptr();
+                        ty = self.apply_ptr(ty, pre_ptr + post_ptr);
+                        ComptimeFn::SizeOf(ty)
+                    }
+                    &"target_os" => ComptimeFn::TargetOs,
+                    _ => {
+                        self.error_at(
+                            format!("Unkown comp time function : {:?}", name_name),
+                            name.line,
+                            name.col,
+                        );
+                        return None;
+                    }
+                };
+                self.expect(TokenType::CloseParen);
+                return Some(Expr {
+                    ty: ExprType::ComptimeFn(comptimefn),
+                    file: name.file,
+                    line: name.line,
+                    col: name.col,
+                });
             }
 
             _ => {

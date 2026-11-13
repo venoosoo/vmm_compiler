@@ -115,7 +115,7 @@ module string {
     fn new(u8* source) -> String* {
         u64 length = strlen(source);
     
-        String* str = std~malloc(sizeof(String));
+        String* str = std~malloc(@sizeof(String));
         u8* str_data = std~malloc(length + 1);
     
         std~memcpy(str_data, source, (length + 1) as i64);
@@ -129,7 +129,7 @@ module string {
     
     fn new() -> String* {
     
-        String* str = std~malloc(sizeof(String));
+        String* str = std~malloc(@sizeof(String));
         u8* str_data = std~malloc(16);
         str_data[15] = 0;
         str->data = str_data;
@@ -150,7 +150,7 @@ module string {
     }
     
     fn from_c_string(u8* c_str) -> String* {
-        String* s = std~malloc(sizeof(String)) ;
+        String* s = std~malloc(@sizeof(String)) ;
         
         s->length = strlen(c_str) as i64;
         s->capacity = s->length + 1;

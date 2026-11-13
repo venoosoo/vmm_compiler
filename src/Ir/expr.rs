@@ -1,4 +1,4 @@
-use crate::Ir::stmt::Type;
+use crate::Ir::stmt::{Declaration, Type};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
@@ -32,7 +32,7 @@ pub enum ExprType {
     },
 
     StructInit {
-        struct_name_ty: String,
+        struct_name_ty: String, // struct name thank you
         fields: Vec<(String, Expr)>,
     },
 
@@ -50,9 +50,7 @@ pub enum ExprType {
     ArrayInit {
         elements: Vec<Expr>,
     },
-    SizeOf {
-        ty: Type,
-    },
+    ComptimeFn(ComptimeFn),
     String {
         str: String,
     },
@@ -65,6 +63,12 @@ pub enum ExprType {
         expr: Box<Expr>,
         ty: Type,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComptimeFn {
+    SizeOf(Type),
+    TargetOs,
 }
 
 #[derive(Debug, Clone, PartialEq)]

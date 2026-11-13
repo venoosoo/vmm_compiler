@@ -23,6 +23,7 @@ use crate::{
     tokenizer::TokenType,
 };
 
+mod comptime;
 pub mod sem_expr;
 mod sem_stmt;
 
@@ -413,7 +414,7 @@ impl<'a> TypeContext for Analyzer<'a> {
 }
 
 impl<'a> Analyzer<'a> {
-    pub fn new(stmts: &'a Vec<Stmt>) -> Self {
+    pub fn new(stmts: &'a Vec<Stmt>, target_os: String) -> Self {
         Self {
             stmts,
             generics: RefCell::new(HashMap::new()),
@@ -423,6 +424,7 @@ impl<'a> Analyzer<'a> {
             computing: RefCell::new(HashSet::new()),
             break_stack: Vec::new(),
             contniue_stack: Vec::new(),
+            target_os,
             structs: RefCell::new(HashMap::new()),
             current_file: String::new(),
             line: 0,
@@ -842,6 +844,36 @@ impl<'a> Analyzer<'a> {
                 };
                 self.enums.borrow_mut().insert(name.clone(), enum_data);
             }
+            StmtType::Comptime(comp_time) => {
+                if let StmtType::If {
+                    condition,
+                    if_block,
+                    else_block,
+                } = &comp_time.ty
+                {
+                    let cond = self.eval_comptime_expr(condition);
+                    if cond.is_none() {
+                        return;
+                    }
+                    let cond = cond.unwrap();
+                    if let StmtType::Block(inside) = &if_block.ty
+                        && cond
+                    {
+                        for i in inside {
+                            self.check_init(i);
+                        }
+                    } else if let Some(el_block) = else_block
+                        && !cond
+                    {
+                        if let StmtType::Block(inside) = &el_block.ty {
+                            for i in inside {
+                                self.check_init(i);
+                            }
+                        }
+                    }
+                }
+            }
+
             _ => {}
         }
     }

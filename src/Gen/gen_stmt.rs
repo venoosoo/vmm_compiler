@@ -1134,6 +1134,7 @@ impl Gen {
             StmtType::Block(v) => Some(self.gen_block(v)),
             StmtType::Declaration(v) => self.gen_declaration(v),
             StmtType::Assignment { target, value } => self.gen_assignment(target, value),
+            StmtType::Comptime(comp_time) => self.gen_comptime(comp_time),
             StmtType::ExprStmt(expr) => {
                 self.eval_expr(expr, &Type::Primitive(TokenType::I64));
                 return None;
