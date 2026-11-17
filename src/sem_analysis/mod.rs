@@ -851,26 +851,7 @@ impl<'a> Analyzer<'a> {
                     else_block,
                 } = &comp_time.ty
                 {
-                    let cond = self.eval_comptime_expr(condition);
-                    if cond.is_none() {
-                        return;
-                    }
-                    let cond = cond.unwrap();
-                    if let StmtType::Block(inside) = &if_block.ty
-                        && cond
-                    {
-                        for i in inside {
-                            self.check_init(i);
-                        }
-                    } else if let Some(el_block) = else_block
-                        && !cond
-                    {
-                        if let StmtType::Block(inside) = &el_block.ty {
-                            for i in inside {
-                                self.check_init(i);
-                            }
-                        }
-                    }
+                    self.check_comptime(comp_time);
                 }
             }
 

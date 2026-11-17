@@ -1,0 +1,389 @@
+import <"stdio.vmm">
+import <"process.vmm">
+import <"vector.vmm">
+import <"string.vmm">
+import <"json.vmm">
+
+struct ConfData {
+    u8* name;
+    u8* compiler;
+    u8* assembler;
+    u8* linker;
+    
+    Vector<u8*>* src;
+    Vector<u8*>* asm_flags;
+    Vector<u8*>* ld_flags;
+}
+
+struct ConfLine {
+    u8* key;
+    Vector<u8*>* args;
+}
+
+fn get_conf_data() -> ConfData* {
+    JsonValue data = json~parse("./vmake_conf.json");
+    ConfData* result = std~malloc(@sizeof(ConfData));
+    String* name = data.json~get_string("name");
+    String* compiler = data.json~get_string("compiler");
+    String* linker = data.json~get_string("linker");
+    String* assembler = data.json~get_string("assembler");
+    
+    Vector<JsonValue>* src = data.json~get_array("src");
+    Vector<u8*>* src_result = vector~new<u8*>();
+    for (i64 i = 0; i < src->length; i = i + 1) {
+        JsonValue val = src.vector~get_element<JsonValue>(i);
+        match val {
+            JsonValue::string(str) => {
+                src_result.vector~push<u8*>(str->data);
+            }
+            _ => {
+                std~println("CONFIG ERROR: src has non string values ");
+                std~exit(1);
+            }
+        }
+    }
+    String* ld_str = data.json~get_string("ld_flags");
+    String* asm_str = data.json~get_string("asm_flags");
+    Vector<u8*>* ld_flags = string~split(ld_str->data, ' ');
+    Vector<u8*>* asm_flags = string~split(asm_str->data, ' ');
+    result->name = name->data;
+    result->compiler = compiler->data;
+    result->assembler = assembler->data;
+    result->linker = linker->data;
+    result->src = src_result;
+    result->ld_flags = ld_flags;
+    result->asm_flags = asm_flags;
+    return result;
+}
+
+
+fn resolve_executable_path(u8* cmd) -> u8* {
+    u64 i = 0;
+    u8 has_slash = 0;
+    
+    while cmd[i] != 0 {
+        if cmd[i] == '/' {
+            has_slash = 1;
+        }
+        i = i + 1;
+    }
+    
+    if has_slash == 0 {
+        String* full_path = string~new("/usr/bin/");
+        String* cmd_str = string~new(cmd);
+        string~concat(full_path, cmd_str);
+        
+        return full_path->data;
+    }
+    return cmd;
+}
+
+fn compile_to_asm(ConfData* conf_data) {
+
+    Vector<u64>* pids = vector~new<u64>();
+    u8* compiler_path = resolve_executable_path(conf_data->compiler);
+
+    for (i64 i = 0; i < conf_data->src->length; i = i + 1) {
+        u8* file_path = vector~get_element<u8*>(conf_data->src,i);
+        u8* args[32];
+        args[0] = compiler_path;
+        args[1] = "--file";
+        args[2] = file_path;
+        args[3] = "-o";
+        String* build = string~new("./build/");
+        u8* name = string~get_file_name(file_path);
+        String* file_name = string~new(name);
+        string~concat(build,file_name);
+        String* prefix = string~new(".asm");
+        string~concat(build,prefix);
+        args[4] = build->data;
+        args[5] = NULL;
+        u64 pid = proc~run_cmd_no_wait(compiler_path,args);
+        vector~push<u64>(pids,pid);
+    }
+
+
+    for (i64 i = 0; i < pids->length; i = i + 1) {
+
+        u64 child_pid = vector~get_element<u64>(pids,i);
+        Result<u64, Errno> wait_res = proc~wait4(child_pid);
+        match wait_res {
+            Result::Ok(status) => {
+                if status != 0 {
+                    std~println("Error build task failed");
+                    std~exit(1);
+                }
+            }
+            Result::Err(e) => {
+                std~print("wait4 failed, handle=");
+                std~print(child_pid);
+                std~print(" errno=");
+                std~println(std~errno_to_num(e));
+                std~exit(1);
+            }
+        }
+        u64 status = std~unwrap<u64, Errno>(&wait_res);
+        if status != 0 {
+            std~println("Error build task failed");
+            std~exit(1);
+        }
+
+    }
+
+
+}
+
+
+fn assemble_to_obj(ConfData* conf_data) {
+    Vector<u64>* pids = vector~new<u64>();
+    u8* assembler_path = resolve_executable_path(conf_data->assembler);
+
+    for (i64 i = 0; i < conf_data->src->length; i = i + 1) {
+        u8* file_path = vector~get_element<u8*>(conf_data->src, i);
+        
+        u8* args[32]; 
+        i64 arg_idx = 0;
+        
+        args[arg_idx] = assembler_path; 
+        arg_idx = arg_idx + 1;
+
+        for (i64 j = 0; j < conf_data->asm_flags->length; j = j + 1) {
+            args[arg_idx] = vector~get_element<u8*>(conf_data->asm_flags, j);
+            arg_idx = arg_idx + 1;
+        }
+
+        String* input_file = string~new("./build/");
+        u8* name = string~get_file_name(file_path);
+        string~concat(input_file, string~new(name));
+        string~concat(input_file, string~new(".asm"));
+        
+        args[arg_idx] = input_file->data; 
+        arg_idx = arg_idx + 1;
+
+        args[arg_idx] = "-o"; 
+        arg_idx = arg_idx + 1;
+        
+        String* output_file = string~new("./build/");
+        string~concat(output_file, string~new(name));
+        string~concat(output_file, string~new(".o"));
+        
+        args[arg_idx] = output_file->data; 
+        arg_idx = arg_idx + 1;
+        
+        args[arg_idx] = 0 as u8*;
+
+        u64 pid = proc~run_cmd_no_wait(assembler_path, args);
+        vector~push<u64>(pids, pid);
+    }
+
+    for (i64 i = 0; i < pids->length; i = i + 1) {
+        u64 child_pid = vector~get_element<u64>(pids, i);
+
+        Result<u64, Errno> wait_res = proc~wait4(child_pid);
+        u64 status = std~unwrap<u64, Errno>(&wait_res);
+        
+        if status != 0 {
+            std~println("Error: Assembler task failed");
+            std~exit(1);
+        }
+    }
+}
+
+
+fn link_executable(ConfData* conf_data) -> u8* {
+    u8* linker_path = resolve_executable_path(conf_data->linker);
+
+    u8* args[256]; 
+    i64 arg_idx = 0;
+
+    args[arg_idx] = linker_path; 
+    arg_idx = arg_idx + 1;
+
+    args[arg_idx] = "-o"; 
+    arg_idx = arg_idx + 1;
+
+    String* out_file = string~new("./build/");
+    string~concat(out_file, string~new(conf_data->name));
+    args[arg_idx] = out_file->data; 
+    arg_idx = arg_idx + 1;
+
+    for (i64 i = 0; i < conf_data->src->length; i = i + 1) {
+        u8* file_path = vector~get_element<u8*>(conf_data->src, i);
+        u8* name = string~get_file_name(file_path);
+
+        String* obj_file = string~new("./build/");
+        string~concat(obj_file, string~new(name));
+        string~concat(obj_file, string~new(".o"));
+
+        args[arg_idx] = obj_file->data; 
+        arg_idx = arg_idx + 1;
+    }
+
+    for (i64 j = 0; j < conf_data->ld_flags->length; j = j + 1) {
+        args[arg_idx] = vector~get_element<u8*>(conf_data->ld_flags, j);
+        arg_idx = arg_idx + 1;
+    }
+
+    args[arg_idx] = NULL;
+    
+    i32 status = proc~run_cmd(linker_path, args);
+    
+    if status != 0 {
+        std~println("Error: Linking failed");
+        std~exit(1);
+    } else {
+        std~print("Build successful! Executable created at: ");
+        std~println(out_file->data);
+        return out_file->data;
+    }
+}
+
+
+
+fn print_version() {
+    std~println("vmake 0.2.0");
+    std~exit(0);
+}
+
+
+fn main(i64 argc, u8** argv) -> u8 {
+    u8 run_idx = 0;
+
+    for (i64 i = 1; i < argc; i = i + 1) {
+        if string~strcmp(argv[i],"run") {
+            run_idx = (i as u8) + 1;
+            break;
+        }
+        else if string~strcmp(argv[i],"-v") {
+            print_version();
+        } else if string~strcmp(argv[i],"-V") {
+            print_version();
+        } else if string~strcmp(argv[i],"--version") {
+            print_version();
+        } else if string~strcmp(argv[i],"init") {
+            Result<u32, Errno> res = std~io~mkdir("build", 0o777);
+            Result<u64,Errno> res2 = std~io~open("vmake_conf.json", 0o2 | 0o100,0o644);
+            std~exit(0);
+        } else {
+        std~print("unkown arg: ");
+            std~println(argv[i]);
+            std~exit(1);
+        }
+
+
+    }
+    ConfData* conf_data = get_conf_data();
+    Result<u32, Errno> res = std~io~mkdir("build", 0o777);
+    compile_to_asm(conf_data);
+    
+
+
+    
+    assemble_to_obj(conf_data);
+
+    u8* res_file_path = link_executable(conf_data);
+    if run_idx > 0 {
+        argv[run_idx - 1] = res_file_path;
+        u8** target_args = argv + (run_idx - 1);
+        i32 status = proc~run_cmd(res_file_path, target_args);
+        if status != 0 {
+            std~print("error code: ");
+            std~print(status);
+            std~print(" while running: ");
+            std~println(res_file_path);
+        }
+    }
+    return 0;
+}
+
+
+
+
+
+module std {
+    
+    fn println(Vector<ConfLine*>* line) {
+    
+        for (i64 i = 0; i < line->length; i = i + 1) {
+            ConfLine* data = vector~get_element<ConfLine*>(line,i);
+            print_conf_line(data);
+        }
+    }
+    fn println(ConfData* conf) {
+        std~println("=== Build Configuration ===");
+        
+        std~print("Name: ");
+        if (conf->name as u64) != 0 { std~println(conf->name); } else { std~println("(none)"); }
+        
+        std~print("Compiler: ");
+        if (conf->compiler as u64) != 0 { std~println(conf->compiler); } else { std~println("(none)"); }
+        
+        std~print("Assembler: ");
+        if (conf->assembler as u64) != 0 { std~println(conf->assembler); } else { std~println("(none)"); }
+        
+        std~print("Linker: ");
+        if (conf->linker as u64) != 0 { std~println(conf->linker); } else { std~println("(none)"); }
+        
+        std~println("");
+        i64 i = 0;
+        
+        std~println("Sources:");
+        i = 0;
+        while i < conf->src->length {
+            std~print("  - ");
+            u8* el = vector~get_element<u8*>(conf->src, i);
+            std~println(el);
+            i = i + 1;
+        }
+        if conf->src->length == 0 { std~println("  (none)"); }
+    
+        std~println("ASM Flags:");
+        i = 0;
+        while i < conf->asm_flags->length {
+            std~print("  - ");
+            u8* el = vector~get_element<u8*>(conf->asm_flags, i);
+            std~println(el);
+            i = i + 1;
+        }
+        if conf->asm_flags->length  == 0 { std~println("  (none)"); }
+    
+        std~println("LD Flags:");
+        i = 0;
+        while i < conf->ld_flags->length {
+            std~print("  - ");
+            u8* el = vector~get_element<u8*>(conf->ld_flags, i);
+            std~println(el);
+            i = i + 1;
+        }
+        if conf->ld_flags->length == 0 { std~println("  (none)"); }
+        
+        std~println("===========================");
+    }
+}
+
+fn print_conf_line(ConfLine* line) {
+    std~println("=== Config Line ===");
+    
+    std~print("Key: ");
+    if (line->key as u64) != 0 { 
+        std~println(line->key); 
+    } else { 
+        std~println("(none)"); 
+    }
+    
+    std~println("Args:");
+    i64 i = 0;
+    
+    while i < line->args->length {
+        std~print("  - ");
+        u8* el = vector~get_element<u8*>(line->args, i);
+        std~println(el);
+        i = i + 1;
+    }
+    
+    if line->args->length == 0 { 
+        std~println("  (none)"); 
+    }
+    
+    std~println("===================");
+}

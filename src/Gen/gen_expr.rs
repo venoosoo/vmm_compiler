@@ -9,8 +9,8 @@ use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
 use crate::shared::{
-    arg_pos, build_generic_map, check_nested_arg, coerce_numeric, gen_module_func_name, is_numeric,
-    is_unsigned, transform_generic_name,
+    align16, arg_pos, build_generic_map, check_nested_arg, coerce_numeric, gen_module_func_name,
+    is_numeric, is_unsigned, transform_generic_name,
 };
 
 use super::*;
@@ -27,11 +27,17 @@ impl Lookup for Gen {
             return Some(var.var_type.clone());
         }
     }
+    fn look_comptime(&self, comp_time: &ComptimeFn) -> Option<Type> {
+        match comp_time {
+            ComptimeFn::SizeOf(_) => Some(Type::Primitive(TokenType::U64)),
+            ComptimeFn::TargetOs => Some(Type::Pointer(Box::new(Type::Primitive(TokenType::U8)))),
+        }
+    }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Option<Type> {
         match op {
             UnaryOp::BitNot => todo!(),
             UnaryOp::Neg => expr.get_type(self),
-            UnaryOp::Not => Some(Type::Primitive(TokenType::U8)), // boolean
+            UnaryOp::Not => Some(Type::Primitive(TokenType::U8)),
             UnaryOp::GetAddr => Some(Type::Pointer(Box::new(expr.get_type(self).unwrap()))),
         }
     }
@@ -209,7 +215,6 @@ impl Gen {
                     self.emit_func_data(format!("    xor {}, {}", rdx_reg, rdx_reg));
                     self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
-                    // SIGNED PATH
                     if self.type_size(expected_type).unwrap() == 8 {
                         self.emit_func_data("    cqo".to_string());
                     } else if self.type_size(expected_type).unwrap() == 4 {
@@ -233,7 +238,6 @@ impl Gen {
                     self.emit_func_data(format!("    xor {}, {}", rdx_reg, rdx_reg));
                     self.emit_func_data(format!("    div {}", divisor_reg));
                 } else {
-                    // SIGNED PATH
                     if self.type_size(expected_type).unwrap() == 8 {
                         self.emit_func_data("    cqo".to_string());
                     } else if self.type_size(expected_type).unwrap() == 4 {
@@ -447,7 +451,7 @@ impl Gen {
         };
 
         let left_reg = self.reg_for_size("rax", &op_ty).unwrap();
-        let right_reg = self.reg_for_size("rbx", &op_ty).unwrap();
+        let right_reg = self.reg_for_size(SCRATCH, &op_ty).unwrap();
 
         let is_op_add = matches!(op, BinOp::Add);
         let left_ty = self.ensure_monomorphized(&left_ty).unwrap();
@@ -486,7 +490,7 @@ impl Gen {
                 }
             }
         }
-        self.pop_into("rbx");
+        self.pop_into(SCRATCH);
 
         self.gen_expr_binop(op, &left_reg, &right_reg, expected_type);
 
@@ -589,10 +593,38 @@ impl Gen {
             .collect()
     }
 
+    fn needs_ret_slot(&self, ty: &Type, size: usize, is_rvo: bool) -> bool {
+        if is_rvo || size > 8 {
+            return true;
+        }
+        self.is_windows()
+            && matches!(ty, Type::Struct(_) | Type::Enum(..))
+            && !matches!(size, 1 | 2 | 4 | 8)
+    }
+
+    pub fn emit_copy_to_frame(&mut self, slot: usize, size: usize) {
+        let mut off = 0;
+        while off < size {
+            let left = size - off;
+            let (n, reg) = if left >= 8 {
+                (8, "r10")
+            } else if left >= 4 {
+                (4, "r10d")
+            } else if left >= 2 {
+                (2, "r10w")
+            } else {
+                (1, "r10b")
+            };
+            self.emit_func_data(format!("    mov {}, [rax + {}]", reg, off));
+            self.emit_func_data(format!("    mov [rbp - {}], {}", slot - off, reg));
+            off += n;
+        }
+    }
+
     fn push_arg(&mut self, pos: usize, ty: &Type, rval: &str) {
-        let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+        let arg_regs = self.get_func_arg_reg();
         let arg: Option<String> = {
-            if pos < 6 {
+            if pos < arg_regs.len() {
                 Some(self.reg_for_size(arg_regs[pos], ty).unwrap())
             } else {
                 self.alloc_type(ty);
@@ -610,49 +642,51 @@ impl Gen {
 
     pub fn arg_count(&mut self, is_rvo: bool, args: &Vec<Declaration>) -> usize {
         let mut count = 0;
-        for i in args.iter() {
-            match &i.ty {
-                Type::Struct(name) => {
-                    let struct_data = self.structs.borrow().get(name).cloned().unwrap();
-                    if struct_data.size <= 8 {
-                        count += 1
-                    } else if struct_data.size <= 16 {
-                        count += 2
+        if self.is_windows() {
+            count = args.len();
+        } else {
+            for i in args.iter() {
+                match &i.ty {
+                    Type::Struct(name) => {
+                        let struct_data = self.structs.borrow().get(name).cloned().unwrap();
+                        if struct_data.size <= 8 {
+                            count += 1
+                        } else if struct_data.size <= 16 {
+                            count += 2
+                        }
                     }
-                }
-                Type::Enum(name, _) => {
-                    let enum_data = self.enums.borrow().get(name).cloned().unwrap();
-                    if enum_data.size <= 8 {
-                        count += 1
-                    } else if enum_data.size <= 16 {
-                        count += 2
+                    Type::Enum(name, _) => {
+                        let enum_data = self.enums.borrow().get(name).cloned().unwrap();
+                        if enum_data.size <= 8 {
+                            count += 1
+                        } else if enum_data.size <= 16 {
+                            count += 2
+                        }
                     }
-                }
-                _ => {
-                    count += 1;
+                    _ => {
+                        count += 1;
+                    }
                 }
             }
         }
         if is_rvo {
             count += 1;
-            count
-        } else {
-            count
         }
+        count
     }
 
     fn gen_expr_preserving_arg_regs(&mut self, expr: &Expr, ty: &Type, preserve: bool) {
-        const ARG_REGS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+        let arg_regs = self.get_func_arg_reg();
 
         if preserve {
-            for reg in ARG_REGS {
+            for reg in &arg_regs {
                 self.emit_func_data(format!("    push {}", reg));
             }
         }
 
         self.eval_expr(expr, ty);
         if preserve {
-            for &reg in ARG_REGS.iter().rev() {
+            for &reg in arg_regs.iter().rev() {
                 self.emit_func_data(format!("    pop {}", reg));
             }
         }
@@ -665,182 +699,228 @@ impl Gen {
         is_rvo: bool,
         overload_pos: usize,
     ) -> Option<usize> {
+        let win = self.is_windows();
         let mut arg_index = self.arg_count(is_rvo, new_args);
+        let total_arg_count = arg_index;
         let nested_call = check_nested_arg(args);
         let mut space_taken = 0;
+        let mut frame_temp = 0;
+
         for (index, arg) in args.iter().enumerate().rev() {
             let arg_type = new_args[index].ty.clone();
-            let mut temp_size = 0;
-            match &args[index].ty {
-                ExprType::Call {
-                    name,
-                    generics,
-                    args,
-                } => {
-                    let ret_type = if generics.is_empty() {
-                        let resolved_name = self.resolve_function_name(name).unwrap_or_else(|| {
-                            panic!(
-                                "Could not resolve function '{}' in module {:?}",
-                                name, self.current_module
-                            )
-                        });
-
-                        let funcs = self.functions.get(&resolved_name).unwrap();
-
-                        let func_data = self.find_overload(funcs, args, generics).unwrap().1;
-
-                        self.ensure_monomorphized(&func_data.return_type).unwrap()
+            let temp_size = self.eval_arg(arg, &arg_type, is_rvo, nested_call);
+            match (win, self.aggregate_size(&arg_type)) {
+                (true, Some(size)) => {
+                    if matches!(size, 1 | 2 | 4 | 8) {
+                        match size {
+                            1 => self.emit_func_data(format!("    movzx eax, byte [rax]")),
+                            2 => self.emit_func_data(format!("    movzx eax, word [rax]")),
+                            4 => self.emit_func_data(format!("    mov eax, [rax]")),
+                            _ => self.emit_func_data(format!("    mov rax, [rax]")),
+                        }
+                        arg_index -= 1;
+                        let rval = if matches!(arg_type, Type::Struct(_)) {
+                            self.reg_for_size("rax", &arg_type).unwrap()
+                        } else {
+                            "rax".to_string()
+                        };
+                        self.push_arg(arg_index, &arg_type, &rval);
                     } else {
-                        let resolved_name = self.resolve_function_name(name).unwrap_or_else(|| {
-                            panic!(
-                                "Could not resolve function '{}' in module {:?}",
-                                name, self.current_module
-                            )
-                        });
-
-                        let (func_data, nested_overload_pos) =
-                            self.resolve_call(name, args, generics).unwrap();
-                        let saved_generics = self.generics.borrow().clone();
-
-                        let (nested_generic_copy, nested_new_args, nested_ret_type) =
-                            self.prepare_generic_call(&func_data, generics, nested_overload_pos);
-
-                        self.ensure_monomorphized_function(
-                            &resolved_name,
-                            &func_data,
-                            generics,
-                            &nested_generic_copy,
-                            &nested_new_args,
-                            nested_overload_pos,
-                        );
-
-                        self.generics.replace(saved_generics);
-
-                        self.ensure_monomorphized(&nested_ret_type).unwrap()
-                    };
-
-                    let ret_type_size = self.type_size(&ret_type).unwrap();
-
-                    if ret_type_size > 8 || is_rvo {
-                        self.alloc(ret_type_size);
-                        temp_size += ret_type_size;
-                    }
-                    self.gen_expr_preserving_arg_regs(arg, &arg_type, nested_call);
-                }
-                _ => {
-                    self.eval_expr(arg, &arg_type);
-                }
-            }
-
-            match arg_type {
-                Type::Enum(ref name, _) => {
-                    let enum_data = self.enums.borrow().get(name).cloned().unwrap();
-                    if enum_data.size <= 8 {
-                        self.emit_func_data(format!("    mov rax, [rax]"));
+                        self.alloc(size);
+                        frame_temp += size;
+                        let slot = self.stack_pos;
+                        self.emit_copy_to_frame(slot, size);
+                        self.emit_func_data(format!("    lea rax, [rbp - {}]", slot));
                         arg_index -= 1;
-                        self.push_arg(arg_index, &arg_type, "rax");
-                    } else if enum_data.size <= 16 && arg_index < 6 && arg_index >= 1 {
-                        self.emit_func_data(format!("    mov r10, rax"));
-                        self.emit_func_data(format!("    mov rax, [r10 + 8]"));
-                        arg_index -= 1;
-                        self.push_arg(arg_index, &arg_type, "rax");
-                        self.emit_func_data(format!("    mov rax, [r10]"));
-                        arg_index -= 1;
-                        self.push_arg(arg_index, &arg_type, "rax");
-                    } else {
-                        let chunks = (enum_data.size + 7) / 8;
-                        let remainder = enum_data.size % 8;
-                        let full = if remainder > 0 { chunks - 1 } else { chunks };
-                        if remainder > 0 {
-                            self.emit_func_data(format!("    xor r10, r10"));
-                            self.emit_func_data(format!("    sub rsp, 16"));
-                            space_taken += 16;
-                            match remainder {
-                                4 => self.emit_func_data(format!(
-                                    "    mov r10d, [rax + {}]",
-                                    (chunks - 1) * 8
-                                )),
-                                2 => self.emit_func_data(format!(
-                                    "    mov r10w, [rax + {}]",
-                                    (chunks - 1) * 8
-                                )),
-                                1 => self.emit_func_data(format!(
-                                    "    mov r10b, [rax + {}]",
-                                    (chunks - 1) * 8
-                                )),
-                                _ => {
-                                    todo!()
-                                }
-                            }
-                            self.emit_func_data(format!("    mov [rsp], r10"));
-                        }
-                        for i in (0..full).rev() {
-                            self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
-                        }
-                        space_taken += full * 8
-                    }
-                }
-                Type::Struct(ref name) => {
-                    let struct_data = self.structs.borrow().get(name).cloned().unwrap();
-                    if struct_data.size <= 8 {
-                        self.emit_func_data(format!("    mov rax, [rax]"));
-                        arg_index -= 1;
-                        let reg = self.reg_for_size("rax", &arg_type).unwrap();
-                        self.push_arg(arg_index, &arg_type, &reg);
-                    } else if struct_data.size <= 16 && arg_index < 6 && arg_index >= 1 {
-                        self.emit_func_data(format!("    mov r10, rax"));
-                        self.emit_func_data(format!("    mov rax, [r10 + 8]"));
-                        arg_index -= 1;
-                        self.push_arg(arg_index, &arg_type, "rax");
-                        self.emit_func_data(format!("    mov rax, [r10]"));
-                        arg_index -= 1;
-                        self.push_arg(arg_index, &arg_type, "rax");
-                    } else {
-                        let chunks = (struct_data.size + 7) / 8;
-                        let remainder = struct_data.size % 8;
-                        let full = if remainder > 0 { chunks - 1 } else { chunks };
-
-                        if remainder > 0 {
-                            self.emit_func_data(format!("    xor r10, r10"));
-                            self.emit_func_data(format!("    sub rsp, 16"));
-                            space_taken += 16;
-                            match remainder {
-                                4 => self.emit_func_data(format!(
-                                    "    mov r10d, [rax + {}]",
-                                    (chunks - 1) * 8
-                                )),
-                                2 => self.emit_func_data(format!(
-                                    "    mov r10w, [rax + {}]",
-                                    (chunks - 1) * 8
-                                )),
-                                1 => self.emit_func_data(format!(
-                                    "    mov r10b, [rax + {}]",
-                                    (chunks - 1) * 8
-                                )),
-                                _ => {}
-                            }
-                            self.emit_func_data(format!("    mov [rsp], r10"));
-                        }
-
-                        for i in (0..full).rev() {
-                            self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
-                        }
-                        if full % 2 == 1 {
-                            self.emit_func_data(format!("    sub rsp, 8"));
-                            space_taken += 8;
-                        }
-                        space_taken += full * 8;
+                        self.push_arg(arg_index, &Type::Primitive(TokenType::U64), "rax");
                     }
                 }
                 _ => {
-                    let rval = self.reg_for_size("rax", &arg_type).unwrap();
-                    arg_index -= 1;
-                    self.push_arg(arg_index, &arg_type, &rval);
+                    self.push_arg_value_sysv(&arg_type, &mut arg_index, &mut space_taken);
                 }
             }
-            self.stack_pos -= temp_size;
+
+            if win {
+                frame_temp += temp_size;
+            } else {
+                self.stack_pos -= temp_size;
+            }
         }
-        return Some(space_taken);
+
+        if win {
+            self.stack_pos -= frame_temp;
+            let stack_args = total_arg_count.saturating_sub(4);
+            space_taken += 8 * stack_args;
+            self.emit_func_data(format!("    sub rsp, 32"));
+            space_taken += 32;
+        }
+        Some(space_taken)
+    }
+
+    fn eval_arg(&mut self, arg: &Expr, arg_type: &Type, is_rvo: bool, nested_call: bool) -> usize {
+        let mut temp_size = 0;
+        match &arg.ty {
+            ExprType::Call {
+                name,
+                generics,
+                args,
+            } => {
+                let ret_type = if generics.is_empty() {
+                    let resolved_name = self.resolve_function_name(name).unwrap_or_else(|| {
+                        panic!(
+                            "Could not resolve function '{}' in module {:?}",
+                            name, self.current_module
+                        )
+                    });
+                    let funcs = self.functions.get(&resolved_name).unwrap();
+                    let func_data = self.find_overload(funcs, args, generics).unwrap().1;
+                    self.ensure_monomorphized(&func_data.return_type).unwrap()
+                } else {
+                    let resolved_name = self.resolve_function_name(name).unwrap_or_else(|| {
+                        panic!(
+                            "Could not resolve function '{}' in module {:?}",
+                            name, self.current_module
+                        )
+                    });
+                    let (func_data, nested_overload_pos) =
+                        self.resolve_call(name, args, generics).unwrap();
+                    let saved_generics = self.generics.borrow().clone();
+                    let (nested_generic_copy, nested_new_args, nested_ret_type) =
+                        self.prepare_generic_call(&func_data, generics, nested_overload_pos);
+                    self.ensure_monomorphized_function(
+                        &resolved_name,
+                        &func_data,
+                        generics,
+                        &nested_generic_copy,
+                        &nested_new_args,
+                        nested_overload_pos,
+                    );
+                    self.generics.replace(saved_generics);
+                    self.ensure_monomorphized(&nested_ret_type).unwrap()
+                };
+
+                let ret_type_size = self.type_size(&ret_type).unwrap();
+                if self.needs_ret_slot(&ret_type, ret_type_size, is_rvo) {
+                    self.alloc(ret_type_size);
+                    temp_size += ret_type_size;
+                }
+                self.gen_expr_preserving_arg_regs(arg, arg_type, nested_call);
+            }
+            _ => {
+                self.eval_expr(arg, arg_type);
+            }
+        }
+        temp_size
+    }
+
+    fn push_arg_value_sysv(
+        &mut self,
+        arg_type: &Type,
+        arg_index: &mut usize,
+        space_taken: &mut usize,
+    ) {
+        match arg_type {
+            Type::Enum(name, _) => {
+                let enum_data = self.enums.borrow().get(name).cloned().unwrap();
+                if enum_data.size <= 8 {
+                    self.emit_func_data(format!("    mov rax, [rax]"));
+                    *arg_index -= 1;
+                    self.push_arg(*arg_index, arg_type, "rax");
+                } else if enum_data.size <= 16 && *arg_index < 6 && *arg_index >= 1 {
+                    self.emit_func_data(format!("    mov r10, rax"));
+                    self.emit_func_data(format!("    mov rax, [r10 + 8]"));
+                    *arg_index -= 1;
+                    self.push_arg(*arg_index, arg_type, "rax");
+                    self.emit_func_data(format!("    mov rax, [r10]"));
+                    *arg_index -= 1;
+                    self.push_arg(*arg_index, arg_type, "rax");
+                } else {
+                    let chunks = (enum_data.size + 7) / 8;
+                    let remainder = enum_data.size % 8;
+                    let full = if remainder > 0 { chunks - 1 } else { chunks };
+                    if remainder > 0 {
+                        self.emit_func_data(format!("    xor r10, r10"));
+                        self.emit_func_data(format!("    sub rsp, 16"));
+                        *space_taken += 16;
+                        match remainder {
+                            4 => self.emit_func_data(format!(
+                                "    mov r10d, [rax + {}]",
+                                (chunks - 1) * 8
+                            )),
+                            2 => self.emit_func_data(format!(
+                                "    mov r10w, [rax + {}]",
+                                (chunks - 1) * 8
+                            )),
+                            1 => self.emit_func_data(format!(
+                                "    mov r10b, [rax + {}]",
+                                (chunks - 1) * 8
+                            )),
+                            _ => todo!(),
+                        }
+                        self.emit_func_data(format!("    mov [rsp], r10"));
+                    }
+                    for i in (0..full).rev() {
+                        self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
+                    }
+                    *space_taken += full * 8;
+                }
+            }
+            Type::Struct(name) => {
+                let struct_data = self.structs.borrow().get(name).cloned().unwrap();
+                if struct_data.size <= 8 {
+                    self.emit_func_data(format!("    mov rax, [rax]"));
+                    *arg_index -= 1;
+                    let reg = self.reg_for_size("rax", arg_type).unwrap();
+                    self.push_arg(*arg_index, arg_type, &reg);
+                } else if struct_data.size <= 16 && *arg_index < 6 && *arg_index >= 1 {
+                    self.emit_func_data(format!("    mov r10, rax"));
+                    self.emit_func_data(format!("    mov rax, [r10 + 8]"));
+                    *arg_index -= 1;
+                    self.push_arg(*arg_index, arg_type, "rax");
+                    self.emit_func_data(format!("    mov rax, [r10]"));
+                    *arg_index -= 1;
+                    self.push_arg(*arg_index, arg_type, "rax");
+                } else {
+                    let chunks = (struct_data.size + 7) / 8;
+                    let remainder = struct_data.size % 8;
+                    let full = if remainder > 0 { chunks - 1 } else { chunks };
+                    if remainder > 0 {
+                        self.emit_func_data(format!("    xor r10, r10"));
+                        self.emit_func_data(format!("    sub rsp, 16"));
+                        *space_taken += 16;
+                        match remainder {
+                            4 => self.emit_func_data(format!(
+                                "    mov r10d, [rax + {}]",
+                                (chunks - 1) * 8
+                            )),
+                            2 => self.emit_func_data(format!(
+                                "    mov r10w, [rax + {}]",
+                                (chunks - 1) * 8
+                            )),
+                            1 => self.emit_func_data(format!(
+                                "    mov r10b, [rax + {}]",
+                                (chunks - 1) * 8
+                            )),
+                            _ => {}
+                        }
+                        self.emit_func_data(format!("    mov [rsp], r10"));
+                    }
+                    for i in (0..full).rev() {
+                        self.emit_func_data(format!("    push qword [rax + {}]", i * 8));
+                    }
+                    if full % 2 == 1 {
+                        self.emit_func_data(format!("    sub rsp, 8"));
+                        *space_taken += 8;
+                    }
+                    *space_taken += full * 8;
+                }
+            }
+            _ => {
+                let rval = self.reg_for_size("rax", arg_type).unwrap();
+                *arg_index -= 1;
+                self.push_arg(*arg_index, arg_type, &rval);
+            }
+        }
     }
 
     pub fn resolve_function_name(&self, name: &str) -> Option<String> {
@@ -1031,7 +1111,15 @@ impl Gen {
             }
             _ => {}
         }
-
+        let mut pad = 0;
+        if self.is_windows() {
+            let slots = self.arg_count(is_rvo, &new_args);
+            let stack_slots = slots.saturating_sub(4) as i64;
+            if (8 * stack_slots).rem_euclid(16) != 0 && stack_slots > 0 {
+                pad = 8;
+                self.emit_func_data("    sub rsp, 8".to_string()); // before the first stack argument is pushed
+            }
+        }
         let stack_pos_save = self.stack_pos;
         let saved_ret_type = self.current_return_type.clone();
         let space_taken = self
@@ -1049,7 +1137,8 @@ impl Gen {
         );
 
         if is_rvo {
-            self.emit_func_data(format!("    lea rdi, [rbp - {}]", rvo_pos));
+            let rvo_arg = self.get_func_arg_reg()[0];
+            self.emit_func_data(format!("    lea {}, [rbp - {}]", rvo_arg, rvo_pos));
         }
 
         if self.functions.get(&name).unwrap().len() > 1 {
@@ -1058,7 +1147,7 @@ impl Gen {
             self.emit_func_data(format!("    call {}", name));
         }
         if space_taken > 0 {
-            self.emit_func_data(format!("    add rsp, {}", space_taken));
+            self.emit_func_data(format!("    add rsp, {}", space_taken + pad));
         }
         self.stack_pos = stack_pos_save;
         self.current_return_type = saved_ret_type;
@@ -1355,17 +1444,14 @@ impl Gen {
                 let elem_size = self.type_size(&elem_type).unwrap();
                 let base_type = base.get_type(self).unwrap();
 
-                // eval base first, push it
                 self.eval_expr(base, &base_type);
                 self.push_result();
 
-                // eval index, scale it
                 self.eval_expr(index, &Type::Primitive(TokenType::I32));
                 self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
 
-                // pop base, add scaled index
-                self.pop_into("rbx");
-                self.emit_func_data("    add rax, rbx".to_string());
+                self.pop_into(SCRATCH);
+                self.emit_func_data(format!("    add rax, {}", SCRATCH));
                 Some("rax".to_string())
             }
 
@@ -1391,8 +1477,8 @@ impl Gen {
         self.eval_expr(index, &Type::Primitive(TokenType::I64));
         let elem_size = self.type_size(expected_type).unwrap();
         self.emit_func_data(format!("    imul rax, rax, {}", elem_size));
-        self.pop_into("rbx");
-        self.emit_func_data(format!("    add rax, rbx"));
+        self.pop_into(SCRATCH);
+        self.emit_func_data(format!("    add rax, {}", SCRATCH));
         self.emit_typed_load("[rax]", expected_type);
         Some("rax".to_string())
     }
@@ -1502,7 +1588,6 @@ impl Gen {
         Some(name)
     }
 
-    // TODO: make this bettter
     pub fn gen_get_enum_addr(
         &mut self,
         base: &String,
@@ -1562,24 +1647,24 @@ impl Gen {
             if let Type::GenericType(_) = var.ty {
                 var_ty = res.expr.get_type(self).unwrap();
             }
-
             self.eval_expr(&res.expr, &var_ty);
 
             let reg = self.reg_for_size("rax", &var_ty).unwrap();
             let word = self.get_word(&var_ty);
 
             match &var_ty {
-                Type::Primitive(_)
-                | Type::Array(..)
-                | Type::Pointer(_)
-                | Type::Enum(..)
-                | Type::Struct(_) => {
+                Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) | Type::Struct(_) => {
                     self.emit_func_data(format!(
                         "    mov {} [rbp - {}], {}",
                         word,
                         pos - var.offset,
                         reg,
                     ));
+                }
+                Type::Enum(name, _) => {
+                    let size = self.enums.borrow().get(name).unwrap().size;
+                    self.emit_func_data(format!("    lea r11, [rbp - {}]", pos - var.offset));
+                    self.emit_copy_ptr_to_ptr("rax", "r11", size);
                 }
                 _ => {
                     self::panic!("gen_get_enum_addr: Unsupported type for enum field");
@@ -1601,7 +1686,6 @@ impl Gen {
     ) -> Option<String> {
         let pos = self.stack_pos;
         let mut concrete_base = base.clone();
-
         if let Type::Enum(expected_name, _) = expected_type {
             concrete_base = expected_name.clone();
         } else {
@@ -1639,29 +1723,26 @@ impl Gen {
                 let res = &value[index];
                 let mut var_ty = var.ty.clone();
 
-                match var.ty {
-                    Type::GenericType(_) => {
-                        var_ty = res.expr.get_type(self).unwrap();
-                    }
-                    _ => {}
+                if let Type::GenericType(_) = var.ty {
+                    var_ty = res.expr.get_type(self).unwrap();
                 }
 
                 self.eval_expr(&res.expr, &var_ty);
-
-                let reg = self.reg_for_size("rax", &var_ty).unwrap();
-                let word = self.get_word(&var_ty);
-
+                let dst = pos - var.offset;
                 match &var_ty {
+                    Type::Struct(_) | Type::Enum(..) => {
+                        // eval_expr left the ADDRESS of the aggregate in rax: copy its contents
+                        let size = self.type_size(&var_ty)?;
+                        self.emit_func_data(format!("    lea r11, [rbp - {}]", dst));
+                        self.emit_copy_ptr_to_ptr("rax", "r11", size);
+                    }
                     Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) => {
-                        self.emit_func_data(format!(
-                            "    mov {} [rbp - {}], {}",
-                            word,
-                            pos - var.offset,
-                            reg
-                        ));
+                        let reg = self.reg_for_size("rax", &var_ty).unwrap();
+                        let word = self.get_word(&var_ty);
+                        self.emit_func_data(format!("    mov {} [rbp - {}], {}", word, dst, reg));
                     }
                     _ => {
-                        self::panic!("gen_get_enum error");
+                        self::panic!("gen_get_enum: unsupported payload type {:?}", var_ty);
                     }
                 }
             }
@@ -1669,7 +1750,6 @@ impl Gen {
         }
         return Some("rax".to_string());
     }
-
 
     pub fn eval_expr(&mut self, expr: &Expr, expected_type: &Type) -> Option<String> {
         match &expr.ty {

@@ -5,138 +5,119 @@ import "std.vmm"
 
 
 module std~io {
-    fn open(u8* path, i64 flags, i64 mode) -> Result<u64, Errno> {
-        u64 fd = std~syscall(2, path as i64, flags, mode, 0, 0) as u64;
-        return std~handle_error<u64>(fd);
-    }
-    
-    fn write(u32 fd, u8* buf, u64 count) -> Result<u64, Errno> {
-        u64 res = std~syscall(1, fd as i64, buf as i64, count as i64, 0, 0) as u64;
-        return std~handle_error<u64>(res); 
-    }
-    
-    fn read(u32 fd, u8* buf, u64 count) -> Result<u64, Errno> {
-        u64 res = std~syscall(0, fd as i64, buf as i64, count as i64, 0, 0) as u64;
-        return std~handle_error<u64>(res);
-    }
-    
-    fn close(u32 fd) -> Result<u32, Errno> {
-        u64 res = std~syscall(3, fd as i64, 0, 0, 0, 0) as u64;
-        return std~handle_error<u32>(res as u32);
-    }
-    
-    fn mkdir(u8* path, i64 mode) -> Result<u32, Errno> {
-        u32 res = std~syscall(83, path as i64, mode, 0, 0, 0) as u32;
-        return std~handle_error<u32>(res);
+    comptime if @target_os() == "windows" {
+        extern fn CreateFileA(u64 name, u32 access, u32 share, u64 security, u32 disposition, u32 attrs, u64 tmpl) -> u64;
+        extern fn ReadFile(u64 h, u64 buf, u32 len, u64 got, u64 overlapped) -> i32;
+        extern fn CloseHandle(u64 h) -> i32;
+        extern fn CreateDirectoryA(u64 path, u64 security) -> i32;
     }
 
-    fn stdout() -> Stdout {
-        return Stdout {
-            stdout: 1,
-        };
+    comptime if @target_os() == "windows" {
+
+        fn fd_to_handle(u32 fd) -> u64 {
+            if fd == 0 { return GetStdHandle(-10); }
+            if fd == 1 { return GetStdHandle(-11); }
+            if fd == 2 { return GetStdHandle(-12); }
+            return fd as u64;
+        }
+
+        fn has_flag(i64 flags, i64 bit) -> i64 {
+            return (flags / bit) % 2;
+        }
+
+        fn open(u8* path, i64 flags, i64 mode) -> Result<u64, Errno> {
+            i64 acc = flags % 4;
+            u32 access = 2147483648;                  // GENERIC_READ
+            if acc == 1 { access = 1073741824; }      // GENERIC_WRITE
+            if acc == 2 { access = 3221225472; }      // GENERIC_READ | GENERIC_WRITE
+
+            u32 disposition = 3;                      // OPEN_EXISTING
+            if has_flag(flags, 64) == 1 {             // O_CREAT
+                disposition = 4;                      // OPEN_ALWAYS
+                if has_flag(flags, 128) == 1 {
+                    disposition = 1;                  // O_EXCL: CREATE_NEW
+                } else if has_flag(flags, 512) == 1 {
+                    disposition = 2;                  // O_TRUNC: CREATE_ALWAYS
+                }
+            } else {
+                if has_flag(flags, 512) == 1 {
+                    disposition = 5;                  // TRUNCATE_EXISTING
+                }
+            }
+
+            // share read+write (3), FILE_ATTRIBUTE_NORMAL (128)
+            u64 h = CreateFileA(path as u64, access, 3, 0, disposition, 128, 0);
+            if (h as i64) == -1 {                 // INVALID_HANDLE_VALUE
+                Errno err = std~last_errno();
+                return std~Err<u64,Errno>(err);
+            }
+            return std~Ok<u64,Errno>(h);
+        }
+
+        fn write(u32 fd, u8* buf, u64 count) -> Result<u64, Errno> {
+            u64 written = 0;
+            i32 ok = WriteFile(fd_to_handle(fd), buf as u64, count, (&written) as u64, 0);
+            return std~win_result<u64>(written, ok as u64);
+        }
+
+        fn read(u32 fd, u8* buf, u64 count) -> Result<u64, Errno> {
+            u64 got = 0;
+            i32 ok = ReadFile(fd_to_handle(fd), buf as u64, count as u32, (&got) as u64, 0);
+            if ok == 0 {
+                u64 err = GetLastError() as u64;
+                if err == 109 {                       // ERROR_BROKEN_PIPE: the writer closed, that is EOF
+                    return std~Ok<u64,Errno>(0);
+                }
+                return std~Err<u64,Errno>(std~win_error_to_errno(err));
+            }
+            return std~Ok<u64,Errno>(got);
+        }
+
+        fn close(u32 fd) -> Result<u32, Errno> {
+            i32 ok = CloseHandle(fd_to_handle(fd));
+            return std~win_result<u32>(0 as u32, ok as u64);
+        }
+
+        fn mkdir(u8* path, i64 mode) -> Result<u32, Errno> {
+            i32 ok = CreateDirectoryA(path as u64, 0);
+            return std~win_result<u32>(0 as u32, ok as u64);
+        }
+
+    } else {
+
+        fn open(u8* path, i64 flags, i64 mode) -> Result<u64, Errno> {
+            u64 fd = std~syscall(2, path as i64, flags, mode, 0, 0) as u64;
+            return std~handle_error<u64>(fd);
+        }
+
+        fn write(u32 fd, u8* buf, u64 count) -> Result<u64, Errno> {
+            u64 res = std~syscall(1, fd as i64, buf as i64, count as i64, 0, 0) as u64;
+            return std~handle_error<u64>(res);
+        }
+
+        fn read(u32 fd, u8* buf, u64 count) -> Result<u64, Errno> {
+            u64 res = std~syscall(0, fd as i64, buf as i64, count as i64, 0, 0) as u64;
+            return std~handle_error<u64>(res);
+        }
+
+        fn close(u32 fd) -> Result<u32, Errno> {
+            u64 res = std~syscall(3, fd as i64, 0, 0, 0, 0) as u64;
+            return std~handle_error<u32>(res as u32);
+        }
+
+        fn mkdir(u8* path, i64 mode) -> Result<u32, Errno> {
+            u32 res = std~syscall(83, path as i64, mode, 0, 0, 0) as u32;
+            return std~handle_error<u32>(res);
+        }
     }
-    
+
+
     fn input(u8* message, u8* buffer, u64 max_length) {
         std~print(message);
         Result<u64, Errno> res = read(0, buffer, max_length - 1);
-        
+
         u64 bytes_read = std~unwrap<u64, Errno>(&res);
-    
+
         buffer[bytes_read] = 0;
-    }
-}
-
-
-module std {
-    
-
-    fn print(Stdout stdout, u8* str) -> Stdout { 
-        print(str); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, u8* str) -> Stdout { 
-        println(str); 
-        return stdout; 
-    }
-
-    // --- Signed Integers ---
-    fn print(Stdout stdout, i64 num) -> Stdout { 
-        print(num); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, i64 num) -> Stdout { 
-        println(num); 
-        return stdout; 
-    }
-
-    fn print(Stdout stdout, i32 num) -> Stdout { 
-        print(num as i64); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, i32 num) -> Stdout { 
-        println(num as i64); 
-        return stdout; 
-    }
-
-    fn print(Stdout stdout, i16 num) -> Stdout { 
-        print(num as i64); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, i16 num) -> Stdout { 
-        println(num as i64); 
-        return stdout; 
-    }
-
-    fn print(Stdout stdout, i8 num) -> Stdout { 
-        print(num as i64); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, i8 num) -> Stdout { 
-        println(num as i64); 
-        return stdout; 
-    }
-
-    // --- Unsigned Integers ---
-    fn print(Stdout stdout, u64 num) -> Stdout { 
-        print(num); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, u64 num) -> Stdout { 
-        println(num); 
-        return stdout; 
-    }
-
-    fn print(Stdout stdout, u32 num) -> Stdout { 
-        print(num as u64); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, u32 num) -> Stdout { 
-        println(num as u64); 
-        return stdout; 
-    }
-
-    fn print(Stdout stdout, u16 num) -> Stdout { 
-        print(num as u64); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, u16 num) -> Stdout { 
-        println(num as u64); 
-        return stdout; 
-    }
-
-    fn print(Stdout stdout, u8 num) -> Stdout { 
-        print(num as u64); 
-        return stdout; 
-    }
-    fn println(Stdout stdout, u8 num) -> Stdout { 
-        println(num as u64); 
-        return stdout; 
-    }
-
-    // --- Utilities ---
-    // Allows chaining a standalone newline: stdout().print("Done").println();
-    fn println(Stdout stdout) -> Stdout {
-        std~print_newline();
-        return stdout;
     }
 }

@@ -1,0 +1,11 @@
+{
+  "name": "vmake",
+  "compiler": "v--",
+  "assembler": "nasm",
+  "linker": "ld",
+  "src": [
+    "./vmake.vmm"
+  ],
+  "asm_flags": "-f elf64",
+  "ld_flags": "-m elf_x86_64"
+}

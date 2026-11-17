@@ -32,7 +32,7 @@ impl Gen {
             }
             _ => data_ty,
         };
-        let stack_pos = self.alloc_type(&data_ty)?;
+        let mut stack_pos = self.alloc_type(&data_ty)?;
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data_ty);
             match data_ty.clone() {
@@ -127,7 +127,7 @@ impl Gen {
         if current_scope.contains_key(&data.name) {
             self::panic!("Variable {} is already defined", data.name);
         }
-
+        stack_pos = self.stack_pos;
         let var_data = VarData {
             global_flag: false,
             stack_pos,
@@ -394,15 +394,25 @@ impl Gen {
     }
 
     fn copy_chunks_to_hidden_ret(&mut self, total_size: usize) {
-        self.emit_func_data("    mov rdi, [rbp - 8]".to_string());
-        self.emit_func_data("    mov rcx, rax".to_string());
+        self.emit_func_data("    mov r11, [rbp - 8]".to_string());
 
-        let chunks = (total_size + 7) / 8;
-        for i in 0..chunks {
-            let offset = i * 8;
-            self.emit_func_data(format!("    mov rdx, [rcx + {}]", offset));
-            self.emit_func_data(format!("    mov [rdi + {}], rdx", offset));
+        let mut off = 0;
+        while off < total_size {
+            let left = total_size - off;
+            let (n, reg) = if left >= 8 {
+                (8, "r10")
+            } else if left >= 4 {
+                (4, "r10d")
+            } else if left >= 2 {
+                (2, "r10w")
+            } else {
+                (1, "r10b")
+            };
+            self.emit_func_data(format!("    mov {}, [rax + {}]", reg, off));
+            self.emit_func_data(format!("    mov [r11 + {}], {}", off, reg));
+            off += n;
         }
+
         self.emit_func_data("    mov rax, [rbp - 8]".to_string());
     }
 
@@ -517,8 +527,8 @@ impl Gen {
         stack_arg_pos: Option<usize>,
         _is_rvo: bool,
     ) -> Option<()> {
-        let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
-        if pos > 6 {
+        let arg_regs = self.get_func_arg_reg();
+        if pos > arg_regs.len() {
             let size = self.type_size(ty)?;
             let stack_pos =
                 stack_arg_pos.expect("the stack arg hasnt been provided the stack_arg_pos");
@@ -567,7 +577,61 @@ impl Gen {
         return None;
     }
 
+    fn win_returns_via_pointer(&self, ty: &Type) -> bool {
+        self.aggregate_size(ty).is_some() // any struct or enum, whatever its size
+    }
+
+    fn compile_args_win(&mut self, args: &Vec<Declaration>, ret_type: &Type) -> Option<()> {
+        let ret_ty = self.ensure_monomorphized(ret_type)?;
+        let is_rvo = self.win_returns_via_pointer(&ret_ty);
+
+        // 1-based slot of the last argument; slot 1 is the hidden pointer when is_rvo
+        let mut slot = self.arg_count(is_rvo, args);
+
+        if is_rvo {
+            self.alloc(8);
+            self.emit_func_data("    mov [rbp - 8], rcx".to_string());
+        }
+
+        for decl in args.iter().rev() {
+            let arg_ty = self.ensure_monomorphized(&decl.ty)?;
+            let pos = self.alloc_type(&arg_ty)?;
+            let stack_off = 16 + 32 + 8 * slot.saturating_sub(5);
+
+            match self.aggregate_size(&arg_ty) {
+                // not 1/2/4/8 bytes: the slot holds a pointer to the caller's copy
+                Some(size) if !matches!(size, 1 | 2 | 4 | 8) => {
+                    let regs = self.get_func_arg_reg();
+                    if slot <= regs.len() {
+                        self.emit_func_data(format!("    mov rax, {}", regs[slot - 1]));
+                    } else {
+                        self.emit_func_data(format!("    mov rax, [rbp + {}]", stack_off));
+                    }
+                    self.emit_copy_to_frame(pos, size);
+                }
+                _ => {
+                    self.get_arg(slot, &arg_ty, pos, Some(stack_off), is_rvo);
+                }
+            }
+            slot -= 1;
+
+            let map = self.scopes.last_mut().unwrap();
+            map.insert(
+                decl.name.clone(),
+                VarData {
+                    global_flag: false,
+                    stack_pos: pos,
+                    var_type: decl.ty.clone(),
+                },
+            );
+        }
+        None
+    }
+
     pub fn compile_args(&mut self, args: &Vec<Declaration>, ret_type: &Type) -> Option<()> {
+        if self.is_windows() {
+            return self.compile_args_win(args, ret_type);
+        }
         let mut is_rvo = false;
         match &self.ensure_monomorphized(ret_type)? {
             Type::Enum(_name, _) => is_rvo = true,
@@ -575,6 +639,7 @@ impl Gen {
             _ => {}
         }
         let mut arg_index = self.arg_count(is_rvo, args);
+        let max_args = self.get_func_arg_reg().len();
         if is_rvo {
             let arg_ty = Type::Primitive(TokenType::I64); // the ptr is 64 bits too so thats fine
             let reg = self.reg_for_size("rdi", &arg_ty).unwrap();
@@ -618,7 +683,7 @@ impl Gen {
                 }
                 _ => {
                     self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
-                    if arg_index > 6 {
+                    if arg_index > max_args {
                         stack_arg_pos += self.type_size(&arg_ty)?;
                     }
                     arg_index -= 1;
@@ -734,8 +799,28 @@ impl Gen {
         }
         self.emit_func_header("    push rbp".to_string());
         self.emit_func_header("    mov rbp, rsp".to_string());
-        self.emit_func_header(format!("    sub rsp, {}", align16(self.highest_stack_pos)));
-
+        let extra = if self.target_os == "windows" { 32 } else { 0 };
+        if self.is_windows() && self.highest_stack_pos + extra > 4096 {
+            let f = name;
+            self.emit_func_header(format!(
+                "    mov r10, {}",
+                align16(self.highest_stack_pos + extra)
+            ));
+            self.emit_func_header(format!(".probe_{}:", f));
+            self.emit_func_header("    cmp r10, 4096".to_string());
+            self.emit_func_header(format!("    jbe .probe_done_{}", f));
+            self.emit_func_header("    sub rsp, 4096".to_string());
+            self.emit_func_header("    test dword [rsp], r10d".to_string());
+            self.emit_func_header("    sub r10, 4096".to_string());
+            self.emit_func_header(format!("    jmp .probe_{}", f));
+            self.emit_func_header(format!(".probe_done_{}:", f));
+            self.emit_func_header("    sub rsp, r10".to_string());
+        } else {
+            self.emit_func_header(format!(
+                "    sub rsp, {}",
+                align16(self.highest_stack_pos + extra)
+            ));
+        }
         self.emit_func(self.func_header.clone());
         self.emit_func(self.func_data.clone());
         self.emit_main(self.func_out.clone());
@@ -948,17 +1033,9 @@ impl Gen {
                 let field_data = enum_data.variants.get(value).unwrap();
                 for (index, arg) in args.iter().enumerate() {
                     let field = &field_data.args[index];
-                    let ty = {
-                        match field.ty {
-                            Type::Struct(_) | Type::Enum(..) => {
-                                Type::Pointer(Box::new(field.ty.clone()))
-                            }
-                            _ => field.ty.clone(),
-                        }
-                    };
                     let decl = Declaration {
                         name: arg.clone(),
-                        ty: ty,
+                        ty: field.ty.clone(),
                         initializer: None,
                     };
                     self.gen_declaration(&decl);

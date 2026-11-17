@@ -17,6 +17,8 @@ use crate::shared::{
 };
 use crate::tokenizer::TokenType;
 
+const SCRATCH: &str = "r10";
+
 mod comptime;
 mod gen_expr;
 mod gen_stmt;
@@ -233,7 +235,7 @@ impl Expr {
             ExprType::Deref(expr) => helper.look_deref(expr),
             ExprType::Index { base, index } => helper.look_index(base, index),
             ExprType::ArrayInit { elements } => helper.look_array_init(elements),
-            ExprType::ComptimeFn(_) => todo!(),
+            ExprType::ComptimeFn(comp_time) => helper.look_comptime(comp_time),
             ExprType::String { str } => {
                 return Some(Type::Array(
                     Box::new(Type::Primitive(TokenType::U8)),
@@ -343,6 +345,18 @@ impl Gen {
         }
     }
 
+    fn is_windows(&self) -> bool {
+        self.target_os == "windows"
+    }
+
+    fn aggregate_size(&self, ty: &Type) -> Option<usize> {
+        match ty {
+            Type::Struct(name) => self.structs.borrow().get(name).map(|s| s.size),
+            Type::Enum(name, _) => self.enums.borrow().get(name).map(|e| e.size),
+            _ => None,
+        }
+    }
+
     pub fn build_generic_map(
         &self,
         generic_names: &Vec<String>,
@@ -365,6 +379,14 @@ impl Gen {
                 )
                 .collect(),
         )
+    }
+
+    pub fn get_func_arg_reg(&self) -> Vec<&'static str> {
+        if self.target_os == "linux" {
+            ["rdi", "rsi", "rdx", "rcx", "r8", "r9"].to_vec()
+        } else {
+            ["rcx", "rdx", "r8", "r9"].to_vec()
+        }
     }
 
     pub fn find_overload(
@@ -396,7 +418,6 @@ impl Gen {
                     };
                     let expr_ty = self.generic_to_ty(&expr_ty, &map);
                     let param_ty = self.generic_to_ty(param_ty, &map);
-
                     let Some(expr_ty) = self.ensure_monomorphized(&expr_ty) else {
                         return false;
                     };
@@ -404,7 +425,6 @@ impl Gen {
                     let Some(param_ty) = self.ensure_monomorphized(&param_ty) else {
                         return false;
                     };
-
                     match &expr.ty {
                         ExprType::Number(_) => {
                             matches!(param_ty, Type::GenericType(_)) || is_number(&param_ty)
@@ -508,23 +528,42 @@ impl Gen {
 
     pub fn gen_asm(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         self.gen_stmts();
-        self.emit("section .data".to_string());
-        self.emit_all(self.data_code.clone());
-        self.emit("section .bss".to_string());
-        self.emit_all(self.bss_code.clone());
-        self.emit("section .text".to_string());
-        self.emit("global _start".to_string());
-        self.emit("_start:".to_string());
-        self.emit("    mov rdi, [rsp]".to_string());
-        self.emit("    lea rsi, [rsp+8]".to_string());
-        self.emit("    call main".to_string());
-        if self.current_return_type == Type::Primitive(TokenType::Void) {
-            self.emit(format!("    mov rax, 0"));
+
+        if self.target_os == "linux" {
+            self.emit("section .data".to_string());
+            self.emit_all(self.data_code.clone());
+            self.emit("section .bss".to_string());
+            self.emit_all(self.bss_code.clone());
+            self.emit("section .text".to_string());
+
+            self.emit("global _start".to_string());
+            self.emit("_start:".to_string());
+            self.emit("    mov rdi, [rsp]".to_string());
+            self.emit("    lea rsi, [rsp+8]".to_string());
+            self.emit("    call main".to_string());
+            if self.current_return_type == Type::Primitive(TokenType::Void) {
+                self.emit("    mov rax, 0".to_string());
+            }
+            self.emit("    mov rdi, rax".to_string());
+            self.emit("    mov rax, 60".to_string());
+            self.emit("    syscall".to_string());
+
+            self.emit_all(self.main_code.clone());
+        } else if self.target_os == "windows" {
+            self.emit("default rel".to_string());
+            self.emit("section .data".to_string());
+            self.emit_all(self.data_code.clone());
+            self.emit("section .bss".to_string());
+            self.emit_all(self.bss_code.clone());
+            self.emit("section .text".to_string());
+
+            self.emit("global main".to_string());
+
+            self.emit_all(self.main_code.clone());
+        } else {
+            return Err(format!("unsupported target os: {}", self.target_os).into());
         }
-        self.emit("    mov rdi, rax".to_string());
-        self.emit("    mov rax, 60".to_string());
-        self.emit("    syscall".to_string());
-        self.emit_all(self.main_code.clone());
+
         Ok(self.out.clone())
     }
 
@@ -539,6 +578,25 @@ impl Gen {
         }
         println!("scopes: {:?}", self.scopes);
         self::panic!("couldnt find the var with name: {}", name);
+    }
+
+    pub fn emit_copy_ptr_to_ptr(&mut self, src: &str, dst: &str, size: usize) {
+        let mut off = 0;
+        while off < size {
+            let left = size - off;
+            let (n, reg) = if left >= 8 {
+                (8, "r10")
+            } else if left >= 4 {
+                (4, "r10d")
+            } else if left >= 2 {
+                (2, "r10w")
+            } else {
+                (1, "r10b")
+            };
+            self.emit_func_data(format!("    mov {}, [{} + {}]", reg, src, off));
+            self.emit_func_data(format!("    mov [{} + {}], {}", dst, off, reg));
+            off += n;
+        }
     }
 
     pub fn reg_init(&mut self, stmt: &Stmt) {

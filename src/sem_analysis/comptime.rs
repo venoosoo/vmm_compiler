@@ -18,10 +18,48 @@ impl<'a> Analyzer<'a> {
                 else_block,
             } => {
                 self.check_comptime_value(condition);
-                self.check_stmt(if_block);
+                let Some(cond) = self.eval_comptime_expr(condition) else {
+                    return None;
+                };
 
-                if let Some(else_b) = else_block {
-                    self.check_stmt(else_b);
+                let base_functions = self.functions.clone();
+                let base_generic_func = self.generic_func.clone();
+                let base_structs = self.structs.borrow().clone();
+                let base_enums = self.enums.borrow().clone();
+                let base_globals = self.global_vars.clone();
+
+                if let StmtType::Block(inside) = &if_block.ty {
+                    for i in inside {
+                        self.check_init(i);
+                    }
+                }
+
+                let if_functions = self.functions.clone();
+                let if_generic_func = self.generic_func.clone();
+                let if_structs = self.structs.borrow().clone();
+                let if_enums = self.enums.borrow().clone();
+                let if_globals = self.global_vars.clone();
+
+                self.functions = base_functions;
+                self.generic_func = base_generic_func;
+                *self.structs.borrow_mut() = base_structs;
+                *self.enums.borrow_mut() = base_enums;
+                self.global_vars = base_globals;
+
+                if else_block.is_some() {
+                    let else_block = else_block.as_ref().unwrap();
+                    if let StmtType::Block(inside) = &else_block.ty {
+                        for i in inside {
+                            self.check_init(i);
+                        }
+                    }
+                }
+                if cond {
+                    self.functions = if_functions;
+                    self.generic_func = if_generic_func;
+                    *self.structs.borrow_mut() = if_structs;
+                    *self.enums.borrow_mut() = if_enums;
+                    self.global_vars = if_globals;
                 }
             }
             _ => {
@@ -83,7 +121,7 @@ impl<'a> Analyzer<'a> {
 
                 match (l_val, r_val) {
                     (ComptimeVal::Num(num1), ComptimeVal::Num(num2)) => match op {
-                        BinOp::Eq => Some(ComptimeVal::Num((num1 == num2) as i64)), 
+                        BinOp::Eq => Some(ComptimeVal::Num((num1 == num2) as i64)),
                         BinOp::Neq => Some(ComptimeVal::Num((num1 != num2) as i64)),
                         _ => {
                             self.print_error(self.type_to_error(SemanticError::InvalidBinary {
@@ -92,10 +130,10 @@ impl<'a> Analyzer<'a> {
                                 right: right.get_type(self)?,
                             }));
                             Some(ComptimeVal::Num(0))
-                        },
-                    }
+                        }
+                    },
                     (ComptimeVal::Str(str1), ComptimeVal::Str(str2)) => match op {
-                        BinOp::Eq => Some(ComptimeVal::Num((str1 == str2) as i64)), 
+                        BinOp::Eq => Some(ComptimeVal::Num((str1 == str2) as i64)),
                         BinOp::Neq => Some(ComptimeVal::Num((str1 != str2) as i64)),
                         _ => {
                             self.print_error(self.type_to_error(SemanticError::InvalidBinary {

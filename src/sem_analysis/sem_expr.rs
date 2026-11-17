@@ -31,6 +31,12 @@ impl<'a> Lookup for Analyzer<'a> {
             return res;
         }
     }
+    fn look_comptime(&self, comp_time: &ComptimeFn) -> Option<Type> {
+        match comp_time {
+            ComptimeFn::SizeOf(_) => Some(Type::Primitive(TokenType::U64)),
+            ComptimeFn::TargetOs => Some(Type::Pointer(Box::new(Type::Primitive(TokenType::U8)))),
+        }
+    }
     fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Option<Type> {
         match op {
             UnaryOp::BitNot => todo!(),
@@ -780,7 +786,6 @@ impl<'a> Analyzer<'a> {
             Some(ty.clone())
         }
     }
-
 
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Option<Type> {
         match &expr.ty {

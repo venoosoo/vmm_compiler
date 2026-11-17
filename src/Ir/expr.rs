@@ -119,4 +119,5 @@ pub trait Lookup {
     fn look_call(&self, name: &String, arg: &Vec<Expr>, generics: &Vec<Type>) -> Option<Type>;
     fn look_array_init(&self, elements: &Vec<Expr>) -> Option<Type>;
     fn look_get_enum(&self, base: &String, variant: &String) -> Option<Type>;
+    fn look_comptime(&self, comp_time: &ComptimeFn) -> Option<Type>;
 }
