@@ -29,7 +29,6 @@ impl<'a> Parser<'a> {
             TokenType::Struct => return self.parse_struct_init(),
             TokenType::Global => return self.parse_global(),
             TokenType::Enum => return self.parse_enum(),
-            TokenType::Match => return self.parse_match(),
             TokenType::Break => return self.parse_break(),
             TokenType::CompTime => return self.parse_comptime(),
             TokenType::Continue => return self.parse_continue(),
@@ -109,40 +108,6 @@ impl<'a> Parser<'a> {
         return Some(self.type_to_stmt(StmtType::ExternFn(data)));
     }
 
-    fn parse_match_field(&mut self) -> Option<MatchLeftValue> {
-        let base = self.peek(0).value.clone().unwrap();
-        if base == "_" {
-            self.consume();
-            return Some(MatchLeftValue::Enum {
-                base,
-                value: "_".to_string(),
-                args: Vec::new(),
-            });
-        }
-        if self.peek(1).token == TokenType::Colon {
-            self.consume();
-            self.expect(TokenType::Colon);
-            self.expect(TokenType::Colon);
-            let value = self.consume().value.unwrap();
-            let mut args: Vec<String> = Vec::new();
-            if self.peek(0).token == TokenType::OpenParen {
-                self.expect(TokenType::OpenParen);
-                while self.peek(0).token != TokenType::CloseParen {
-                    let name = self.consume().value.unwrap();
-                    args.push(name);
-                    if self.peek(0).token == TokenType::Coma {
-                        self.consume();
-                    }
-                }
-                self.expect(TokenType::CloseParen);
-            }
-            return Some(MatchLeftValue::Enum { base, value, args });
-        } else {
-            let left = self.parse_expr()?;
-            return Some(MatchLeftValue::Expr { expr: left });
-        }
-    }
-
     fn parse_module(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Module);
         let mut names = Vec::new();
@@ -165,26 +130,6 @@ impl<'a> Parser<'a> {
             name: transform_module_name(&names),
             code: Box::new(code),
         }));
-    }
-
-    fn parse_match(&mut self) -> Option<Stmt> {
-        self.expect(TokenType::Match);
-        let expr = self.parse_expr()?;
-        self.expect(TokenType::OpenScope);
-        let mut variants: Vec<MatchField> = Vec::new();
-        while self.peek(0).token != TokenType::CloseScope {
-            let left = self.parse_match_field()?;
-            self.expect(TokenType::Eq);
-            self.expect(TokenType::More);
-            let stmt = self.parse_stmt()?;
-            let res = MatchField { left, right: stmt };
-            variants.push(res);
-            if self.peek(0).token == TokenType::Coma {
-                self.expect(TokenType::Coma);
-            }
-        }
-        self.expect(TokenType::CloseScope);
-        return Some(self.type_to_stmt(StmtType::Match { expr, variants }));
     }
 
     fn parse_enum_field(&mut self, tag: usize) -> Option<EnumVariant> {

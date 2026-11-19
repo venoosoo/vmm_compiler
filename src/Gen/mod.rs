@@ -22,6 +22,7 @@ const SCRATCH: &str = "r10";
 mod comptime;
 mod gen_expr;
 mod gen_stmt;
+mod r#match;
 
 const TAG_SIZE: usize = 8;
 
@@ -242,6 +243,7 @@ impl Expr {
                     str.len() + 1,
                 ));
             }
+            ExprType::Match { expr, variants } => helper.look_match(expr, variants),
             ExprType::GetEnum {
                 base,
                 variant,

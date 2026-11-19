@@ -209,7 +209,7 @@ module json {
                 _ => {
                     return parse_number(parser);
                 }
-            }
+            };
         }
     
         std~println("Parse Error: Unexpected end of file");
@@ -271,7 +271,7 @@ module json {
                     _ => {
                         return JsonValue::null;
                     }
-                }
+                };
             } else {
                 // 3. OBJECT KEY MODE
                 i64 start = pos;
@@ -298,7 +298,7 @@ module json {
                     _ => {
                         return JsonValue::null;
                     }
-                }
+                };
             }
         }
     
@@ -317,7 +317,7 @@ module json {
                 std~println("JSON Error: Expected number"); 
                 std~exit(1); 
             }
-        }
+        };
     }
     
     fn as_string(JsonValue val) -> String* {
@@ -327,7 +327,7 @@ module json {
                 std~println("JSON Error: Expected string"); 
                 std~exit(1); 
             }
-        }
+        };
     }
     
     fn as_bool(JsonValue val) -> u8 {
@@ -337,7 +337,7 @@ module json {
                 std~println("JSON Error: Expected boolean"); 
                 std~exit(1); 
             }
-        }
+        };
     }
     
     fn as_array(JsonValue val) -> Vector<JsonValue>* {
@@ -347,7 +347,7 @@ module json {
                 std~println("JSON Error: Expected array"); 
                 std~exit(1); 
             }
-        }
+        };
     }
     
     fn as_object(JsonValue val) -> HashMap<String*, JsonValue>* {
@@ -357,7 +357,7 @@ module json {
                 std~println("JSON Error: Expected object"); 
                 std~exit(1); 
             }
-        }
+        };
     }
     
     
@@ -503,7 +503,7 @@ module json {
                     buffer.string~push('}');
                 }
             }
-        }
+        };
     }
     
     fn push_indent(String* buffer, i64 level) {
@@ -577,7 +577,7 @@ module json {
                             return;
                         }
                         _ => { return; }
-                    }
+                    };
                 } else {
                     // Not the end, keep digging deeper
                     match current {
@@ -585,7 +585,7 @@ module json {
                             current = value.vector~get_element<JsonValue>(index);
                         }
                         _ => { return; }
-                    }
+                    };
                 }
             } else {
                 // --- OBJECT MODE ---
@@ -614,7 +614,7 @@ module json {
                             return;
                         }
                         _ => { return; }
-                    }
+                    };
                 } else {
                     // Not the end, keep digging deeper
                     //std~println(path);
@@ -624,7 +624,7 @@ module json {
                             current = value.hashmap~get<String*, JsonValue>(key);
                         }
                         _ => { return; }
-                    }
+                    };
                 }
             }
         }
@@ -691,7 +691,7 @@ module std {
             JsonValue::object(value) => { std~println("some object value"); }
     
     
-        }
+        };
     
     }
 }

@@ -1,4 +1,7 @@
-use crate::Ir::stmt::{Declaration, Type};
+use crate::Ir::{
+    Stmt,
+    stmt::{Declaration, Type},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
@@ -23,6 +26,10 @@ pub enum ExprType {
     Unary {
         op: UnaryOp,
         expr: Box<Expr>,
+    },
+    Match {
+        expr: Box<Expr>,
+        variants: Vec<MatchField>,
     },
 
     Call {
@@ -69,6 +76,24 @@ pub enum ExprType {
 pub enum ComptimeFn {
     SizeOf(Type),
     TargetOs,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchField {
+    pub left: MatchLeftValue,
+    pub right: Stmt,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchLeftValue {
+    Enum {
+        base: String,
+        value: String,
+        args: Vec<String>,
+    },
+    Expr {
+        expr: Expr,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -120,4 +145,5 @@ pub trait Lookup {
     fn look_array_init(&self, elements: &Vec<Expr>) -> Option<Type>;
     fn look_get_enum(&self, base: &String, variant: &String) -> Option<Type>;
     fn look_comptime(&self, comp_time: &ComptimeFn) -> Option<Type>;
+    fn look_match(&self, expr: &Expr, variants: &Vec<MatchField>) -> Option<Type>;
 }

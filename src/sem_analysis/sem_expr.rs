@@ -1,6 +1,6 @@
 use std::vec;
 
-use crate::Ir::expr::{ComptimeFn, EnumExprField, ExprType, Lookup};
+use crate::Ir::expr::{ComptimeFn, EnumExprField, ExprType, Lookup, MatchField, MatchLeftValue};
 use crate::Ir::sem_analysis::SemanticError::{self, UndeclaredField};
 use crate::Ir::stmt::Declaration;
 use crate::shared::{
@@ -30,6 +30,26 @@ impl<'a> Lookup for Analyzer<'a> {
             }
             return res;
         }
+    }
+    fn look_match(&self, expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
+        let mut variant_return_types: Vec<Type> = Vec::new();
+        for variant in variants {
+            if let StmtType::Block(variant_block) = &variant.right.ty {
+                let return_stmt = variant_block.last().unwrap();
+                if let StmtType::ExprStmt(last_expr_stmt) = &return_stmt.ty {
+                    variant_return_types.push(last_expr_stmt.get_type(self).unwrap());
+                }
+            }
+        }
+
+        let first_ty = variant_return_types.first().unwrap();
+        for ty in variant_return_types.iter().skip(1) {
+            if !check_types(first_ty, ty) {
+                return None;
+            }
+        }
+
+        Some(first_ty.clone())
     }
     fn look_comptime(&self, comp_time: &ComptimeFn) -> Option<Type> {
         match comp_time {
@@ -787,6 +807,127 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn get_match_left_value_type(&self, lvalue: &MatchLeftValue) -> Option<Type> {
+        match lvalue {
+            MatchLeftValue::Enum {
+                base,
+                value: _,
+                args: _,
+            } => {
+                return Some(Type::Enum(base.clone(), None));
+            }
+            MatchLeftValue::Expr { expr } => expr.get_type(self),
+        }
+    }
+
+    pub fn check_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) -> Option<()> {
+        let raw_ty = expr.get_type(self)?;
+        let raw_base_name = match &raw_ty {
+            Type::Enum(name, _) => Some(name.clone()),
+            Type::GenericInst(name, _) => Some(name.clone()),
+            _ => None,
+        };
+        let expr_ty = self.ensure_monomorphized(&raw_ty)?;
+
+        match expr_ty.clone() {
+            Type::Enum(enum_base_name, _) => {
+                let enum_data = self
+                    .enums
+                    .borrow()
+                    .get(&enum_base_name)
+                    .cloned()
+                    .expect(&format!("Match on unknown enum: {}", enum_base_name));
+
+                for var in variants {
+                    if let MatchLeftValue::Enum {
+                        base,
+                        value: variant_name,
+                        args,
+                    } = &var.left
+                    {
+                        if base == "_" {
+                            let _right = self.check_stmt(&var.right);
+                            continue;
+                        }
+                        if base != "_"
+                            && base != &enum_base_name
+                            && *base != raw_base_name.clone().unwrap_or("".to_string())
+                        {
+                            self.print_error(self.type_to_error(
+                                SemanticError::MatchTypeMismatch {
+                                    expected: expr_ty.clone(),
+                                    got: Type::Enum(base.clone(), None),
+                                },
+                            ));
+                            continue;
+                        }
+
+                        let variant_data = enum_data.variants.get(variant_name).expect(&format!(
+                            "Variant {} not found in enum {}",
+                            variant_name, enum_base_name
+                        ));
+
+                        if args.len() != variant_data.args.len() {
+                            self::panic!(
+                                "Match arm for {}::{} expected {} arguments, but got {}",
+                                base,
+                                variant_name,
+                                variant_data.args.len(),
+                                args.len()
+                            );
+                        }
+
+                        self.scopes.push(HashMap::new());
+                        for (i, arg_name) in args.iter().enumerate() {
+                            let expected_type = &variant_data.args[i].ty;
+
+                            let scope = self.scopes.last_mut().unwrap();
+                            scope.insert(arg_name.clone(), expected_type.clone());
+                        }
+
+                        let _right = self.check_stmt(&var.right);
+
+                        self.scopes.pop();
+                    } else {
+                        self::panic!("Expected Enum match arm for Enum type");
+                    }
+                }
+            }
+
+            Type::Primitive(_) => {
+                for var in variants {
+                    let left_ty = self.get_match_left_value_type(&var.left)?;
+
+                    self.scopes.push(HashMap::new());
+                    let _right = self.check_stmt(&var.right);
+                    self.scopes.pop();
+
+                    if !check_types(&left_ty, &expr_ty) {
+                        if let Type::Enum(name, _) = &left_ty {
+                            if name == "_" {
+                                continue;
+                            }
+                        }
+                        if is_number(&left_ty) && is_number(&expr_ty) {
+                            continue;
+                        }
+
+                        self.print_error(self.type_to_error(SemanticError::MatchTypeMismatch {
+                            expected: expr_ty.clone(),
+                            got: left_ty.clone(),
+                        }));
+                    }
+                }
+            }
+            _ => {
+                self.print_error(
+                    self.type_to_error(SemanticError::MatchExprUnsuported(expr_ty.clone())),
+                );
+            }
+        }
+        Some(())
+    }
+
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Option<Type> {
         match &expr.ty {
             ExprType::Number(num) => self.check_num(num, expected_ty),
@@ -800,6 +941,11 @@ impl<'a> Analyzer<'a> {
                 generics,
             } => {
                 let ty = self.check_call(name, args, expected_ty, generics);
+                return ty;
+            }
+            ExprType::Match { expr, variants } => {
+                let ty = expr.get_type(self);
+                self.check_match(expr, variants);
                 return ty;
             }
             ExprType::StructInit {

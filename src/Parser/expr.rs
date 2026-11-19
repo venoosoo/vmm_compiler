@@ -63,6 +63,68 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_match_field(&mut self) -> Option<MatchLeftValue> {
+        let base = self.peek(0).value.clone().unwrap();
+        if base == "_" {
+            self.consume();
+            return Some(MatchLeftValue::Enum {
+                base,
+                value: "_".to_string(),
+                args: Vec::new(),
+            });
+        }
+        if self.peek(1).token == TokenType::Colon {
+            self.consume();
+            self.expect(TokenType::Colon);
+            self.expect(TokenType::Colon);
+            let value = self.consume().value.unwrap();
+            let mut args: Vec<String> = Vec::new();
+            if self.peek(0).token == TokenType::OpenParen {
+                self.expect(TokenType::OpenParen);
+                while self.peek(0).token != TokenType::CloseParen {
+                    let name = self.consume().value.unwrap();
+                    args.push(name);
+                    if self.peek(0).token == TokenType::Coma {
+                        self.consume();
+                    }
+                }
+                self.expect(TokenType::CloseParen);
+            }
+            return Some(MatchLeftValue::Enum { base, value, args });
+        } else {
+            let left = self.parse_expr()?;
+            return Some(MatchLeftValue::Expr { expr: left });
+        }
+    }
+
+    pub fn parse_match(&mut self) -> Option<Expr> {
+        self.expect(TokenType::Match);
+        let expr = self.parse_expr()?;
+        self.expect(TokenType::OpenScope);
+        let mut variants: Vec<MatchField> = Vec::new();
+        while self.peek(0).token != TokenType::CloseScope {
+            let left = self.parse_match_field()?;
+            self.expect(TokenType::Eq);
+            self.expect(TokenType::More);
+            let stmt = self.parse_stmt()?;
+            let res = MatchField { left, right: stmt };
+            variants.push(res);
+            if self.peek(0).token == TokenType::Coma {
+                self.expect(TokenType::Coma);
+            }
+        }
+        self.expect(TokenType::CloseScope);
+        Some(Expr {
+            ty: ExprType::Match {
+                expr: Box::new(expr),
+                variants,
+            },
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
+        })
+    }
+
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.peek(0).token {
             TokenType::Var => {
@@ -80,6 +142,7 @@ impl<'a> Parser<'a> {
                     })
                 }
             }
+            TokenType::Match => self.parse_match(),
 
             TokenType::Num => {
                 let token = self.consume();

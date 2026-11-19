@@ -98,10 +98,6 @@ pub enum StmtType {
         generic_types: Vec<String>,
         variants: HashMap<String, EnumVariant>,
     },
-    Match {
-        expr: Expr,
-        variants: Vec<MatchField>,
-    },
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
@@ -132,22 +128,4 @@ pub struct StructDef {
     pub fields: Vec<StructField>,
     pub generic_type: Vec<String>,
     pub size: usize,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct MatchField {
-    pub left: MatchLeftValue,
-    pub right: Stmt,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum MatchLeftValue {
-    Enum {
-        base: String,
-        value: String,
-        args: Vec<String>,
-    },
-    Expr {
-        expr: Expr,
-    },
 }

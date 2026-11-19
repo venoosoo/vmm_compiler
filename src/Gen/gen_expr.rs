@@ -4,7 +4,9 @@ use std::{dbg, format, vec};
 use clap::builder::Str;
 use indexmap::IndexMap;
 
-use crate::Ir::expr::{self, BinOp, ComptimeFn, EnumExprField, Expr, ExprType, Lookup, UnaryOp};
+use crate::Ir::expr::{
+    self, BinOp, ComptimeFn, EnumExprField, Expr, ExprType, Lookup, MatchField, UnaryOp,
+};
 use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
@@ -27,6 +29,27 @@ impl Lookup for Gen {
             return Some(var.var_type.clone());
         }
     }
+    fn look_match(&self, expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
+        let mut variant_return_types: Vec<Type> = Vec::new();
+        for variant in variants {
+            if let StmtType::Block(variant_block) = &variant.right.ty {
+                let return_stmt = variant_block.last().unwrap();
+                if let StmtType::ExprStmt(last_expr_stmt) = &return_stmt.ty {
+                    variant_return_types.push(last_expr_stmt.get_type(self).unwrap());
+                }
+            }
+        }
+
+        let first_ty = variant_return_types.first().unwrap();
+        for ty in variant_return_types.iter().skip(1) {
+            if !check_types(first_ty, ty) {
+                return None;
+            }
+        }
+
+        Some(first_ty.clone())
+    }
+
     fn look_comptime(&self, comp_time: &ComptimeFn) -> Option<Type> {
         match comp_time {
             ComptimeFn::SizeOf(_) => Some(Type::Primitive(TokenType::U64)),
@@ -1766,6 +1789,8 @@ impl Gen {
             ExprType::Unary { op, expr: inner } => {
                 Some(self.gen_expr_unary(op, inner, expected_type))
             }
+
+            ExprType::Match { expr, variants } => self.gen_match(expr, variants),
 
             ExprType::Call {
                 name,

@@ -105,7 +105,7 @@ module std {
                 109 => { return Errno::EPIPE; }    // ERROR_BROKEN_PIPE
                 112 => { return Errno::ENOSPC; }   // ERROR_DISK_FULL
                 183 => { return Errno::EEXIST; }   // ERROR_ALREADY_EXISTS
-            }
+            };
             return Errno::EIO;
         }
 
@@ -215,7 +215,7 @@ module std {
                 36 => { return Errno::ENAMETOOLONG; }
                 37 => { return Errno::ENOLCK; }
                 38 => { return Errno::ENOSYS; }
-            }
+            };
         }
     }
 
@@ -348,7 +348,7 @@ module std {
                 println("unwrap result on error");
                 exit(1);
             }
-        }
+        };
         println("unwrap_result got wrong data");
         exit(1);
 
@@ -364,7 +364,7 @@ module std {
                 println("unwrap result on error");
                 exit(1);
             }
-        }
+        };
         println("unwrap_result got wrong data");
         exit(1);
 
@@ -379,7 +379,7 @@ module std {
                 print("unwrap at none value");
                 exit(1);
             }
-        }
+        };
         println("unwrap got wrong data");
         exit(1);
     }
@@ -393,7 +393,7 @@ module std {
                 print("unwrap at none value");
                 exit(1);
             }
-        }
+        };
         println("unwrap got wrong data");
         exit(1);
     }
@@ -585,6 +585,6 @@ module std {
             Errno::ENOLCK => { return 37; }
             Errno::ENOSYS => { return 38; }
             _ => { return 0; }
-        }
+        };
     }
 }

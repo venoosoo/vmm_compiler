@@ -21,7 +21,7 @@ struct ConfLine {
 }
 
 fn get_conf_data() -> ConfData* {
-    JsonValue data = json~parse("./vmake_conf.json");
+    JsonValue data = json~parse("./vmake_conf.json") {
     ConfData* result = std~malloc(@sizeof(ConfData));
     String* name = data.json~get_string("name");
     String* compiler = data.json~get_string("compiler");
@@ -40,7 +40,7 @@ fn get_conf_data() -> ConfData* {
                 std~println("CONFIG ERROR: src has non string values ");
                 std~exit(1);
             }
-        }
+        };
     }
     String* ld_str = data.json~get_string("ld_flags");
     String* asm_str = data.json~get_string("asm_flags");
@@ -121,7 +121,7 @@ fn compile_to_asm(ConfData* conf_data) {
                 std~println(std~errno_to_num(e));
                 std~exit(1);
             }
-        }
+        };
         u64 status = std~unwrap<u64, Errno>(&wait_res);
         if status != 0 {
             std~println("Error build task failed");
