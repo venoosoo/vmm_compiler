@@ -13,6 +13,7 @@ impl Gen {
         let pos = self.alloc(8);
         self.emit_func_data(format!("    mov [rbp - {}], rax", pos));
         let expr_ty = expr.get_type(self)?;
+        let expr_ty = self.ensure_monomorphized(&expr_ty).unwrap();
         match expr_ty {
             Type::Enum(..) => {
                 self.emit_func_data(format!("    mov rax, [rax]"));
@@ -32,7 +33,6 @@ impl Gen {
         id: usize,
         expr_ty: &Type,
     ) {
-        //match expr_ty
         for var in variants {
             self.gen_match_asm_checking(var, id, &expr_ty);
         }
@@ -50,9 +50,10 @@ impl Gen {
                     self.gen_stmt(&variant.right);
                     return;
                 }
+                let expr_ty = self.ensure_monomorphized(expr_ty).unwrap();
                 let new_base: &String = {
-                    match expr_ty {
-                        Type::Enum(name, _) => name,
+                    match &expr_ty {
+                        Type::Enum(name, _) => &name.clone(),
                         _ => base,
                     }
                 };
@@ -60,17 +61,17 @@ impl Gen {
                 let field_data = enum_data.variants.get(value).unwrap();
                 for (index, arg) in args.iter().enumerate() {
                     let field = &field_data.args[index];
+                    let field_ty = self.ensure_monomorphized(&field.ty).unwrap();
                     let decl = Declaration {
                         name: arg.clone(),
-                        ty: field.ty.clone(),
+                        ty: field_ty,
                         initializer: None,
                     };
                     self.gen_declaration(&decl);
                     let new_var_pos = self.stack_pos;
-                    // the tag size
                     let pos = base_pos;
                     let reg = self.reg_for_size("rax", &field.ty).unwrap();
-                    self.gen_match_field_arg(expr_ty, &field, &reg, pos);
+                    self.gen_match_field_arg(&expr_ty, &field, &reg, pos);
                     self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));
                 }
                 self.gen_stmt(&variant.right);
@@ -149,10 +150,10 @@ impl Gen {
                 }
             }
         }
-        self.scopes.push(HashMap::new());
+        self.scopes.borrow_mut().push(HashMap::new());
         self.gen_match_field(&variant, base_pos, expr_ty);
         self.emit_func_data(format!("    jmp match_end_{id}"));
-        self.scopes.pop();
+        self.scopes.borrow_mut().pop();
     }
 
     fn gen_match_field_arg(

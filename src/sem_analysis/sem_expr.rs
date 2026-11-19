@@ -26,23 +26,49 @@ impl<'a> Lookup for Analyzer<'a> {
             if res.is_none() {
                 self.print_error(
                     self.type_to_error(SemanticError::UndeclaredVariable(name.clone())),
-                )
+                );
             }
             return res;
         }
     }
     fn look_match(&self, expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
         let mut variant_return_types: Vec<Type> = Vec::new();
+
         for variant in variants {
             if let StmtType::Block(variant_block) = &variant.right.ty {
-                let return_stmt = variant_block.last().unwrap();
-                if let StmtType::ExprStmt(last_expr_stmt) = &return_stmt.ty {
-                    variant_return_types.push(last_expr_stmt.get_type(self).unwrap());
+                let Some(return_stmt) = variant_block.last() else {
+                    continue;
+                };
+
+                match &return_stmt.ty {
+                    StmtType::ExprStmt(last_expr_stmt) => {
+                        if let MatchLeftValue::Enum { base, value, args } = &variant.left
+                            && base != "_"
+                        {
+                            let enum_scope = self.enums.borrow();
+
+                            let enum_data = enum_scope.get(base).unwrap();
+                            let variant = enum_data.variants.get(value).unwrap();
+                            self.scopes.borrow_mut().push(HashMap::new());
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_ty = variant.args[i].ty.clone();
+                                self.add_var(arg.to_string(), arg_ty);
+                            }
+                        }
+                        variant_return_types.push(last_expr_stmt.get_type(self)?);
+                    }
+                    StmtType::Return(_) => {
+                        continue;
+                    }
+                    _ => {}
                 }
             }
         }
 
-        let first_ty = variant_return_types.first().unwrap();
+        let Some(first_ty) = variant_return_types.first() else {
+            return Some(Type::Primitive(TokenType::Void));
+        };
+
         for ty in variant_return_types.iter().skip(1) {
             if !check_types(first_ty, ty) {
                 return None;
@@ -146,7 +172,9 @@ impl<'a> Lookup for Analyzer<'a> {
             if let Some(existing) = self.functions.get(&new_name) {
                 existing.clone()
             } else {
-                let func_data = self.functions.get(&func_name).unwrap()[0].clone();
+                let vec_func_data = self.get_function(&func_name)?;
+                let (overload_pos, func_data) =
+                    self.find_overload(&vec_func_data, args, generics, name)?;
                 let generic_map = build_generic_map(&func_data.generic, generics);
                 {
                     *self.generics.borrow_mut() = generic_map.clone();
@@ -175,10 +203,10 @@ impl<'a> Lookup for Analyzer<'a> {
         } else {
             let res = self.functions.get(&func_name);
             if res.is_some() {
-                self.get_function(&func_name)
+                self.get_function(&func_name)?
             } else {
                 let new_name = check_module_name(&self.current_module, &func_name);
-                self.get_function(&new_name)
+                self.get_function(&new_name)?
             }
         };
 
@@ -877,17 +905,19 @@ impl<'a> Analyzer<'a> {
                             );
                         }
 
-                        self.scopes.push(HashMap::new());
-                        for (i, arg_name) in args.iter().enumerate() {
-                            let expected_type = &variant_data.args[i].ty;
-
-                            let scope = self.scopes.last_mut().unwrap();
-                            scope.insert(arg_name.clone(), expected_type.clone());
+                        {
+                            let mut scopes = self.scopes.borrow_mut();
+                            scopes.push(HashMap::new());
+                            let scope = scopes.last_mut().unwrap();
+                            for (i, arg_name) in args.iter().enumerate() {
+                                let expected_type = &variant_data.args[i].ty;
+                                scope.insert(arg_name.clone(), expected_type.clone());
+                            }
                         }
 
                         let _right = self.check_stmt(&var.right);
 
-                        self.scopes.pop();
+                        self.scopes.borrow_mut().pop();
                     } else {
                         self::panic!("Expected Enum match arm for Enum type");
                     }
@@ -898,9 +928,9 @@ impl<'a> Analyzer<'a> {
                 for var in variants {
                     let left_ty = self.get_match_left_value_type(&var.left)?;
 
-                    self.scopes.push(HashMap::new());
+                    self.scopes.borrow_mut().push(HashMap::new());
                     let _right = self.check_stmt(&var.right);
-                    self.scopes.pop();
+                    self.scopes.borrow_mut().pop();
 
                     if !check_types(&left_ty, &expr_ty) {
                         if let Type::Enum(name, _) = &left_ty {
@@ -943,9 +973,12 @@ impl<'a> Analyzer<'a> {
                 let ty = self.check_call(name, args, expected_ty, generics);
                 return ty;
             }
-            ExprType::Match { expr, variants } => {
+            ExprType::Match {
+                expr: match_expr,
+                variants,
+            } => {
+                self.check_match(match_expr, variants);
                 let ty = expr.get_type(self);
-                self.check_match(expr, variants);
                 return ty;
             }
             ExprType::StructInit {

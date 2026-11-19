@@ -21,7 +21,7 @@ struct ConfLine {
 }
 
 fn get_conf_data() -> ConfData* {
-    JsonValue data = json~parse("./vmake_conf.json") {
+    JsonValue data = json~parse("./vmake_conf.json");
     ConfData* result = std~malloc(@sizeof(ConfData));
     String* name = data.json~get_string("name");
     String* compiler = data.json~get_string("compiler");

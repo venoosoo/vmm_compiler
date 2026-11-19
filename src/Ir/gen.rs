@@ -30,7 +30,7 @@ pub struct Gen {
     pub highest_stack_pos: usize,
     pub generic_func: HashMap<String, Vec<Stmt>>,
     pub generics: RefCell<HashMap<String, Type>>,
-    pub scopes: Vec<HashMap<String, VarData>>,
+    pub scopes: RefCell<Vec<HashMap<String, VarData>>>,
     pub global_vars: HashMap<String, VarData>,
     // for struct/enums resolving
     pub computing: RefCell<HashSet<String>>,

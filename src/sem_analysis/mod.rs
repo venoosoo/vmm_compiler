@@ -1,6 +1,6 @@
 use core::panic;
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
     dbg,
     fmt::{self, write},
@@ -181,7 +181,7 @@ impl<'a> TypeContext for Analyzer<'a> {
         args: &Vec<Expr>,
         generics: &Vec<Type>,
     ) -> Option<(FuncData, usize)> {
-        let vec_func_data = self.get_function(name);
+        let vec_func_data = self.get_function(name)?;
         if vec_func_data.len() < 1 {
             self.print_error(self.type_to_error(SemanticError::UndeclaredFunction(name.clone())));
             return None;
@@ -191,15 +191,6 @@ impl<'a> TypeContext for Analyzer<'a> {
             .map(|expr| expr.get_type(self).map(|ty| (expr, ty)))
             .collect::<Option<Vec<_>>>()?;
 
-        if generics.len() > 0 {
-            let vec_func_data = self.get_function(name);
-            if vec_func_data.len() < 1 {
-                self.print_error(
-                    self.type_to_error(SemanticError::UndeclaredFunction(name.clone())),
-                );
-                return None;
-            }
-        }
         let found_overload = vec_func_data.iter().enumerate().find(|(_, func)| {
             if func.args.len() != precomputed_args.len() {
                 return false;
@@ -419,7 +410,7 @@ impl<'a> Analyzer<'a> {
             stmts,
             generics: RefCell::new(HashMap::new()),
             had_error: Cell::new(false),
-            scopes: vec![HashMap::new()], // start with global scope
+            scopes: RefCell::new(vec![HashMap::new()]), // start with global scope
             functions: HashMap::new(),
             computing: RefCell::new(HashSet::new()),
             break_stack: Vec::new(),
@@ -897,7 +888,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn lookup(&self, expected_name: &String) -> Option<Type> {
-        for i in self.scopes.iter() {
+        for i in self.scopes.borrow().iter() {
             for (name, ty) in i {
                 if name == expected_name {
                     return Some(ty.clone());
@@ -910,18 +901,19 @@ impl<'a> Analyzer<'a> {
         return None;
     }
 
-    pub fn get_function(&self, name: &String) -> Vec<FuncData> {
+    pub fn get_function(&self, name: &String) -> Option<Vec<FuncData>> {
         let func_data = self.functions.get(name);
         if func_data.is_some() {
-            return func_data.unwrap().to_vec();
+            return Some(func_data.unwrap().to_vec());
         } else {
             self.print_error(self.type_to_error(SemanticError::UndeclaredFunction(name.clone())));
-            Vec::new()
+            None
         }
     }
 
-    pub fn add_var(&mut self, name: String, ty: Type) {
-        let map = self.scopes.last_mut().unwrap();
+    pub fn add_var(&self, name: String, ty: Type) {
+        let mut scope = self.scopes.borrow_mut();
+        let map = scope.last_mut().unwrap();
         map.insert(name, ty);
     }
 

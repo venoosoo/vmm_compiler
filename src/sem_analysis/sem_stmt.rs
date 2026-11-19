@@ -16,11 +16,11 @@ use crate::{
 
 impl<'a> Analyzer<'a> {
     pub fn check_block(&mut self, data: &Vec<Stmt>) -> Option<()> {
-        self.scopes.push(HashMap::new());
+        self.scopes.borrow_mut().push(HashMap::new());
         for i in data.iter() {
             self.check_stmt(i);
         }
-        self.scopes.pop();
+        self.scopes.borrow_mut().pop();
         return None;
     }
 
@@ -38,6 +38,7 @@ impl<'a> Analyzer<'a> {
             let expr_ty = self.check_expr(expr, &ty)?;
             let expr_ty = self.generic_to_ty(&expr_ty, &self.generics.borrow());
             let expr_ty = self.ensure_monomorphized(&expr_ty)?;
+
             if !check_types(&ty, &expr_ty) {
                 self.print_error(self.type_to_error(SemanticError::TypeMismatch {
                     expected: ty.clone(),
@@ -153,7 +154,7 @@ impl<'a> Analyzer<'a> {
         ),
     ) -> Option<()> {
         let (init, condition, update, body) = data;
-        self.scopes.push(HashMap::new());
+        self.scopes.borrow_mut().push(HashMap::new());
         if let Some(init_data) = init {
             self.check_stmt(init_data);
         }
@@ -170,7 +171,7 @@ impl<'a> Analyzer<'a> {
         self.check_stmt(body);
         self.break_stack.pop();
         self.contniue_stack.pop();
-        self.scopes.pop();
+        self.scopes.borrow_mut().pop();
         return None;
     }
 
@@ -204,13 +205,14 @@ impl<'a> Analyzer<'a> {
         let (name, args, ret_type, body, _generic_types) = data;
 
         // save outer scopes FIRST before adding any args
-        let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
+        let saved_scopes = std::mem::replace(&mut self.scopes, RefCell::new(vec![HashMap::new()]));
 
-        self.scopes.push(HashMap::new());
+        self.scopes.borrow_mut().push(HashMap::new());
 
         for arg in args.iter() {
             let ty = self.ensure_monomorphized(&arg.ty)?;
-            let map = self.scopes.last_mut().unwrap();
+            let mut scopes = self.scopes.borrow_mut();
+            let map = scopes.last_mut().unwrap();
             map.insert(arg.name.clone(), ty);
         }
         self.current_ret_type = self.ensure_monomorphized(&ret_type.clone())?;

@@ -31,16 +31,29 @@ impl Lookup for Gen {
     }
     fn look_match(&self, expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
         let mut variant_return_types: Vec<Type> = Vec::new();
+
         for variant in variants {
             if let StmtType::Block(variant_block) = &variant.right.ty {
-                let return_stmt = variant_block.last().unwrap();
-                if let StmtType::ExprStmt(last_expr_stmt) = &return_stmt.ty {
-                    variant_return_types.push(last_expr_stmt.get_type(self).unwrap());
+                let Some(return_stmt) = variant_block.last() else {
+                    continue;
+                };
+
+                match &return_stmt.ty {
+                    StmtType::ExprStmt(last_expr_stmt) => {
+                        variant_return_types.push(last_expr_stmt.get_type(self)?);
+                    }
+                    StmtType::Return(_) => {
+                        continue;
+                    }
+                    _ => {}
                 }
             }
         }
 
-        let first_ty = variant_return_types.first().unwrap();
+        let Some(first_ty) = variant_return_types.first() else {
+            return Some(Type::Primitive(TokenType::Void));
+        };
+
         for ty in variant_return_types.iter().skip(1) {
             if !check_types(first_ty, ty) {
                 return None;
@@ -1121,10 +1134,8 @@ impl Gen {
         let mut name = self.resolve_function_name(name).unwrap();
         let mut is_rvo = false; // return value optimization
         let map_copy = self.generics.borrow().clone();
-
         let (generic_copy, new_args, ret_type) =
             self.prepare_generic_call(func_data, generics, overload_pos);
-
         let mut rvo_pos = 0;
         match &self.ensure_monomorphized(&ret_type).unwrap() {
             Type::Struct(_) | Type::Enum(_, _) => {
@@ -1158,7 +1169,6 @@ impl Gen {
             &new_args,
             overload_pos,
         );
-
         if is_rvo {
             let rvo_arg = self.get_func_arg_reg()[0];
             self.emit_func_data(format!("    lea {}, [rbp - {}]", rvo_arg, rvo_pos));

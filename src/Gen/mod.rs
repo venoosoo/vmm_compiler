@@ -1,5 +1,5 @@
 use core::panic;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::HashSet;
 use std::{collections::HashMap, fmt::Write};
 use std::{dbg, matches};
@@ -261,7 +261,7 @@ impl Gen {
             current_return_type: Type::Primitive(TokenType::Void),
             main_code: Vec::new(),
             data_code: Vec::new(),
-            scopes: vec![HashMap::new()],
+            scopes: RefCell::new(vec![HashMap::new()]),
             stack_pos: 0,
             computing: RefCell::new(HashSet::new()),
             contniue_stack: Vec::new(),
@@ -569,14 +569,14 @@ impl Gen {
         Ok(self.out.clone())
     }
 
-    pub fn lookup_var(&self, name: &str) -> &VarData {
-        for scope in self.scopes.iter().rev() {
+    pub fn lookup_var(&self, name: &str) -> VarData {
+        for scope in self.scopes.borrow().iter().rev() {
             if let Some(ty) = scope.get(name) {
-                return ty;
+                return ty.clone();
             }
         }
         if let Some(global_var) = self.global_vars.get(name) {
-            return global_var;
+            return global_var.clone();
         }
         println!("scopes: {:?}", self.scopes);
         self::panic!("couldnt find the var with name: {}", name);

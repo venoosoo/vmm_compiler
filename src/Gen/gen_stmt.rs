@@ -11,12 +11,12 @@ use crate::shared::align16;
 
 impl Gen {
     fn gen_block(&mut self, data: &Vec<Stmt>) {
-        self.scopes.push(HashMap::new());
+        self.scopes.borrow_mut().push(HashMap::new());
         let temp_stack_pos = self.stack_pos;
         for i in data {
             self.gen_stmt(&i);
         }
-        self.scopes.pop();
+        self.scopes.borrow_mut().pop();
         self.stack_pos = temp_stack_pos;
     }
 
@@ -27,7 +27,7 @@ impl Gen {
         let data_ty = match data_ty {
             Type::GenericType(name) => {
                 let map = self.generics.borrow();
-
+                dbg!(&name);
                 map.get(&name).cloned().unwrap()
             }
             _ => data_ty,
@@ -122,12 +122,12 @@ impl Gen {
                 _ => {}
             }
         }
-
-        let current_scope = self.scopes.last_mut().unwrap();
+        let mut scopes = self.scopes.borrow_mut();
+        let current_scope = scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
             self::panic!("Variable {} is already defined", data.name);
         }
-        stack_pos = self.stack_pos;
+        self.stack_pos = stack_pos;
         let var_data = VarData {
             global_flag: false,
             stack_pos,
@@ -368,7 +368,7 @@ impl Gen {
         let (init, condition, update, body) = data;
 
         let id = self.get_id();
-        self.scopes.push(HashMap::new());
+        self.scopes.borrow_mut().push(HashMap::new());
         if let Some(init_stmt) = init {
             self.gen_stmt(init_stmt);
         }
@@ -385,7 +385,7 @@ impl Gen {
         if let Some(update_stmt) = update {
             self.gen_stmt(update_stmt);
         }
-        self.scopes.pop();
+        self.scopes.borrow_mut().pop();
         self.break_stack.pop();
         self.contniue_stack.pop();
         self.emit_func_data(format!("    jmp for_start_{}", id));
@@ -440,7 +440,7 @@ impl Gen {
                     let arg = self.eval_expr(ret_expr, &ret_type)?;
                     self.emit_func_data(format!("    lea {}, [rbp - {}]", arg, pos));
                 }
-                ExprType::Number(_) => {
+                ExprType::Number(_) | ExprType::Call { .. } => {
                     self.eval_expr(ret_expr, &ret_type);
                 }
                 _ => {
@@ -615,7 +615,8 @@ impl Gen {
             }
             slot -= 1;
 
-            let map = self.scopes.last_mut().unwrap();
+            let mut scopes = self.scopes.borrow_mut();
+            let map = scopes.last_mut().unwrap();
             map.insert(
                 decl.name.clone(),
                 VarData {
@@ -689,8 +690,8 @@ impl Gen {
                     arg_index -= 1;
                 }
             }
-
-            let map = self.scopes.last_mut().unwrap();
+            let mut scopes = self.scopes.borrow_mut();
+            let map = scopes.last_mut().unwrap();
             map.insert(
                 decl.name.clone(),
                 VarData {
@@ -743,8 +744,8 @@ impl Gen {
         let ret_type = &self.resolve_type_with_map(ret_type, generics, 0);
         self.current_return_type = ret_type.clone();
         // save outer scopes, start fresh with globals only
-        let global_scope = self.scopes[0].clone();
-        let saved_scopes = std::mem::replace(&mut self.scopes, vec![global_scope]);
+        let global_scope = self.scopes.borrow_mut()[0].clone();
+        let saved_scopes = std::mem::replace(&mut self.scopes, RefCell::new(vec![global_scope]));
         let saved_stack = self.stack_pos;
         let overload_pos = self
             .functions
