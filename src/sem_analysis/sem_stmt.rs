@@ -15,7 +15,7 @@ use crate::{
 };
 
 impl<'a> Analyzer<'a> {
-    pub fn check_block(&mut self, data: &Vec<Stmt>) -> Option<()> {
+    pub fn check_block(&mut self, data: &'a Vec<Stmt>) -> Option<()> {
         self.scopes.borrow_mut().push(HashMap::new());
         for i in data.iter() {
             self.check_stmt(i);
@@ -24,7 +24,7 @@ impl<'a> Analyzer<'a> {
         return None;
     }
 
-    pub fn check_declaration(&mut self, data: &Declaration) -> Option<()> {
+    pub fn check_declaration(&mut self, data: &'a Declaration) -> Option<()> {
         let ty = self.ensure_monomorphized(&data.ty)?;
         if ty == Type::Primitive(TokenType::Void) {
             self.print_error(self.type_to_error(SemanticError::VoidVariable(data.name.clone())));
@@ -101,7 +101,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn check_assignment(&mut self, target: &LValue, value: &Expr) -> Option<()> {
+    pub fn check_assignment(&mut self, target: &LValue, value: &'a Expr) -> Option<()> {
         let var_name = lvalue_root(target);
         if self.lookup(&var_name).is_none() {
             self.print_error(self.type_to_error(SemanticError::UndeclaredVariable(var_name)));
@@ -122,9 +122,9 @@ impl<'a> Analyzer<'a> {
 
     pub fn check_if(
         &mut self,
-        condition: &Expr,
-        if_block: &Box<Stmt>,
-        else_block: &Option<Box<Stmt>>,
+        condition: &'a Expr,
+        if_block: &'a Box<Stmt>,
+        else_block: &'a Option<Box<Stmt>>,
     ) -> Option<()> {
         let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::I64));
         self.check_stmt(if_block);
@@ -134,7 +134,7 @@ impl<'a> Analyzer<'a> {
         return None;
     }
 
-    pub fn check_while(&mut self, condition: &Expr, body: &Box<Stmt>) -> Option<()> {
+    pub fn check_while(&mut self, condition: &'a Expr, body: &'a Box<Stmt>) -> Option<()> {
         let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::I64));
         self.break_stack.push("1".to_string());
         self.contniue_stack.push("1".to_string());
@@ -147,10 +147,10 @@ impl<'a> Analyzer<'a> {
     pub fn check_for(
         &mut self,
         data: (
-            &Option<Box<Stmt>>,
-            &Option<Expr>,
-            &Option<Box<Stmt>>,
-            &Box<Stmt>,
+            &'a Option<Box<Stmt>>,
+            &'a Option<Expr>,
+            &'a Option<Box<Stmt>>,
+            &'a Box<Stmt>,
         ),
     ) -> Option<()> {
         let (init, condition, update, body) = data;
@@ -175,7 +175,7 @@ impl<'a> Analyzer<'a> {
         return None;
     }
 
-    pub fn check_ret(&mut self, expr: &Option<Expr>) -> Option<()> {
+    pub fn check_ret(&mut self, expr: &'a Option<Expr>) -> Option<()> {
         let mut expr_ty = Type::Primitive(TokenType::Void);
         if let Some(expr) = expr {
             expr_ty = self.check_expr(expr, &self.current_ret_type.clone())?;
@@ -198,7 +198,7 @@ impl<'a> Analyzer<'a> {
             &String,
             &Vec<Declaration>,
             &Type,
-            &Box<Stmt>,
+            &'a Box<Stmt>,
             &HashMap<String, Type>,
         ),
     ) -> Option<()> {
@@ -222,7 +222,7 @@ impl<'a> Analyzer<'a> {
         return Some(());
     }
 
-    pub fn check_extern_fn(&mut self, data: &Box<Stmt>) -> Option<()> {
+    pub fn check_extern_fn(&mut self, data: &'a Box<Stmt>) -> Option<()> {
         match &data.ty {
             StmtType::InitFunc {
                 name,
@@ -277,14 +277,14 @@ impl<'a> Analyzer<'a> {
         return None;
     }
 
-    pub fn check_module(&mut self, name: &String, code: &Box<Stmt>) -> Option<()> {
+    pub fn check_module(&mut self, name: &String, code: &'a Box<Stmt>) -> Option<()> {
         self.current_module = Some(name.clone());
         self.check_stmt(code);
         self.current_module = None;
         return None;
     }
 
-    pub fn check_stmt(&mut self, stmt: &Stmt) -> Option<()> {
+    pub fn check_stmt(&mut self, stmt: &'a Stmt) -> Option<()> {
         self.line = stmt.line;
         self.current_file = stmt.file.clone();
         match &stmt.ty {
@@ -298,6 +298,7 @@ impl<'a> Analyzer<'a> {
                 self.check_expr(expr, &Type::Primitive(TokenType::I64));
                 return None;
             }
+            StmtType::MacroRepeat { body, repetition } => todo!(),
             StmtType::If {
                 condition,
                 if_block,

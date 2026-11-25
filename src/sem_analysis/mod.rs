@@ -405,7 +405,7 @@ impl<'a> TypeContext for Analyzer<'a> {
 }
 
 impl<'a> Analyzer<'a> {
-    pub fn new(stmts: &'a Vec<Stmt>, target_os: String) -> Self {
+    pub fn new(stmts: &'a mut Vec<Stmt>, target_os: String) -> Self {
         Self {
             stmts,
             generics: RefCell::new(HashMap::new()),
@@ -717,7 +717,7 @@ impl<'a> Analyzer<'a> {
         Some(max_size)
     }
 
-    pub fn reg_inits(&mut self, stmts: &Vec<Stmt>) {
+    pub fn reg_inits(&mut self, stmts: &'a Vec<Stmt>) {
         for stmt in stmts.iter() {
             self.check_init(stmt);
         }
@@ -733,7 +733,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn check_init(&mut self, stmt: &Stmt) {
+    pub fn check_init(&mut self, stmt: &'a Stmt) {
         self.current_file = stmt.file.clone();
         self.line = stmt.line;
         match &stmt.ty {
@@ -836,14 +836,7 @@ impl<'a> Analyzer<'a> {
                 self.enums.borrow_mut().insert(name.clone(), enum_data);
             }
             StmtType::Comptime(comp_time) => {
-                if let StmtType::If {
-                    condition,
-                    if_block,
-                    else_block,
-                } = &comp_time.ty
-                {
-                    self.check_comptime(comp_time);
-                }
+                self.check_comptime(comp_time);
             }
 
             _ => {}
@@ -873,7 +866,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_inits(&mut self) {
-        for stmt in self.stmts.clone().iter() {
+        for stmt in self.stmts.iter() {
             self.check_init(stmt);
         }
     }

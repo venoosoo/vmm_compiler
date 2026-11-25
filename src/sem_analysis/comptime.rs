@@ -1,5 +1,5 @@
 use crate::Ir::expr::{BinOp, ComptimeFn, Expr, ExprType, UnaryOp};
-use crate::Ir::stmt::{Stmt, StmtType};
+use crate::Ir::stmt::{Comptime, Macro, MacroPattern, Stmt, StmtType};
 
 use super::*;
 
@@ -10,62 +10,69 @@ pub enum ComptimeVal {
 }
 
 impl<'a> Analyzer<'a> {
-    pub fn check_comptime(&mut self, comp_time: &Stmt) -> Option<()> {
-        match &comp_time.ty {
-            StmtType::If {
-                condition,
-                if_block,
-                else_block,
-            } => {
-                self.check_comptime_value(condition);
-                let Some(cond) = self.eval_comptime_expr(condition) else {
-                    return None;
-                };
+    fn check_comptime_if(&mut self, stmt: &'a Stmt) -> Option<()> {
+        let StmtType::If {
+            condition,
+            if_block,
+            else_block,
+        } = &stmt.ty
+        else {
+            self.print_error(self.type_to_error(SemanticError::CompTimeNotAnIf));
+            return None;
+        };
+        self.check_comptime_value(condition);
+        let Some(cond) = self.eval_comptime_expr(condition) else {
+            return None;
+        };
 
-                let base_functions = self.functions.clone();
-                let base_generic_func = self.generic_func.clone();
-                let base_structs = self.structs.borrow().clone();
-                let base_enums = self.enums.borrow().clone();
-                let base_globals = self.global_vars.clone();
+        let base_functions = self.functions.clone();
+        let base_generic_func = self.generic_func.clone();
+        let base_structs = self.structs.borrow().clone();
+        let base_enums = self.enums.borrow().clone();
+        let base_globals = self.global_vars.clone();
 
-                if let StmtType::Block(inside) = &if_block.ty {
-                    for i in inside {
-                        self.check_init(i);
-                    }
-                }
+        if let StmtType::Block(inside) = &if_block.ty {
+            for i in inside {
+                self.check_init(i);
+            }
+        }
 
-                let if_functions = self.functions.clone();
-                let if_generic_func = self.generic_func.clone();
-                let if_structs = self.structs.borrow().clone();
-                let if_enums = self.enums.borrow().clone();
-                let if_globals = self.global_vars.clone();
+        let if_functions = self.functions.clone();
+        let if_generic_func = self.generic_func.clone();
+        let if_structs = self.structs.borrow().clone();
+        let if_enums = self.enums.borrow().clone();
+        let if_globals = self.global_vars.clone();
 
-                self.functions = base_functions;
-                self.generic_func = base_generic_func;
-                *self.structs.borrow_mut() = base_structs;
-                *self.enums.borrow_mut() = base_enums;
-                self.global_vars = base_globals;
+        self.functions = base_functions;
+        self.generic_func = base_generic_func;
+        *self.structs.borrow_mut() = base_structs;
+        *self.enums.borrow_mut() = base_enums;
+        self.global_vars = base_globals;
 
-                if else_block.is_some() {
-                    let else_block = else_block.as_ref().unwrap();
-                    if let StmtType::Block(inside) = &else_block.ty {
-                        for i in inside {
-                            self.check_init(i);
-                        }
-                    }
-                }
-                if cond {
-                    self.functions = if_functions;
-                    self.generic_func = if_generic_func;
-                    *self.structs.borrow_mut() = if_structs;
-                    *self.enums.borrow_mut() = if_enums;
-                    self.global_vars = if_globals;
+        if else_block.is_some() {
+            let else_block = else_block.as_ref().unwrap();
+            if let StmtType::Block(inside) = &else_block.ty {
+                for i in inside {
+                    self.check_init(i);
                 }
             }
-            _ => {
-                self.print_error(self.type_to_error(SemanticError::CompTimeNotAnIf));
-                return None;
+        }
+        if cond {
+            self.functions = if_functions;
+            self.generic_func = if_generic_func;
+            *self.structs.borrow_mut() = if_structs;
+            *self.enums.borrow_mut() = if_enums;
+            self.global_vars = if_globals;
+        }
+        Some(())
+    }
+
+    pub fn check_comptime(&mut self, comp_time: &'a Comptime) -> Option<()> {
+        match &comp_time {
+            Comptime::ComptimeIf(stmt) => {
+                self.check_comptime_if(&**stmt);
             }
+            Comptime::Macro(macro_vec) => return None,
         }
 
         Some(())
@@ -74,10 +81,7 @@ impl<'a> Analyzer<'a> {
     pub fn eval_comptime_expr(&mut self, expr: &Expr) -> Option<bool> {
         match self.check_comptime_value(expr)? {
             ComptimeVal::Num(n) => Some(n != 0),
-            ComptimeVal::Str(s) => {
-                dbg!(&s);
-                Some(!s.is_empty())
-            }
+            ComptimeVal::Str(s) => Some(!s.is_empty()),
         }
     }
 

@@ -67,13 +67,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut imported_files,
         current_file,
     );
-    let res = parser.parse();
+    let mut res = parser.parse();
     if cli.dump_ast {
         let mut file =
             File::create("parser_result.txt").expect("Failed to create parser_result.txt");
         write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
     }
-    let mut analyzer = Analyzer::new(&res, target_os.clone());
+    let mut analyzer = Analyzer::new(&mut res, target_os.clone());
     analyzer.check_code();
     if analyzer.had_error.get() {
         std::process::exit(1);
@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(name) => name,
             None => format!("{}.asm", cli.file.trim_end_matches(".vmm")),
         };
-        let mut file = File::create(format!("{}", res_name))?;
+        let mut file = File::create(res_name)?;
         let _res = file.write(asm.as_bytes())?;
     }
 

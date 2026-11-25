@@ -3,7 +3,7 @@ use std::dbg;
 use super::*;
 
 use crate::{
-    Ir::expr::*,
+    Ir::{expr::*, stmt::CapturedValue},
     shared::{gen_module_func_name, is_bin_op, precedence, transform_module_name},
 };
 
@@ -125,68 +125,70 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_primary(&mut self) -> Option<Expr> {
+    pub fn parse_primary(&mut self) -> Option<Expr> {
         match self.peek(0).token {
             TokenType::Var => {
                 let token = self.consume();
                 let token_value = token.value.unwrap();
                 if self.is_struct(&token_value) && self.peek(0).token == TokenType::OpenScope {
-                    self.parse_struct_expr(&token_value)
+                    return self.parse_struct_expr(&token_value);
                 } else {
                     let expr_ty = ExprType::Variable(token_value);
-                    Some(Expr {
+                    return Some(Expr {
                         ty: expr_ty,
                         file: token.file.clone(),
                         line: token.line,
                         col: token.col,
-                    })
+                    });
                 }
             }
-            TokenType::Match => self.parse_match(),
+            TokenType::Match => {
+                return Some(self.parse_match()?);
+            }
 
             TokenType::Num => {
                 let token = self.consume();
                 let expr_ty = ExprType::Number(token.value.unwrap().parse().unwrap());
-                Some(Expr {
+                return Some(Expr {
                     ty: expr_ty,
                     file: token.file.clone(),
                     line: token.line,
                     col: token.col,
-                })
+                });
             }
             TokenType::HexNum => {
                 let token = self.consume();
                 let token_value = &token.value.unwrap();
                 let expr_ty = ExprType::Number(i64::from_str_radix(token_value, 16).unwrap());
-                Some(Expr {
+                return Some(Expr {
                     ty: expr_ty,
                     file: token.file,
                     line: token.line,
                     col: token.col,
-                })
+                });
             }
             TokenType::OctalNum => {
                 let token = self.consume();
                 let token_value = &token.value.unwrap();
 
                 let expr_ty = ExprType::Number(i64::from_str_radix(token_value, 8).unwrap());
-                Some(Expr {
+                return Some(Expr {
                     ty: expr_ty,
                     file: token.file.clone(),
                     line: token.line,
                     col: token.col,
-                })
+                });
             }
             TokenType::Mul => {
                 let token = self.consume();
                 let rhs = self.parse_primary()?;
                 let expr_ty = ExprType::Deref(Box::new(rhs));
-                Some(Expr {
+                return Some(Expr {
                     ty: expr_ty,
                     file: token.file.clone(),
                     line: token.line,
                     col: token.col,
-                })
+                });
             }
 
             TokenType::Not => {
@@ -196,12 +198,12 @@ impl<'a> Parser<'a> {
                     op: UnaryOp::Not,
                     expr: Box::new(rhs),
                 };
-                Some(Expr {
+                return Some(Expr {
                     ty: expr_ty,
                     file: token.file.clone(),
                     line: token.line,
                     col: token.col,
-                })
+                });
             }
             TokenType::Sub => {
                 let token = self.consume();
@@ -210,26 +212,26 @@ impl<'a> Parser<'a> {
                     op: UnaryOp::Neg,
                     expr: Box::new(rhs),
                 };
-                Some(Expr {
+                return Some(Expr {
                     ty: expr_ty,
                     file: token.file.clone(),
                     line: token.line,
                     col: token.col,
-                })
+                });
             }
 
-            TokenType::OpenScope => self.parse_init_array(),
+            TokenType::OpenScope => return self.parse_init_array(),
 
             TokenType::CharValue => {
                 let token = self.consume();
                 let s: i64 = token.value.unwrap().parse().unwrap();
                 let expr_ty = ExprType::Number(s);
-                Some(Expr {
+                return Some(Expr {
                     ty: expr_ty,
                     file: token.file.clone(),
                     line: token.line,
                     col: token.col,
-                })
+                });
             }
 
             TokenType::String => {
@@ -375,19 +377,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_struct_member(&mut self, expr: Expr) -> Expr {
-        let name = self.consume().value.unwrap();
 
-        Expr {
-            ty: ExprType::StructMember {
-                base: Box::new(expr),
-                name,
-            },
-            file: self.current_file.clone(),
-            line: self.line,
-            col: self.col,
-        }
-    }
 
     fn parse_module_call(&mut self, expr: Expr) -> Expr {
         let mut names = match &expr.ty {
@@ -421,6 +411,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse_postfix_chain(&mut self) -> Option<Expr> {
         let mut expr: Expr = self.parse_primary()?;
+
         loop {
             match self.peek(0).token {
                 TokenType::OpenBracket => {
@@ -624,7 +615,39 @@ impl<'a> Parser<'a> {
                         _ => self::panic!("really strange syntax error"),
                     }
                 }
-                _ => break,
+                _ => {
+                    let Some(tok_val) = self.peek(0).value.clone() else {
+                        break;
+                    };
+
+                    let Some(candidates) = self.postfix_macro_table.get(&tok_val).cloned() else {
+                        break;
+                    };
+
+                    let mut matched_expr = None;
+                    for mac in candidates {
+                        let Some(MacroPattern::Capture { name, .. }) = mac.pattern.first() else {
+                            continue;
+                        };
+
+                        let checkpoint = self.pos;
+                        let mut bindings = HashMap::new();
+                        bindings.insert(name.clone(), CapturedValue::Expr(expr.clone()));
+
+                        if self.match_macro_pattern(&mac.pattern[1..], &mut bindings) {
+                            matched_expr = Some(self.expand_macro_expr(&mac.code, &bindings)?);
+                            break;
+                        }
+
+                        self.pos = checkpoint;
+                    }
+
+                    if let Some(new_expr) = matched_expr {
+                        expr = new_expr;
+                    } else {
+                        break;
+                    }
+                }
             }
         }
         Some(expr)

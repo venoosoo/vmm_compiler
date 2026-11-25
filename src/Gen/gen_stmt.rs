@@ -1033,6 +1033,7 @@ impl Gen {
                 self.eval_expr(expr, &Type::Primitive(TokenType::I64));
                 return None;
             }
+            StmtType::MacroRepeat { body, repetition } => None,
             StmtType::If {
                 condition,
                 if_block,

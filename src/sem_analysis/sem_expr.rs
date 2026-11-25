@@ -267,8 +267,8 @@ impl<'a> Analyzer<'a> {
     fn check_binary(
         &mut self,
         op: &BinOp,
-        left: &Box<Expr>,
-        right: &Box<Expr>,
+        left: &'a Box<Expr>,
+        right: &'a Box<Expr>,
         expected_ty: &Type,
     ) -> Option<Type> {
         let mut l_type = self.check_expr(left, expected_ty)?;
@@ -309,7 +309,12 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>, expected_ty: &Type) -> Option<Type> {
+    fn check_unary(
+        &mut self,
+        op: &UnaryOp,
+        expr: &'a Box<Expr>,
+        expected_ty: &Type,
+    ) -> Option<Type> {
         let mut expr_type = self.check_expr(expr, expected_ty)?;
         let valid = match op {
             UnaryOp::BitNot => todo!(),
@@ -559,7 +564,7 @@ impl<'a> Analyzer<'a> {
     fn check_call(
         &mut self,
         name: &String,
-        args: &Vec<Expr>,
+        args: &'a Vec<Expr>,
         _expected_ty: &Type,
         generics: &Vec<Type>,
     ) -> Option<Type> {
@@ -643,7 +648,7 @@ impl<'a> Analyzer<'a> {
     fn check_struct_expr(
         &mut self,
         struct_name: &String,
-        fields: &Vec<(String, Expr)>,
+        fields: &'a Vec<(String, Expr)>,
     ) -> Option<Type> {
         let struct_data = self
             .structs
@@ -685,7 +690,7 @@ impl<'a> Analyzer<'a> {
 
     fn check_struct_member(
         &mut self,
-        base2: &Box<Expr>,
+        base2: &'a Box<Expr>,
         name: &String,
         expected_ty: &Type,
     ) -> Option<Type> {
@@ -719,7 +724,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_deref(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Option<Type> {
+    fn check_deref(&mut self, expr: &'a Box<Expr>, expected_ty: &Type) -> Option<Type> {
         let expr_ty = self.check_expr(expr, expected_ty)?;
         match expr_ty {
             Type::Pointer(ty) => {
@@ -732,15 +737,15 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_addres_of(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Option<Type> {
+    fn check_addres_of(&mut self, expr: &'a Box<Expr>, expected_ty: &Type) -> Option<Type> {
         let expr_ty = self.check_expr(expr, expected_ty)?;
         return Some(Type::Pointer(Box::new(expr_ty)));
     }
 
     fn check_index(
         &mut self,
-        base: &Box<Expr>,
-        index: &Box<Expr>,
+        base: &'a Box<Expr>,
+        index: &'a Box<Expr>,
         expected_ty: &Type,
     ) -> Option<Type> {
         let base_ty = self.check_expr(base, expected_ty)?;
@@ -763,7 +768,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_array_init(&mut self, elements: &Vec<Expr>, expected_ty: &Type) -> Option<Type> {
+    fn check_array_init(&mut self, elements: &'a Vec<Expr>, expected_ty: &Type) -> Option<Type> {
         if elements.is_empty() {
             self.print_error(self.type_to_error(SemanticError::EmptyArray));
             return None;
@@ -848,7 +853,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn check_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) -> Option<()> {
+    pub fn check_match(&mut self, expr: &Expr, variants: &'a Vec<MatchField>) -> Option<()> {
         let raw_ty = expr.get_type(self)?;
         let raw_base_name = match &raw_ty {
             Type::Enum(name, _) => Some(name.clone()),
@@ -958,7 +963,7 @@ impl<'a> Analyzer<'a> {
         Some(())
     }
 
-    pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Option<Type> {
+    pub fn check_expr(&mut self, expr: &'a Expr, expected_ty: &Type) -> Option<Type> {
         match &expr.ty {
             ExprType::Number(num) => self.check_num(num, expected_ty),
             ExprType::Float(_num) => self::panic!("not implemented"),
@@ -998,6 +1003,7 @@ impl<'a> Analyzer<'a> {
                     str.len() + 1,
                 ));
             }
+            ExprType::MacroRepeat { exprs, repetition } => todo!(),
             ExprType::GetEnum {
                 base,
                 value,

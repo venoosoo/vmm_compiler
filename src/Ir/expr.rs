@@ -1,6 +1,6 @@
 use crate::Ir::{
     Stmt,
-    stmt::{Declaration, Type},
+    stmt::{Declaration, MacroRepetition, Type},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +36,11 @@ pub enum ExprType {
         name: String,
         generics: Vec<Type>,
         args: Vec<Expr>,
+    },
+
+    MacroRepeat {
+        exprs: Vec<Expr>,
+        repetition: MacroRepetition,
     },
 
     StructInit {

@@ -7,7 +7,7 @@ use crate::Ir::{
     Stmt,
     expr::{BinOp, UnaryOp},
     r#gen::{FuncData, StructData},
-    stmt::{EnumData, Type},
+    stmt::{EnumData, Macro, MacroPattern, Type},
 };
 
 #[derive(Debug, Clone)]
@@ -46,6 +46,9 @@ pub enum SemanticError {
     UndeclaredVariable(String),
     UndeclaredFunction(String),
     UndeclaredStruct(String),
+    InvalidMacroName,
+    InvalidMacroArgName,
+    InvalidMacroType,
     UndeclaredField(String, String), // (struct_name, field_name)
     AlreadyDeclared(String),
     UnkownType(String),
@@ -54,6 +57,7 @@ pub enum SemanticError {
     CompTimeNotAnIf,
     UnsuportedUnaryCompTime,
     CompTimeNotCompTime,
+    MacroAlreadyDeclared,
     BreakOutsideOfLoop,
     UnkownGeneric(String),
     FuncArgTypeMismatch {

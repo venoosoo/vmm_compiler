@@ -56,7 +56,7 @@ pub enum StmtType {
         if_block: Box<Stmt>,
         else_block: Option<Box<Stmt>>,
     },
-    Comptime(Box<Stmt>),
+    Comptime(Comptime),
     While {
         condition: Expr,
         body: Box<Stmt>,
@@ -93,6 +93,10 @@ pub enum StmtType {
     ExternFn(Box<Stmt>),
     InitStruct(StructDef),
     GlobalDecl(Box<Stmt>),
+    MacroRepeat {
+        body: Vec<Stmt>,
+        repetition: MacroRepetition,
+    },
     InitEnum {
         name: String,
         generic_types: Vec<String>,
@@ -104,6 +108,81 @@ pub struct StructField {
     pub name: String,
     pub offset: usize,
     pub ty: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Comptime {
+    ComptimeIf(Box<Stmt>),
+    Macro(Vec<Macro>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Macro {
+    pub pattern: Vec<MacroPattern>,
+    pub code: Box<Stmt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MacroPattern {
+    // $value:expr
+    Capture {
+        name: String,
+        specifier: MacroSpecifiers,
+    },
+
+    // Literal tokens such as ?, +, =, ;
+    Token(String),
+
+    // (), [] or {}
+    Group {
+        delimiter: MacroDelimiter,
+        pattern: Vec<MacroPattern>,
+    },
+
+    // $($value:expr),*
+    Repeat {
+        pattern: Vec<MacroPattern>,
+        separator: Option<String>,
+        repetition: MacroRepetition,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroTrigger {
+    Prefix(String),
+    Postfix(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum CapturedValue {
+    Expr(Expr),
+    Ident(String),
+    Ty(Type),
+    Stmt(Stmt),
+    Repeat(Vec<HashMap<String, CapturedValue>>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MacroSpecifiers {
+    Expr,
+    Ident,
+    Ty,
+    Stmt,
+    Literal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MacroDelimiter {
+    Parenthesis,
+    Bracket,
+    Brace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MacroRepetition {
+    ZeroOrMore, // *
+    OneOrMore,  // +
+    Optional,   // ?
 }
 
 #[derive(Debug, Clone, PartialEq)]

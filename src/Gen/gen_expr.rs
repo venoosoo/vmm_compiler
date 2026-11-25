@@ -1795,7 +1795,7 @@ impl Gen {
                 let expr_ty = expr.get_type(self).unwrap();
                 self.gen_expr_binary((op, left, right), &expr_ty)
             }
-
+            ExprType::MacroRepeat { exprs, repetition } => None,
             ExprType::Unary { op, expr: inner } => {
                 Some(self.gen_expr_unary(op, inner, expected_type))
             }

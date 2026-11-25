@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use crate::Ir::sem_analysis::{Error, SemanticError};
 use crate::tokenizer::{Token, TokenType};
 
-use crate::Ir::stmt::{EnumData, Stmt, StmtType, StructDef, Type};
+use crate::Ir::stmt::{EnumData, Macro, MacroPattern, Stmt, StmtType, StructDef, Type};
 use std::cell::{Cell, RefCell};
+pub mod comptime;
 pub mod expr;
 pub mod function;
 pub mod generic;
@@ -15,12 +16,16 @@ pub mod stmt;
 pub struct Parser<'a> {
     m_tokens: Vec<Token>,
     m_index: usize,
-
+    prefix_macro_table: HashMap<String, Vec<Macro>>,
+    postfix_macro_table: HashMap<String, Vec<Macro>>,
     expressions: Vec<Stmt>,
     struct_table: HashMap<String, StructDef>,
     types: HashSet<String>,
+    id: usize,
+    in_macro_body: bool,
     enums_table: HashMap<String, EnumData>,
     base_dir: PathBuf,
+    pos: usize,
     current_file: String,
     source_cache: RefCell<HashMap<String, Vec<String>>>,
     had_error: Cell<bool>,
@@ -54,8 +59,13 @@ impl<'a> Parser<'a> {
             struct_table: HashMap::new(),
             expressions: Vec::new(),
             types: HashSet::new(),
+            pos: 0,
+            in_macro_body: false,
+            postfix_macro_table: HashMap::new(),
+            prefix_macro_table: HashMap::new(),
             source_cache: RefCell::new(HashMap::new()),
             line: 1,
+            id: 0,
             col: 0,
             had_error: Cell::new(false),
             current_file,
@@ -67,8 +77,8 @@ impl<'a> Parser<'a> {
     }
 
     fn peek(&self, offset: usize) -> &Token {
-        let pos: usize = self.m_index + offset;
-        if self.m_index >= self.m_tokens.len() {
+        let pos: usize = self.pos + offset;
+        if pos >= self.m_tokens.len() {
             self.error_at(format!("Unexpected EOF"), self.line, self.col);
             std::process::exit(1);
         }
@@ -143,7 +153,8 @@ impl<'a> Parser<'a> {
         if self.m_index >= self.m_tokens.len() {
             panic!("Trying to consume more than m_src len");
         }
-        let res = self.m_tokens.remove(0);
+        let res = self.m_tokens[self.pos].clone();
+        self.pos += 1;
         self.col = res.col;
         self.current_file = res.file.clone();
         self.line = res.line;
@@ -167,7 +178,7 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Vec<Stmt> {
         self.reg_types();
 
-        while !self.m_tokens.is_empty() {
+        while self.peek(0).token != TokenType::EOF {
             if let Some(stmt) = self.parse_stmt() {
                 self.expressions.push(stmt);
             }
@@ -191,32 +202,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn size_of(&self, ty: &Type) -> usize {
-        match ty {
-            Type::Primitive(TokenType::I32) | Type::Primitive(TokenType::U32) => 4,
-            Type::Primitive(TokenType::I8) | Type::Primitive(TokenType::U8) => 1,
-            Type::Primitive(TokenType::I16) | Type::Primitive(TokenType::U16) => 2,
-            Type::Primitive(TokenType::I64) | Type::Primitive(TokenType::U64) => 8,
-
-            Type::Pointer(_) => 8, // assume 64-bit
-
-            Type::Array(inner, count) => self.size_of(inner) * count,
-
-            Type::Struct(name) => {
-                self.struct_table
-                    .get(name)
-                    .expect(&format!("unkown struct: {}", name))
-                    .size
-            }
-            Type::Enum(..) => 8,
-            Type::GenericType(_) => 0,
-            Type::GenericInst(..) => 0,
-            _ => {
-                println!("ty: {:?}", ty);
-                panic!("Unknown type size")
-            }
-        }
-    }
 
     pub fn type_to_error(&self, error_ty: SemanticError) -> Error {
         Error {
@@ -238,18 +223,6 @@ impl<'a> Parser<'a> {
         self.had_error.set(true);
     }
 
-    fn get_custom_type(&mut self, name: &String) -> Option<Type> {
-        if self.types.contains(name) {
-            if self.struct_table.contains_key(name) {
-                return Some(Type::Struct(name.clone()));
-            } else if self.enums_table.contains_key(name) {
-                return Some(Type::Enum(name.clone(), None));
-            } else {
-                return Some(Type::GenericType(name.clone()));
-            }
-        }
-        None
-    }
     fn check_assignment_start(&self) -> bool {
         let mut i = 0;
 
@@ -318,6 +291,13 @@ impl<'a> Parser<'a> {
         ty = self.parse_array(ty);
         return Some((var_name, ty));
     }
+
+    pub fn get_id(&mut self) -> usize {
+        let id = self.id;
+        self.id += 1;
+        return id;
+    }
+
     pub fn get_type(&mut self) -> Option<Type> {
         if self.peek(0).token == TokenType::Var {
             let token = self.consume();

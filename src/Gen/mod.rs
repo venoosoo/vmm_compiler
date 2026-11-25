@@ -9,13 +9,13 @@ use crate::Ir::expr::{Expr, ExprType, Lookup, UnaryOp};
 use crate::Ir::r#gen::*;
 use crate::Ir::sem_analysis::{Error, SemanticError};
 use crate::Ir::shared::TypeContext;
-use crate::Ir::stmt::{EnumData, StmtType};
+use crate::Ir::stmt::{Comptime, EnumData, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
 use crate::shared::{
     check_module_name, check_types, is_number, substitute_type, to_base_reg,
     transform_generic_name, type_name,
 };
-use crate::tokenizer::TokenType;
+use crate::tokenizer::TokenType::{self, CompTime};
 
 const SCRATCH: &str = "r10";
 
@@ -228,6 +228,7 @@ impl Expr {
                 args,
                 generics,
             } => helper.look_call(name, args, generics),
+            ExprType::MacroRepeat { exprs, repetition } => None,
             ExprType::StructInit {
                 struct_name_ty,
                 fields: _,
@@ -528,7 +529,7 @@ impl Gen {
         self.stack_pos
     }
 
-    pub fn gen_asm(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn gen_asm(&mut self) -> Result<&String, Box<dyn std::error::Error>> {
         self.gen_stmts();
 
         if self.target_os == "linux" {
@@ -566,7 +567,7 @@ impl Gen {
             return Err(format!("unsupported target os: {}", self.target_os).into());
         }
 
-        Ok(self.out.clone())
+        Ok(&self.out)
     }
 
     pub fn lookup_var(&self, name: &str) -> VarData {
@@ -630,13 +631,17 @@ impl Gen {
                     .or_insert_with(Vec::new)
                     .push(func_data);
             }
-            StmtType::Comptime(comp_time) => {
-                if let StmtType::If {
-                    condition,
-                    if_block,
-                    else_block,
-                } = &comp_time.ty
-                {
+            StmtType::Comptime(comp_time) => match comp_time {
+                Comptime::ComptimeIf(val) => {
+                    let StmtType::If {
+                        condition,
+                        if_block,
+                        else_block,
+                    } = &val.ty
+                    else {
+                        dbg!(&val);
+                        panic!("comptime if not an if");
+                    };
                     if let StmtType::Block(inside) = &if_block.ty {
                         for i in inside {
                             self.reg_init(i);
@@ -650,7 +655,8 @@ impl Gen {
                         }
                     }
                 }
-            }
+                Comptime::Macro(smth) => {}
+            },
             StmtType::GenericInitFunc {
                 name,
                 generic_types,

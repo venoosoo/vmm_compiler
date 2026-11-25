@@ -24,6 +24,7 @@ pub enum TokenType {
     OpenScope,
     CloseScope,
     If,
+    EOF,
     Else,
     AsertEq,
     NotEq,
@@ -59,6 +60,7 @@ pub enum TokenType {
     Enum,
     As,
     Match,
+    Dollar,
     Other,
     BitOr,
     BitXor,
@@ -279,6 +281,7 @@ impl Tokenizer {
                             self.push_token(TokenType::Add, Some('+'.to_string()))
                         }
                     }
+                    '$' => self.push_token(TokenType::Dollar, None),
                     '-' => {
                         if self.peek(0) == '>' {
                             self.consume();
@@ -351,10 +354,15 @@ impl Tokenizer {
                         self.push_token(TokenType::String, Some(self.m_buf.clone()));
                     }
 
-                    _ => {}
+                    _ => {
+                        if smth != '\n' && smth != ' ' {
+                            self.push_token(TokenType::Var, Some(smth.to_string()));
+                        }
+                    }
                 }
                 self.m_buf = "".to_string();
             }
         }
+        self.push_token(TokenType::EOF, None);
     }
 }

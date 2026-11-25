@@ -17,6 +17,29 @@ impl<'a> Parser<'a> {
 
         self.line = token.line;
         self.col = token.col;
+        if self.in_macro_body
+            && self.peek(0).token == TokenType::Dollar
+            && self.peek(1).value.as_deref() == Some("(")
+        {
+            return self.parse_macro_stmt_repeat();
+        }
+        if let Some(tok_val) = self.peek(0).value.clone() {
+            if let Some(candidates) = self.prefix_macro_table.get(&tok_val).cloned() {
+                for mac in candidates {
+                    let checkpoint = self.pos;
+                    let mut bindings = HashMap::new();
+
+                    if self.match_macro_pattern(&mac.pattern, &mut bindings) {
+                        if self.peek(0).token == TokenType::Semi {
+                            self.consume();
+                        }
+                        return self.expand_macro_stmt(&mac.code, &bindings);
+                    }
+
+                    self.pos = checkpoint;
+                }
+            }
+        }
         match token.token {
             TokenType::Module => return self.parse_module(),
             TokenType::If => return self.parse_if(),
@@ -54,17 +77,6 @@ impl<'a> Parser<'a> {
                 return self.parse_expr_stmt();
             }
         };
-    }
-
-    pub fn parse_comptime(&mut self) -> Option<Stmt> {
-        self.expect(TokenType::CompTime);
-        let stmt = self.parse_if()?;
-        let stmt_ty = StmtType::Comptime(Box::new(stmt));
-        return Some(Stmt {
-            ty: stmt_ty,
-            line: self.line,
-            file: self.current_file.clone(),
-        });
     }
 
     fn parse_break(&mut self) -> Option<Stmt> {
@@ -273,7 +285,6 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::Import);
 
         let saved = self.current_file.clone();
-
         let token = self.consume();
         let full_path = if token.token == TokenType::String {
             let file_name = token.value.unwrap();
@@ -339,7 +350,6 @@ impl<'a> Parser<'a> {
         self.types.extend(parser.types);
         self.struct_table.extend(parser.struct_table);
         self.enums_table.extend(parser.enums_table);
-
         self.current_file = saved;
     }
 

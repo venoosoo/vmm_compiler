@@ -4,7 +4,7 @@ use std::{collections::HashMap, dbg, env, format, matches, path::PathBuf};
 use crate::{
     Ir::{
         expr::{BinOp, Expr, ExprType},
-        stmt::{LValue, Type},
+        stmt::{LValue, MacroDelimiter, MacroSpecifiers, Type},
     },
     tokenizer::TokenType,
 };
@@ -530,4 +530,52 @@ pub fn resolve_global_import(filename: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+pub fn macro_name_to_type(macro_ty_name: &String) -> Option<MacroSpecifiers> {
+    match macro_ty_name.as_str() {
+        "expr" => Some(MacroSpecifiers::Expr),
+        "ident" => Some(MacroSpecifiers::Ident),
+        "literal" => Some(MacroSpecifiers::Literal),
+        "ty" => Some(MacroSpecifiers::Ty),
+        "stmt" => Some(MacroSpecifiers::Stmt),
+        _ => None,
+    }
+}
+
+pub fn get_macro_delimiter(value: &str) -> Option<MacroDelimiter> {
+    match value {
+        "(" => Some(MacroDelimiter::Parenthesis),
+        "[" => Some(MacroDelimiter::Bracket),
+        "{" => Some(MacroDelimiter::Brace),
+        _ => None,
+    }
+}
+
+pub fn macro_delimiter_tokens(delimiter: &MacroDelimiter) -> (&'static str, &'static str) {
+    match delimiter {
+        MacroDelimiter::Parenthesis => ("(", ")"),
+        MacroDelimiter::Bracket => ("[", "]"),
+        MacroDelimiter::Brace => ("{", "}"),
+    }
+}
+
+pub fn collect_expr_vars(expr: &Expr, out: &mut Vec<String>) {
+    match &expr.ty {
+        ExprType::Variable(name) => out.push(name.clone()),
+        ExprType::Binary { left, right, .. } => {
+            collect_expr_vars(left, out);
+            collect_expr_vars(right, out);
+        }
+        ExprType::Unary { expr: inner, .. }
+        | ExprType::Deref(inner)
+        | ExprType::Cast { expr: inner, .. } => collect_expr_vars(inner, out),
+        ExprType::Call { args, .. } => args.iter().for_each(|a| collect_expr_vars(a, out)),
+        ExprType::StructMember { base, .. } => collect_expr_vars(base, out),
+        ExprType::Index { base, index } => {
+            collect_expr_vars(base, out);
+            collect_expr_vars(index, out);
+        }
+        _ => {}
+    }
 }

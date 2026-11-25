@@ -9,13 +9,17 @@ pub enum ComptimeVal {
 }
 
 impl Gen {
-    pub fn gen_comptime(&mut self, comp_time: &Stmt) -> Option<()> {
-        match &comp_time.ty {
-            StmtType::If {
-                condition,
-                if_block,
-                else_block,
-            } => {
+    pub fn gen_comptime(&mut self, comp_time: &Comptime) -> Option<()> {
+        match comp_time {
+            Comptime::ComptimeIf(val) => {
+                let StmtType::If {
+                    condition,
+                    if_block,
+                    else_block,
+                } = &val.ty
+                else {
+                    panic!("comptime if not an if");
+                };
                 let is_true = self.eval_comptime_expr(condition);
 
                 if is_true {
@@ -24,7 +28,9 @@ impl Gen {
                     self.gen_stmt(else_b);
                 }
             }
-            _ => panic!("comptime stmt is not if"),
+            Comptime::Macro(macro_vec) => {
+                return None;
+            }
         }
 
         Some(())
