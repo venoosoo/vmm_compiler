@@ -1,17 +1,14 @@
-use std::fmt::format;
 use std::{dbg, format, vec};
 
-use clap::builder::Str;
 use indexmap::IndexMap;
 
 use crate::Ir::expr::{
-    self, BinOp, ComptimeFn, EnumExprField, Expr, ExprType, Lookup, MatchField, UnaryOp,
+    BinOp, ComptimeFn, EnumExprField, Expr, ExprType, Lookup, MatchField, UnaryOp,
 };
-use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
-use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
+use crate::Ir::stmt::{Declaration, StructField};
 use crate::shared::{
-    align16, arg_pos, build_generic_map, check_nested_arg, coerce_numeric, gen_module_func_name,
+    build_generic_map, check_nested_arg, coerce_numeric,
     is_numeric, is_unsigned, transform_generic_name,
 };
 
@@ -29,7 +26,7 @@ impl Lookup for Gen {
             return Some(var.var_type.clone());
         }
     }
-    fn look_match(&self, expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
+    fn look_match(&self, _expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
         let mut variant_return_types: Vec<Type> = Vec::new();
 
         for variant in variants {
@@ -177,7 +174,7 @@ impl Lookup for Gen {
                 self.functions.get(&new_name).unwrap().clone()
             }
         };
-        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
+        let (_overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics).unwrap();
         Some(func_data.return_type.clone())
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Option<Type> {
@@ -353,7 +350,7 @@ impl Gen {
     }
 
     fn gen_expr_num(&mut self, num: &i64, expected_type: &Type) -> String {
-        let expected_type = match expected_type {
+        let _expected_type = match expected_type {
             Type::GenericType(name) => {
                 let map = self.generics.borrow();
 
@@ -386,7 +383,7 @@ impl Gen {
         }
     }
 
-    fn gen_expr_var(&mut self, var_name: &String, expected_type: &Type) -> String {
+    fn gen_expr_var(&mut self, var_name: &String, _expected_type: &Type) -> String {
         let var_data = self.lookup_var(var_name).clone();
         if var_data.global_flag {
             match var_data.var_type {
@@ -431,7 +428,7 @@ impl Gen {
             Type::Pointer(_) => {
                 self.emit_func_data(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
-            Type::Enum(ty, _) => {
+            Type::Enum(_ty, _) => {
                 self.emit_func_data(format!("    lea rax, [rbp - {}]", var_data.stack_pos));
             }
             _ => {
@@ -602,8 +599,8 @@ impl Gen {
         &self,
         arg: &Declaration,
         arg_ty: &Type,
-        generics: &Vec<Type>,
-        index: usize,
+        _generics: &Vec<Type>,
+        _index: usize,
         overload_pos: i64,
         generic_map: &HashMap<String, Type>,
     ) -> Declaration {
@@ -733,7 +730,7 @@ impl Gen {
         args: &Vec<Expr>,
         new_args: &Vec<Declaration>,
         is_rvo: bool,
-        overload_pos: usize,
+        _overload_pos: usize,
     ) -> Option<usize> {
         let win = self.is_windows();
         let mut arg_index = self.arg_count(is_rvo, new_args);
@@ -1042,7 +1039,7 @@ impl Gen {
         match generic_data.ty {
             StmtType::GenericInitFunc {
                 generic_types,
-                args,
+                args: _,
                 ret_type,
                 data,
                 ..
@@ -1128,7 +1125,7 @@ impl Gen {
         func_data: &FuncData,
         overload_pos: usize,
         generics: &Vec<Type>,
-        expected_type: &Type,
+        _expected_type: &Type,
     ) -> Option<String> {
         let args = args.clone();
         let mut name = self.resolve_function_name(name).unwrap();
@@ -1220,7 +1217,7 @@ impl Gen {
             Type::GenericType(param_name) => {
                 type_map.insert(param_name.clone(), expr_ty.clone());
             }
-            Type::Array(ty, size) => {
+            Type::Array(ty, _size) => {
                 self.resolve_generic(expr_ty, ty, type_map);
             }
             Type::Pointer(ty) => {
@@ -1603,7 +1600,7 @@ impl Gen {
         variant: &String,
     ) -> Option<String> {
         let mut type_map: HashMap<String, Type> = HashMap::new();
-        for (name, field) in enum_data.variants.iter() {
+        for (_name, field) in enum_data.variants.iter() {
             if field.name == *variant {
                 for (index, enum_field) in field.args.iter().enumerate() {
                     let expr_ty = values[index].expr.get_type(self).unwrap();
@@ -1795,7 +1792,7 @@ impl Gen {
                 let expr_ty = expr.get_type(self).unwrap();
                 self.gen_expr_binary((op, left, right), &expr_ty)
             }
-            ExprType::MacroRepeat { exprs, repetition } => None,
+            ExprType::MacroRepeat { exprs: _, repetition: _ } => None,
             ExprType::Unary { op, expr: inner } => {
                 Some(self.gen_expr_unary(op, inner, expected_type))
             }
@@ -1834,7 +1831,7 @@ impl Gen {
             }
 
             ExprType::StructMember { base, name } => {
-                let ty = expr.get_type(self);
+                let _ty = expr.get_type(self);
                 self.gen_expr_struct_member(base, name)
             }
 

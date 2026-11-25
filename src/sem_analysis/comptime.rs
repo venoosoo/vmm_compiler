@@ -1,5 +1,5 @@
 use crate::Ir::expr::{BinOp, ComptimeFn, Expr, ExprType, UnaryOp};
-use crate::Ir::stmt::{Comptime, Macro, MacroPattern, Stmt, StmtType};
+use crate::Ir::stmt::{Comptime, Stmt, StmtType};
 
 use super::*;
 
@@ -72,7 +72,7 @@ impl<'a> Analyzer<'a> {
             Comptime::ComptimeIf(stmt) => {
                 self.check_comptime_if(&**stmt);
             }
-            Comptime::Macro(macro_vec) => return None,
+            Comptime::Macro(_macro_vec) => return None,
         }
 
         Some(())

@@ -7,7 +7,7 @@ use crate::Ir::{
     Stmt,
     expr::{BinOp, UnaryOp},
     r#gen::{FuncData, StructData},
-    stmt::{EnumData, Macro, MacroPattern, Type},
+    stmt::{EnumData, Type},
 };
 
 #[derive(Debug, Clone)]

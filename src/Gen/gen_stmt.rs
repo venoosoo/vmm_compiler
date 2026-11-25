@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 
 use super::*;
 
-use crate::Ir::expr::{Expr, ExprType, MatchField, MatchLeftValue};
+use crate::Ir::expr::{Expr, ExprType};
 use crate::Ir::stmt::{LValue, StructDef, StructField};
 use crate::Ir::{Stmt, stmt::Declaration};
 use crate::shared::align16;
@@ -32,7 +32,7 @@ impl Gen {
             }
             _ => data_ty,
         };
-        let mut stack_pos = self.alloc_type(&data_ty)?;
+        let stack_pos = self.alloc_type(&data_ty)?;
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data_ty);
             match data_ty.clone() {
@@ -1033,7 +1033,7 @@ impl Gen {
                 self.eval_expr(expr, &Type::Primitive(TokenType::I64));
                 return None;
             }
-            StmtType::MacroRepeat { body, repetition } => None,
+            StmtType::MacroRepeat { body: _, repetition: _ } => None,
             StmtType::If {
                 condition,
                 if_block,

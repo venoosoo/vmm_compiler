@@ -10,7 +10,7 @@ use crate::{
         sem_analysis::{Analyzer, SemanticError},
         stmt::{Declaration, LValue, StructDef, Type},
     },
-    shared::{check_module_name, lvalue_root},
+    shared::lvalue_root,
     tokenizer::TokenType,
 };
 
@@ -202,7 +202,7 @@ impl<'a> Analyzer<'a> {
             &HashMap<String, Type>,
         ),
     ) -> Option<()> {
-        let (name, args, ret_type, body, _generic_types) = data;
+        let (_name, args, ret_type, body, _generic_types) = data;
 
         // save outer scopes FIRST before adding any args
         let saved_scopes = std::mem::replace(&mut self.scopes, RefCell::new(vec![HashMap::new()]));
@@ -298,7 +298,7 @@ impl<'a> Analyzer<'a> {
                 self.check_expr(expr, &Type::Primitive(TokenType::I64));
                 return None;
             }
-            StmtType::MacroRepeat { body, repetition } => todo!(),
+            StmtType::MacroRepeat { body: _, repetition: _ } => todo!(),
             StmtType::If {
                 condition,
                 if_block,

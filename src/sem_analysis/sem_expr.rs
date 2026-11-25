@@ -1,10 +1,10 @@
 use std::vec;
 
 use crate::Ir::expr::{ComptimeFn, EnumExprField, ExprType, Lookup, MatchField, MatchLeftValue};
-use crate::Ir::sem_analysis::SemanticError::{self, UndeclaredField};
+use crate::Ir::sem_analysis::SemanticError::{self};
 use crate::Ir::stmt::Declaration;
 use crate::shared::{
-    build_generic_map, coerce_numeric, gen_module_func_name, is_number, is_numeric, same_signedness,
+    build_generic_map, coerce_numeric, is_number, is_numeric, same_signedness,
 };
 use crate::{
     Ir::{
@@ -31,7 +31,7 @@ impl<'a> Lookup for Analyzer<'a> {
             return res;
         }
     }
-    fn look_match(&self, expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
+    fn look_match(&self, _expr: &Expr, variants: &Vec<MatchField>) -> Option<Type> {
         let mut variant_return_types: Vec<Type> = Vec::new();
 
         for variant in variants {
@@ -173,7 +173,7 @@ impl<'a> Lookup for Analyzer<'a> {
                 existing.clone()
             } else {
                 let vec_func_data = self.get_function(&func_name)?;
-                let (overload_pos, func_data) =
+                let (_overload_pos, func_data) =
                     self.find_overload(&vec_func_data, args, generics, name)?;
                 let generic_map = build_generic_map(&func_data.generic, generics);
                 {
@@ -210,7 +210,7 @@ impl<'a> Lookup for Analyzer<'a> {
             }
         };
 
-        let (overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics, name)?;
+        let (_overload_pos, func_data) = self.find_overload(&vec_func_data, args, generics, name)?;
 
         Some(func_data.return_type.clone())
     }
@@ -570,7 +570,7 @@ impl<'a> Analyzer<'a> {
     ) -> Option<Type> {
         let name = &self.resolve_function_name(name)?;
         let (func_data, _func_index) = self.resolve_call(name, args, generics)?;
-        for (index, expr) in args.iter().enumerate() {
+        for (_index, _expr) in args.iter().enumerate() {
             if args.len() != func_data.args.len() {
                 self.print_error(self.type_to_error(SemanticError::FunctionArgsMismatch {
                     func_name: name.clone(),
@@ -1003,7 +1003,7 @@ impl<'a> Analyzer<'a> {
                     str.len() + 1,
                 ));
             }
-            ExprType::MacroRepeat { exprs, repetition } => todo!(),
+            ExprType::MacroRepeat { exprs: _, repetition: _ } => todo!(),
             ExprType::GetEnum {
                 base,
                 value,

@@ -1,6 +1,6 @@
 use crate::Ir::{
     Stmt,
-    stmt::{Declaration, MacroRepetition, Type},
+    stmt::{MacroRepetition, Type},
 };
 
 #[derive(Debug, Clone, PartialEq)]

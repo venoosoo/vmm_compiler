@@ -1,9 +1,9 @@
 use core::panic;
 use std::{
-    cell::{Cell, Ref, RefCell},
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     dbg,
-    fmt::{self, write},
+    fmt::{self},
     format, write,
 };
 
@@ -18,7 +18,6 @@ use crate::{
         shared::TypeContext,
         stmt::{EnumData, EnumVariant, StmtType, StructField, Type},
     },
-    Parser::expr,
     shared::{check_module_name, check_types, is_number, substitute_type, type_name},
     tokenizer::TokenType,
 };
@@ -785,10 +784,10 @@ impl<'a> Analyzer<'a> {
             StmtType::ExternFn(data) => match &data.ty {
                 StmtType::InitFunc {
                     name,
-                    generic_types,
+                    generic_types: _,
                     args,
                     ret_type,
-                    data,
+                    data: _,
                 } => {
                     let func_data = FuncData {
                         args: args.clone(),

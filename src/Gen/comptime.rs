@@ -28,7 +28,7 @@ impl Gen {
                     self.gen_stmt(else_b);
                 }
             }
-            Comptime::Macro(macro_vec) => {
+            Comptime::Macro(_macro_vec) => {
                 return None;
             }
         }

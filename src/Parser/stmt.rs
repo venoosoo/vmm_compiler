@@ -1,15 +1,12 @@
 use super::*;
 use crate::Ir::expr::{Expr, ExprType};
-use crate::Ir::sem_analysis::Error;
 use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::*;
-use crate::shared::{can_start_expr, resolve_global_import, transform_module_name, type_name};
+use crate::shared::{can_start_expr, resolve_global_import, transform_module_name};
 use crate::tokenizer;
-use crate::tokenizer::TokenType::Module;
 use core::panic;
 use std::fs::File;
 use std::io::Read;
-use std::{dbg, env, println};
 
 impl<'a> Parser<'a> {
     pub fn parse_stmt(&mut self) -> Option<Stmt> {
@@ -65,7 +62,7 @@ impl<'a> Parser<'a> {
                     Some(self.type_to_stmt(StmtType::Block(Vec::new())))
                 };
             }
-            ty if self.is_type(&token) => {
+            _ty if self.is_type(&token) => {
                 let stmt = self.parse_declaration();
                 self.expect(TokenType::Semi);
                 return stmt;
@@ -563,7 +560,7 @@ impl<'a> Parser<'a> {
     fn parse_expr_stmt(&mut self) -> Option<Stmt> {
         if self.peek(0).token == TokenType::Var && self.peek(1).token == TokenType::Var {
             let bad_type = self.consume();
-            let name = self.consume();
+            let _name = self.consume();
             if self.peek(0).token == TokenType::Eq {
                 self.parse_expr();
             }

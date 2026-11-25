@@ -1,5 +1,5 @@
 use core::panic;
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::{collections::HashMap, fmt::Write};
 use std::{dbg, matches};
@@ -7,7 +7,6 @@ use std::{dbg, matches};
 use crate::Ir::Stmt;
 use crate::Ir::expr::{Expr, ExprType, Lookup, UnaryOp};
 use crate::Ir::r#gen::*;
-use crate::Ir::sem_analysis::{Error, SemanticError};
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{Comptime, EnumData, StmtType};
 use crate::Ir::stmt::{EnumVariant, StructField, Type};
@@ -15,7 +14,7 @@ use crate::shared::{
     check_module_name, check_types, is_number, substitute_type, to_base_reg,
     transform_generic_name, type_name,
 };
-use crate::tokenizer::TokenType::{self, CompTime};
+use crate::tokenizer::TokenType::{self};
 
 const SCRATCH: &str = "r10";
 
@@ -228,7 +227,7 @@ impl Expr {
                 args,
                 generics,
             } => helper.look_call(name, args, generics),
-            ExprType::MacroRepeat { exprs, repetition } => None,
+            ExprType::MacroRepeat { exprs: _, repetition: _ } => None,
             ExprType::StructInit {
                 struct_name_ty,
                 fields: _,
@@ -634,7 +633,7 @@ impl Gen {
             StmtType::Comptime(comp_time) => match comp_time {
                 Comptime::ComptimeIf(val) => {
                     let StmtType::If {
-                        condition,
+                        condition: _,
                         if_block,
                         else_block,
                     } = &val.ty
@@ -655,7 +654,7 @@ impl Gen {
                         }
                     }
                 }
-                Comptime::Macro(smth) => {}
+                Comptime::Macro(_smth) => {}
             },
             StmtType::GenericInitFunc {
                 name,

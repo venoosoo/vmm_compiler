@@ -438,9 +438,9 @@ pub fn check_nested_arg(args: &Vec<Expr>) -> bool {
     for i in args {
         match &i.ty {
             ExprType::Call {
-                name,
-                generics,
-                args,
+                name: _,
+                generics: _,
+                args: _,
             } => return true,
             _ => {}
         }
